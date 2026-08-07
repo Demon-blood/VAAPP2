@@ -1,0 +1,218 @@
+# Full-Time VA Android v0.4.6
+
+## v0.4.6 resilient GitHub build
+
+- The main Android workflow contains no `uses:` actions, so it does not depend on GitHub's action-download metadata phase.
+- It checks out the repository with Git, installs Flutter directly from the official Flutter repository, tests the backend, runs Flutter analysis/tests, builds the release APK, and publishes the APK as a GitHub prerelease.
+- A GitHub-hosted runner still has to start; a full GitHub Actions runner outage cannot be bypassed from inside a workflow.
+
+
+## v0.4.6 Flutter analyzer cleanup
+
+- Replaced the final conditional map entry with Dart null-aware map syntax (`'category': ?category`) so `flutter analyze` completes without the `use_null_aware_elements` finding.
+- Retains the previous per-endpoint refresh isolation, local connector catalog, custom-connector dialogs, and phone-based Render repair flow.
+
+- Refresh no longer fails all tabs because one optional endpoint returns 404.
+- Every backend endpoint is loaded independently and diagnostics identify the exact missing route.
+- The connector templates and 36-service catalog are bundled in the APK, so **Add custom** and **Choose service** open even before the server catalog loads.
+- A public `/api/system/info` endpoint verifies the deployed backend version.
+- The app can repair an existing Render service from the phone: it updates the repository/root directory, preserves the database and encryption key, rotates the pairing secret, clears the build cache, redeploys, verifies backend 0.4.6, and pairs again.
+- The deployment wizard reuses an existing service and database instead of creating duplicates.
+
+
+## v0.4.3 Render provisioning fix
+
+- Uses Render's current native-runtime service schema by nesting `buildCommand` and `startCommand` under `serviceDetails.envSpecificDetails`.
+- Reuses an already-created PostgreSQL database with the same service-derived name, so retrying after a failed service request does not create duplicate databases.
+- Keeps the phone-only provision, deploy, verify, and pair flow intact.
+
+Full-Time VA is an Android-first personal operations system. The phone is the control surface; a private cloud backend performs continuous work when the phone is closed, sleeping, or offline.
+
+## v0.4.3 analyzer compatibility fix
+
+- Migrated `flutter_local_notifications` calls to the named-parameter API used by version 22.2.0.
+- Migrated deprecated `DropdownButtonFormField.value` uses to `initialValue`.
+- Cleared the reported Dart 3.10 collection, wildcard-variable, and redundant-cast lints.
+- Keeps the GitHub Actions build pinned to Flutter 3.38.7 for reproducible builds.
+
+The project contains no sample inbox, invented bank account, simulated balance, fake invoice, pretend connector, or fabricated success result. A service remains **Not configured**, **Configured**, or **Error** until its real provider connection passes a live test. A payment remains pending until the banking provider reports its actual status.
+
+## What the VA performs
+
+### Communications and scheduling
+
+- Processes Gmail in Dutch and English.
+- Retrieves message bodies and attachments, including PDF text.
+- Applies protected email handling for legal, government, debt-collection, financial, security, family, and medical correspondence.
+- Labels, archives, follows up, and performs guarded deletion under explicit rules.
+- Creates tasks and calendar events from sufficiently certain commitments and deadlines.
+- Sends routine replies only when an enabled automation rule authorizes sending.
+- Synchronizes Google contacts and archives documents to Google Drive.
+
+### Financial administration
+
+- Extracts invoices, creditors, IBANs, amounts, references, and due dates.
+- Detects probable duplicates and previously initiated payments.
+- Separates Beobank, Revolut Personal, and Revolut Pro account roles.
+- Enforces exact-IBAN creditor approval, creditor amount limits, permitted funding accounts, and minimum account reserves.
+- Initiates eligible payments through Enable Banking when production payment initiation is available.
+- Opens the real bank authorization flow when Beobank or Revolut requires Strong Customer Authentication.
+- Reconciles actual payment status and records every financial action in the audit log.
+
+### Ongoing VA work
+
+- Tracks tasks, documents, orders, deliveries, subscriptions, support cases, and follow-ups.
+- Runs scheduled connector operations.
+- Administers GitHub workflows, issues, repositories, and Android cloud builds.
+- Reads Cloudflare resource inventory and sends Discord operational notifications.
+- Produces Android notifications only for meaningful exceptions and required intervention.
+
+## Phone-only operation
+
+After the first APK has been installed, the following can be done from inside the Android app:
+
+- Verify a Render API key and load its available workspaces.
+- Select testing or always-on hosting.
+- Provision PostgreSQL automatically.
+- Create and verify the FastAPI backend.
+- Pair the phone with the new backend.
+- Enter, replace, and live-test Google, AI, Open Banking, GitHub, Cloudflare, and Discord credentials.
+- Generate the Enable Banking 4096-bit private key on the backend and copy only its public certificate from Android.
+- Copy exact Google, banking, and generic OAuth callback URLs from the app.
+- Connect Google, Beobank, Revolut Personal, and Revolut Pro through their official authorization pages.
+- Add, configure, authorize, test, execute, schedule, disable, or remove third-party connectors.
+- Trigger future Android builds through GitHub Actions and inspect their runs from the phone.
+
+The only unavoidable bootstrap is obtaining and installing the first APK. An application cannot build or install itself before it exists. The included GitHub Actions workflow performs that first Flutter build in the cloud, and the resulting APK can be downloaded and installed using the phone.
+
+## In-app service catalog
+
+The catalog currently contains 36 guided presets:
+
+- Microsoft 365 / Outlook / OneDrive
+- Dropbox
+- Slack
+- Notion
+- Todoist
+- Trello
+- Airtable
+- HubSpot
+- Calendly
+- Zoom
+- LinkedIn
+- Facebook / Instagram Graph
+- WhatsApp Cloud API
+- Telegram Bot
+- Stripe
+- Mollie
+- PayPal
+- Shopify
+- WooCommerce
+- Twilio
+- Pushover
+- Home Assistant
+- Nextcloud / ownCloud
+- Asana
+- ClickUp
+- monday.com
+- GitLab
+- Google Sheets
+- Google Tasks
+- SendGrid
+- Brevo
+- Zapier webhook
+- Make webhook
+- n8n webhook
+- Pipedream HTTP workflow
+- Browserless website automation
+
+Built-in connectors are also provided for Google, GitHub, Cloudflare, Discord, and Enable Banking.
+
+## Universal connection methods
+
+A provider does not need a hard-coded screen to be usable. The app can create and test these connector types from the phone:
+
+- OAuth 2.0 authorization-code flow
+- OAuth 2.0 PKCE using S256
+- OAuth 2.0 client credentials
+- REST or GraphQL over HTTP
+- Raw XML/SOAP requests
+- Incoming service webhooks
+- IMAP and SMTP
+- WebDAV
+- SFTP
+- RSS and Atom
+- Telegram Bot API
+- Browserless content, Puppeteer-function, and BrowserQL workflows
+
+This covers services that expose an API, OAuth application, webhook, standard mail/file protocol, feed, or permitted browser workflow. A provider that offers none of these mechanisms—or whose terms prohibit automation—cannot be truthfully automated. Such a service remains unavailable rather than being represented by a fake button.
+
+## First build from the phone
+
+1. Put this project in a private GitHub repository while using the phone.
+2. Open **Actions → Build Android APK → Run workflow**.
+3. Open the completed workflow run.
+4. Open the run summary or **Releases**, then download `Full-Time-VA-Android-v0.4.6.apk`.
+5. Extract and install `app-release.apk`.
+6. Confirm Android's installation prompt.
+
+See `docs/PHONE_ONLY_SETUP.md` for the complete phone workflow.
+
+## Backend deployment from the app
+
+The onboarding screen supports two modes:
+
+- **Always-on VA:** creates a paid Render web service and persistent PostgreSQL database. A confirmation dialog appears before any paid resources are requested.
+- **Testing only:** creates free resources. Free hosting can sleep, and free database availability or retention is not suitable for dependable full-time operation.
+
+The app generates the pairing secret and encryption key locally, passes them to Render as environment variables, polls the real health endpoint, and pairs only after the backend responds successfully. The Render API key is held only for the deployment operation and is not saved by the app.
+
+## External provider authorization
+
+Setup is initiated from buttons inside the app, but the provider still controls these mandatory steps:
+
+- Creating a developer application or API credential.
+- Accepting provider terms and permissions.
+- KYC or business verification.
+- Google OAuth consent.
+- Open Banking consent.
+- Beobank, Revolut, or Itsme authentication.
+- Android confirmation before installing an APK.
+
+Passwords, bank PINs, Itsme credentials, recovery codes, and one-time authentication codes must never be entered into the VA app.
+
+## Financial execution policy
+
+Automatic payment is rejected unless all applicable checks pass:
+
+- A real invoice with a valid amount and IBAN exists.
+- The exact creditor IBAN has been approved.
+- Automatic payment is enabled for that creditor.
+- The amount is within the creditor-specific limit.
+- The invoice has not already produced a non-failed payment.
+- The selected bank account is explicitly permitted for payments.
+- The remaining balance stays above the configured safety reserve.
+- The Open Banking provider and bank accept the request.
+
+New beneficiaries, changed IBANs, duplicates, insufficient reserves, provider errors, and bank-required authentication remain exceptions.
+
+## Verification included with this package
+
+- Python source compilation.
+- Backend automated tests.
+- Connector-catalog integrity tests.
+- YAML parsing for GitHub Actions and Render configuration.
+- Source-level Dart delimiter validation.
+
+A native APK was not compiled in this environment because Flutter and the Android SDK were not installed. The included GitHub Actions workflow runs `flutter pub get`, `flutter analyze`, `flutter test`, and `flutter build apk --release` in the cloud before producing the installable artifact.
+
+## Optional recovery tools
+
+The PowerShell scripts remain in the package for recovery or development on Windows. They are not required by the phone-first deployment path.
+
+## Android release build requirement
+
+The build workflow applies `android/tooling/app-build.gradle.kts` after `flutter create`.
+This enables Java 17 core-library desugaring and adds
+`com.android.tools:desugar_jdk_libs:2.1.4`, which is required by
+`flutter_local_notifications` during `checkReleaseAarMetadata`.

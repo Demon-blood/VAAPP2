@@ -1,0 +1,26 @@
+# Optional testing blueprint. The Android onboarding wizard is the production path
+# because it can create the selected always-on service and persistent database.
+services:
+  - type: web
+    name: full-time-va-testing
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: backend
+    buildCommand: pip install .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: ENVIRONMENT
+        value: test
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: PAIRING_SECRET
+        generateValue: true
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false

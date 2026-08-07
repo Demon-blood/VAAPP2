@@ -1,0 +1,1357 @@
+{
+  "templates": [
+    {
+      "type": "rest_api",
+      "title": "REST API",
+      "category": "universal",
+      "capabilities": [
+        "read",
+        "write",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "base_url",
+          "label": "Base URL",
+          "type": "url",
+          "required": true
+        },
+        {
+          "key": "auth_type",
+          "label": "Authentication",
+          "type": "choice",
+          "choices": [
+            "none",
+            "bearer",
+            "api_key",
+            "basic"
+          ],
+          "required": true
+        },
+        {
+          "key": "token",
+          "label": "Token / API key",
+          "type": "secret",
+          "required": false
+        },
+        {
+          "key": "api_key_header",
+          "label": "API key header",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "username",
+          "label": "Username",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "password",
+          "label": "Password",
+          "type": "secret",
+          "required": false
+        },
+        {
+          "key": "default_headers",
+          "label": "Default headers (JSON)",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "key": "default_query",
+          "label": "Default query parameters (JSON)",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "key": "test_path",
+          "label": "Test path",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "test_method",
+          "label": "Test method",
+          "type": "choice",
+          "choices": [
+            "GET",
+            "POST"
+          ],
+          "required": true,
+          "default": "GET"
+        },
+        {
+          "key": "test_body",
+          "label": "Test request body (JSON)",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        }
+      ],
+      "operations": [
+        {
+          "key": "request",
+          "label": "Send API request",
+          "fields": [
+            {
+              "key": "method",
+              "label": "Method",
+              "type": "choice",
+              "choices": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE"
+              ],
+              "default": "GET"
+            },
+            {
+              "key": "path",
+              "label": "Path",
+              "type": "text"
+            },
+            {
+              "key": "query",
+              "label": "Query parameters (JSON)",
+              "type": "json",
+              "default": "{}"
+            },
+            {
+              "key": "headers",
+              "label": "Additional headers (JSON)",
+              "type": "json",
+              "default": "{}"
+            },
+            {
+              "key": "json",
+              "label": "Request body (JSON)",
+              "type": "json",
+              "default": "{}"
+            },
+            {
+              "key": "raw_body",
+              "label": "Raw request body (optional)",
+              "type": "multiline"
+            },
+            {
+              "key": "content_type",
+              "label": "Raw body content type",
+              "type": "text",
+              "default": "application/xml"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "webhook",
+      "title": "Webhook",
+      "category": "universal",
+      "capabilities": [
+        "send",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "url",
+          "label": "Webhook URL",
+          "type": "url",
+          "required": true
+        },
+        {
+          "key": "secret_header",
+          "label": "Secret header name",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "secret_value",
+          "label": "Secret header value",
+          "type": "secret",
+          "required": false
+        }
+      ],
+      "operations": [
+        {
+          "key": "send",
+          "label": "Send webhook",
+          "fields": [
+            {
+              "key": "payload",
+              "label": "Payload (JSON)",
+              "type": "json",
+              "default": "{}",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "oauth2",
+      "title": "Generic OAuth 2.0 service",
+      "category": "universal",
+      "capabilities": [
+        "oauth",
+        "read",
+        "write",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "authorization_url",
+          "label": "Authorization URL",
+          "type": "url",
+          "required": true
+        },
+        {
+          "key": "token_url",
+          "label": "Token URL",
+          "type": "url",
+          "required": true
+        },
+        {
+          "key": "client_id",
+          "label": "Client ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "client_secret",
+          "label": "Client secret",
+          "type": "secret",
+          "required": true
+        },
+        {
+          "key": "scopes",
+          "label": "Scopes separated by spaces",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "authorization_params",
+          "label": "Additional authorization parameters (JSON)",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "key": "token_params",
+          "label": "Additional token parameters (JSON)",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        },
+        {
+          "key": "token_auth_method",
+          "label": "Token authentication",
+          "type": "choice",
+          "choices": [
+            "body",
+            "basic"
+          ],
+          "required": true,
+          "default": "body"
+        },
+        {
+          "key": "pkce",
+          "label": "Use PKCE (S256)",
+          "type": "choice",
+          "choices": [
+            "false",
+            "true"
+          ],
+          "required": true,
+          "default": "false"
+        },
+        {
+          "key": "test_url",
+          "label": "Authenticated test URL",
+          "type": "url",
+          "required": true
+        },
+        {
+          "key": "test_method",
+          "label": "Test method",
+          "type": "choice",
+          "choices": [
+            "GET",
+            "POST"
+          ],
+          "required": true,
+          "default": "GET"
+        },
+        {
+          "key": "test_body",
+          "label": "Test body (JSON)",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        }
+      ],
+      "operations": [
+        {
+          "key": "request",
+          "label": "Send authorized API request",
+          "fields": [
+            {
+              "key": "method",
+              "label": "Method",
+              "type": "choice",
+              "choices": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE"
+              ],
+              "default": "GET"
+            },
+            {
+              "key": "url",
+              "label": "Full request URL",
+              "type": "url",
+              "required": true
+            },
+            {
+              "key": "query",
+              "label": "Query parameters (JSON)",
+              "type": "json",
+              "default": "{}"
+            },
+            {
+              "key": "headers",
+              "label": "Additional headers (JSON)",
+              "type": "json",
+              "default": "{}"
+            },
+            {
+              "key": "json",
+              "label": "Request body (JSON)",
+              "type": "json",
+              "default": "{}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "client_credentials",
+      "title": "OAuth 2.0 machine-to-machine API",
+      "category": "universal",
+      "capabilities": [
+        "read",
+        "write",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "token_url",
+          "label": "Token URL",
+          "type": "url",
+          "required": true
+        },
+        {
+          "key": "client_id",
+          "label": "Client ID",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "client_secret",
+          "label": "Client secret",
+          "type": "secret",
+          "required": true
+        },
+        {
+          "key": "scopes",
+          "label": "Scopes separated by spaces",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "audience",
+          "label": "Audience (optional)",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "token_auth_method",
+          "label": "Token authentication",
+          "type": "choice",
+          "choices": [
+            "body",
+            "basic"
+          ],
+          "required": true,
+          "default": "basic"
+        },
+        {
+          "key": "test_url",
+          "label": "Authenticated test URL (optional)",
+          "type": "url",
+          "required": false
+        },
+        {
+          "key": "test_method",
+          "label": "Test method",
+          "type": "choice",
+          "choices": [
+            "GET",
+            "POST"
+          ],
+          "required": true,
+          "default": "GET"
+        },
+        {
+          "key": "test_body",
+          "label": "Test body (JSON)",
+          "type": "json",
+          "required": false,
+          "default": "{}"
+        }
+      ],
+      "operations": [
+        {
+          "key": "request",
+          "label": "Send authorized API request",
+          "fields": [
+            {
+              "key": "method",
+              "label": "Method",
+              "type": "choice",
+              "choices": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE"
+              ],
+              "default": "GET"
+            },
+            {
+              "key": "url",
+              "label": "Full request URL",
+              "type": "url",
+              "required": true
+            },
+            {
+              "key": "query",
+              "label": "Query parameters (JSON)",
+              "type": "json",
+              "default": "{}"
+            },
+            {
+              "key": "headers",
+              "label": "Additional headers (JSON)",
+              "type": "json",
+              "default": "{}"
+            },
+            {
+              "key": "json",
+              "label": "Request body (JSON)",
+              "type": "json",
+              "default": "{}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "imap_smtp",
+      "title": "IMAP and SMTP email",
+      "category": "communications",
+      "capabilities": [
+        "email_read",
+        "email_send",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "imap_host",
+          "label": "IMAP host",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "imap_port",
+          "label": "IMAP port",
+          "type": "number",
+          "required": true,
+          "default": "993"
+        },
+        {
+          "key": "smtp_host",
+          "label": "SMTP host",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "smtp_port",
+          "label": "SMTP port",
+          "type": "number",
+          "required": true,
+          "default": "465"
+        },
+        {
+          "key": "username",
+          "label": "Username",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "password",
+          "label": "App password",
+          "type": "secret",
+          "required": true
+        }
+      ],
+      "operations": [
+        {
+          "key": "unread",
+          "label": "Load unread messages",
+          "fields": [
+            {
+              "key": "mailbox",
+              "label": "Mailbox",
+              "type": "text",
+              "default": "INBOX"
+            },
+            {
+              "key": "limit",
+              "label": "Maximum messages",
+              "type": "number",
+              "default": "20"
+            }
+          ]
+        },
+        {
+          "key": "send",
+          "label": "Send email",
+          "fields": [
+            {
+              "key": "to",
+              "label": "Recipient",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "subject",
+              "label": "Subject",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "body",
+              "label": "Message",
+              "type": "multiline",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "webdav",
+      "title": "WebDAV documents",
+      "category": "documents",
+      "capabilities": [
+        "file_read",
+        "file_write",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "base_url",
+          "label": "WebDAV URL",
+          "type": "url",
+          "required": true
+        },
+        {
+          "key": "username",
+          "label": "Username",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "password",
+          "label": "Password",
+          "type": "secret",
+          "required": true
+        }
+      ],
+      "operations": [
+        {
+          "key": "list",
+          "label": "List folder",
+          "fields": [
+            {
+              "key": "path",
+              "label": "Folder path",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "key": "upload",
+          "label": "Upload text file",
+          "fields": [
+            {
+              "key": "path",
+              "label": "Remote file path",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "text",
+              "label": "File contents",
+              "type": "multiline",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sftp",
+      "title": "SFTP files",
+      "category": "documents",
+      "capabilities": [
+        "file_read",
+        "file_write",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "host",
+          "label": "Host",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "port",
+          "label": "Port",
+          "type": "number",
+          "required": true,
+          "default": "22"
+        },
+        {
+          "key": "username",
+          "label": "Username",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "password",
+          "label": "Password",
+          "type": "secret",
+          "required": false
+        },
+        {
+          "key": "private_key",
+          "label": "Private key PEM",
+          "type": "multiline_secret",
+          "required": false
+        },
+        {
+          "key": "root_path",
+          "label": "Root path",
+          "type": "text",
+          "required": false,
+          "default": "."
+        }
+      ],
+      "operations": [
+        {
+          "key": "list",
+          "label": "List folder",
+          "fields": [
+            {
+              "key": "path",
+              "label": "Folder path",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "key": "upload",
+          "label": "Upload text file",
+          "fields": [
+            {
+              "key": "path",
+              "label": "Remote file path",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "text",
+              "label": "File contents",
+              "type": "multiline",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "telegram_bot",
+      "title": "Telegram Bot",
+      "category": "communications",
+      "capabilities": [
+        "read",
+        "send",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "token",
+          "label": "Bot token",
+          "type": "secret",
+          "required": true
+        }
+      ],
+      "operations": [
+        {
+          "key": "get_updates",
+          "label": "Load recent bot updates",
+          "fields": [
+            {
+              "key": "limit",
+              "label": "Maximum updates",
+              "type": "number",
+              "default": "20"
+            },
+            {
+              "key": "offset",
+              "label": "Update offset (optional)",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "key": "send_message",
+          "label": "Send Telegram message",
+          "fields": [
+            {
+              "key": "chat_id",
+              "label": "Chat ID",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "text",
+              "label": "Message",
+              "type": "multiline",
+              "required": true
+            },
+            {
+              "key": "parse_mode",
+              "label": "Parse mode",
+              "type": "choice",
+              "choices": [
+                "none",
+                "HTML",
+                "MarkdownV2"
+              ],
+              "default": "none"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "browserless",
+      "title": "Browser automation (Browserless)",
+      "category": "websites",
+      "capabilities": [
+        "browser_read",
+        "browser_write",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "endpoint",
+          "label": "Browserless endpoint",
+          "type": "url",
+          "required": true,
+          "default": "https://production-sfo.browserless.io"
+        },
+        {
+          "key": "token",
+          "label": "Browserless API token",
+          "type": "secret",
+          "required": true
+        }
+      ],
+      "operations": [
+        {
+          "key": "content",
+          "label": "Load rendered page content",
+          "fields": [
+            {
+              "key": "url",
+              "label": "Page URL",
+              "type": "url",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "function",
+          "label": "Run browser workflow",
+          "fields": [
+            {
+              "key": "code",
+              "label": "Puppeteer function",
+              "type": "multiline",
+              "required": true
+            },
+            {
+              "key": "context",
+              "label": "Workflow values (JSON)",
+              "type": "json",
+              "default": "{}"
+            }
+          ]
+        },
+        {
+          "key": "bql",
+          "label": "Run BrowserQL workflow",
+          "fields": [
+            {
+              "key": "query",
+              "label": "BrowserQL query",
+              "type": "multiline",
+              "required": true
+            },
+            {
+              "key": "variables",
+              "label": "Variables (JSON)",
+              "type": "json",
+              "default": "{}"
+            },
+            {
+              "key": "browser",
+              "label": "Browser mode",
+              "type": "choice",
+              "choices": [
+                "chromium",
+                "chrome",
+                "stealth"
+              ],
+              "default": "chromium"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "rss",
+      "title": "RSS or Atom feed",
+      "category": "monitoring",
+      "capabilities": [
+        "read",
+        "test"
+      ],
+      "fields": [
+        {
+          "key": "feed_url",
+          "label": "Feed URL",
+          "type": "url",
+          "required": true
+        }
+      ],
+      "operations": [
+        {
+          "key": "latest",
+          "label": "Load latest entries",
+          "fields": [
+            {
+              "key": "limit",
+              "label": "Maximum entries",
+              "type": "number",
+              "default": "20"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "id": "microsoft-365",
+      "title": "Microsoft 365 / Outlook / OneDrive",
+      "description": "Mail, calendar, contacts and files through Microsoft Graph.",
+      "connector_type": "oauth2",
+      "category": "productivity",
+      "setup_url": "https://entra.microsoft.com/",
+      "defaults": {
+        "authorization_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+        "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        "scopes": "offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite Contacts.Read",
+        "test_url": "https://graph.microsoft.com/v1.0/me",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "dropbox",
+      "title": "Dropbox",
+      "description": "Archive, retrieve and organize files.",
+      "connector_type": "oauth2",
+      "category": "documents",
+      "setup_url": "https://www.dropbox.com/developers/apps",
+      "defaults": {
+        "authorization_url": "https://www.dropbox.com/oauth2/authorize",
+        "token_url": "https://api.dropboxapi.com/oauth2/token",
+        "scopes": "account_info.read files.metadata.read files.content.read files.content.write sharing.read",
+        "authorization_params": "{\"token_access_type\":\"offline\"}",
+        "test_url": "https://api.dropboxapi.com/2/users/get_current_account",
+        "test_method": "POST",
+        "token_auth_method": "basic"
+      }
+    },
+    {
+      "id": "slack",
+      "title": "Slack",
+      "description": "Read workspace data and send or automate channel actions.",
+      "connector_type": "oauth2",
+      "category": "communications",
+      "setup_url": "https://api.slack.com/apps",
+      "defaults": {
+        "authorization_url": "https://slack.com/oauth/v2/authorize",
+        "token_url": "https://slack.com/api/oauth.v2.access",
+        "scopes": "channels:history channels:read chat:write files:read files:write users:read",
+        "test_url": "https://slack.com/api/auth.test",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "notion",
+      "title": "Notion",
+      "description": "Create and update pages, databases and knowledge records.",
+      "connector_type": "rest_api",
+      "category": "productivity",
+      "setup_url": "https://www.notion.so/profile/integrations",
+      "defaults": {
+        "base_url": "https://api.notion.com/v1",
+        "auth_type": "bearer",
+        "api_key_header": "Authorization",
+        "default_headers": "{\"Notion-Version\":\"2022-06-28\"}",
+        "test_path": "users/me"
+      }
+    },
+    {
+      "id": "todoist",
+      "title": "Todoist",
+      "description": "Create and manage personal and business tasks.",
+      "connector_type": "rest_api",
+      "category": "tasks",
+      "setup_url": "https://app.todoist.com/app/settings/integrations/developer",
+      "defaults": {
+        "base_url": "https://api.todoist.com/rest/v2",
+        "auth_type": "bearer",
+        "test_path": "projects"
+      }
+    },
+    {
+      "id": "trello",
+      "title": "Trello",
+      "description": "Boards, cards, checklists and project follow-up.",
+      "connector_type": "rest_api",
+      "category": "tasks",
+      "setup_url": "https://trello.com/power-ups/admin",
+      "defaults": {
+        "base_url": "https://api.trello.com/1",
+        "auth_type": "none",
+        "test_path": "members/me"
+      }
+    },
+    {
+      "id": "airtable",
+      "title": "Airtable",
+      "description": "Use Airtable bases as structured VA registers.",
+      "connector_type": "rest_api",
+      "category": "data",
+      "setup_url": "https://airtable.com/create/tokens",
+      "defaults": {
+        "base_url": "https://api.airtable.com/v0",
+        "auth_type": "bearer",
+        "test_path": "meta/bases"
+      }
+    },
+    {
+      "id": "hubspot",
+      "title": "HubSpot",
+      "description": "Contacts, companies, tickets and CRM follow-up.",
+      "connector_type": "oauth2",
+      "category": "crm",
+      "setup_url": "https://developers.hubspot.com/",
+      "defaults": {
+        "authorization_url": "https://app.hubspot.com/oauth/authorize",
+        "token_url": "https://api.hubapi.com/oauth/v1/token",
+        "scopes": "crm.objects.contacts.read crm.objects.contacts.write crm.objects.companies.read tickets",
+        "test_url": "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "calendly",
+      "title": "Calendly",
+      "description": "Scheduling links, invitees and appointment workflows.",
+      "connector_type": "oauth2",
+      "category": "calendar",
+      "setup_url": "https://developer.calendly.com/",
+      "defaults": {
+        "authorization_url": "https://auth.calendly.com/oauth/authorize",
+        "token_url": "https://auth.calendly.com/oauth/token",
+        "test_url": "https://api.calendly.com/users/me",
+        "token_auth_method": "basic"
+      }
+    },
+    {
+      "id": "zoom",
+      "title": "Zoom",
+      "description": "Meetings, recordings and scheduling administration.",
+      "connector_type": "oauth2",
+      "category": "communications",
+      "setup_url": "https://marketplace.zoom.us/develop/create",
+      "defaults": {
+        "authorization_url": "https://zoom.us/oauth/authorize",
+        "token_url": "https://zoom.us/oauth/token",
+        "test_url": "https://api.zoom.us/v2/users/me",
+        "token_auth_method": "basic"
+      }
+    },
+    {
+      "id": "linkedin",
+      "title": "LinkedIn",
+      "description": "Profile access and approved publishing workflows.",
+      "connector_type": "oauth2",
+      "category": "social",
+      "setup_url": "https://www.linkedin.com/developers/apps",
+      "defaults": {
+        "authorization_url": "https://www.linkedin.com/oauth/v2/authorization",
+        "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+        "scopes": "openid profile email",
+        "test_url": "https://api.linkedin.com/v2/userinfo",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "meta",
+      "title": "Facebook / Instagram Graph",
+      "description": "Pages, Instagram business content, messages and insights when Meta approves the required permissions.",
+      "connector_type": "oauth2",
+      "category": "social",
+      "setup_url": "https://developers.facebook.com/apps/",
+      "defaults": {
+        "authorization_url": "https://www.facebook.com/v23.0/dialog/oauth",
+        "token_url": "https://graph.facebook.com/v23.0/oauth/access_token",
+        "scopes": "pages_show_list pages_read_engagement pages_manage_posts instagram_basic instagram_content_publish",
+        "test_url": "https://graph.facebook.com/v23.0/me",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "whatsapp-cloud",
+      "title": "WhatsApp Cloud API",
+      "description": "Business messaging through Meta's official Cloud API.",
+      "connector_type": "rest_api",
+      "category": "communications",
+      "setup_url": "https://developers.facebook.com/apps/",
+      "defaults": {
+        "base_url": "https://graph.facebook.com/v23.0",
+        "auth_type": "bearer",
+        "test_path": "me"
+      }
+    },
+    {
+      "id": "telegram-bot",
+      "title": "Telegram Bot",
+      "description": "Send alerts, briefings and bot-driven workflows through Telegram's official Bot API.",
+      "connector_type": "telegram_bot",
+      "category": "communications",
+      "setup_url": "https://t.me/BotFather",
+      "defaults": {}
+    },
+    {
+      "id": "stripe",
+      "title": "Stripe",
+      "description": "Payments, invoices, customers and subscription administration.",
+      "connector_type": "rest_api",
+      "category": "payments",
+      "setup_url": "https://dashboard.stripe.com/apikeys",
+      "defaults": {
+        "base_url": "https://api.stripe.com/v1",
+        "auth_type": "bearer",
+        "test_path": "balance"
+      }
+    },
+    {
+      "id": "mollie",
+      "title": "Mollie",
+      "description": "Belgian/EU payment and refund workflows.",
+      "connector_type": "rest_api",
+      "category": "payments",
+      "setup_url": "https://my.mollie.com/dashboard/developers/api-keys",
+      "defaults": {
+        "base_url": "https://api.mollie.com/v2",
+        "auth_type": "bearer",
+        "test_path": "profiles/me"
+      }
+    },
+    {
+      "id": "paypal",
+      "title": "PayPal",
+      "description": "Business payment administration through OAuth client credentials.",
+      "connector_type": "client_credentials",
+      "category": "payments",
+      "setup_url": "https://developer.paypal.com/dashboard/applications/live",
+      "defaults": {
+        "token_url": "https://api-m.paypal.com/v1/oauth2/token",
+        "token_auth_method": "basic"
+      }
+    },
+    {
+      "id": "shopify",
+      "title": "Shopify",
+      "description": "Orders, customers, products and fulfillment.",
+      "connector_type": "rest_api",
+      "category": "commerce",
+      "setup_url": "https://admin.shopify.com/",
+      "defaults": {
+        "auth_type": "api_key",
+        "api_key_header": "X-Shopify-Access-Token",
+        "test_path": "shop.json"
+      }
+    },
+    {
+      "id": "woocommerce",
+      "title": "WooCommerce",
+      "description": "Orders, customers, products and refunds.",
+      "connector_type": "rest_api",
+      "category": "commerce",
+      "setup_url": "https://woocommerce.com/document/woocommerce-rest-api/",
+      "defaults": {
+        "auth_type": "basic",
+        "test_path": "system_status"
+      }
+    },
+    {
+      "id": "twilio",
+      "title": "Twilio",
+      "description": "SMS, WhatsApp, voice and communication records.",
+      "connector_type": "rest_api",
+      "category": "communications",
+      "setup_url": "https://console.twilio.com/",
+      "defaults": {
+        "base_url": "https://api.twilio.com/2010-04-01",
+        "auth_type": "basic",
+        "test_path": "Accounts.json"
+      }
+    },
+    {
+      "id": "pushover",
+      "title": "Pushover",
+      "description": "Reliable push alerts to your phone.",
+      "connector_type": "rest_api",
+      "category": "notifications",
+      "setup_url": "https://pushover.net/apps/build",
+      "defaults": {
+        "base_url": "https://api.pushover.net/1",
+        "auth_type": "none",
+        "test_path": "sounds.json"
+      }
+    },
+    {
+      "id": "home-assistant",
+      "title": "Home Assistant",
+      "description": "Home devices, sensors and household automations.",
+      "connector_type": "rest_api",
+      "category": "home",
+      "setup_url": "https://www.home-assistant.io/docs/authentication/",
+      "defaults": {
+        "auth_type": "bearer",
+        "test_path": "config"
+      }
+    },
+    {
+      "id": "nextcloud",
+      "title": "Nextcloud / ownCloud",
+      "description": "Private files through WebDAV.",
+      "connector_type": "webdav",
+      "category": "documents",
+      "setup_url": "https://docs.nextcloud.com/server/latest/user_manual/en/files/access_webdav.html",
+      "defaults": {}
+    },
+    {
+      "id": "asana",
+      "title": "Asana",
+      "description": "Projects, tasks, assignments and follow-up.",
+      "connector_type": "oauth2",
+      "category": "tasks",
+      "setup_url": "https://app.asana.com/0/my-apps",
+      "defaults": {
+        "authorization_url": "https://app.asana.com/-/oauth_authorize",
+        "token_url": "https://app.asana.com/-/oauth_token",
+        "pkce": "true",
+        "test_url": "https://app.asana.com/api/1.0/users/me",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "clickup",
+      "title": "ClickUp",
+      "description": "Tasks, workspaces, documents and time tracking.",
+      "connector_type": "oauth2",
+      "category": "tasks",
+      "setup_url": "https://app.clickup.com/settings/apps",
+      "defaults": {
+        "authorization_url": "https://app.clickup.com/api",
+        "token_url": "https://api.clickup.com/api/v2/oauth/token",
+        "test_url": "https://api.clickup.com/api/v2/user",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "monday",
+      "title": "monday.com",
+      "description": "Boards, items, updates and project automations through GraphQL.",
+      "connector_type": "rest_api",
+      "category": "tasks",
+      "setup_url": "https://developer.monday.com/apps",
+      "defaults": {
+        "base_url": "https://api.monday.com/v2",
+        "auth_type": "bearer",
+        "test_method": "POST",
+        "test_body": "{\"query\":\"query { me { id name } }\"}"
+      }
+    },
+    {
+      "id": "gitlab",
+      "title": "GitLab",
+      "description": "Repositories, issues, merge requests and pipelines.",
+      "connector_type": "oauth2",
+      "category": "development",
+      "setup_url": "https://gitlab.com/-/user_settings/applications",
+      "defaults": {
+        "authorization_url": "https://gitlab.com/oauth/authorize",
+        "token_url": "https://gitlab.com/oauth/token",
+        "scopes": "api read_user",
+        "test_url": "https://gitlab.com/api/v4/user",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "google-sheets",
+      "title": "Google Sheets",
+      "description": "Read and update spreadsheets through the official Sheets API.",
+      "connector_type": "oauth2",
+      "category": "data",
+      "setup_url": "https://console.cloud.google.com/apis/library/sheets.googleapis.com",
+      "defaults": {
+        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": "openid email https://www.googleapis.com/auth/spreadsheets",
+        "authorization_params": "{\"access_type\":\"offline\",\"prompt\":\"consent\"}",
+        "test_url": "https://openidconnect.googleapis.com/v1/userinfo",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "google-tasks",
+      "title": "Google Tasks",
+      "description": "Task lists and personal follow-up through Google Tasks.",
+      "connector_type": "oauth2",
+      "category": "tasks",
+      "setup_url": "https://console.cloud.google.com/apis/library/tasks.googleapis.com",
+      "defaults": {
+        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": "openid email https://www.googleapis.com/auth/tasks",
+        "authorization_params": "{\"access_type\":\"offline\",\"prompt\":\"consent\"}",
+        "test_url": "https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1",
+        "token_auth_method": "body"
+      }
+    },
+    {
+      "id": "sendgrid",
+      "title": "SendGrid",
+      "description": "Transactional email, templates and delivery administration.",
+      "connector_type": "rest_api",
+      "category": "communications",
+      "setup_url": "https://app.sendgrid.com/settings/api_keys",
+      "defaults": {
+        "base_url": "https://api.sendgrid.com/v3",
+        "auth_type": "bearer",
+        "test_path": "user/profile"
+      }
+    },
+    {
+      "id": "brevo",
+      "title": "Brevo",
+      "description": "Email campaigns, transactional mail, contacts and SMS.",
+      "connector_type": "rest_api",
+      "category": "communications",
+      "setup_url": "https://app.brevo.com/settings/keys/api",
+      "defaults": {
+        "base_url": "https://api.brevo.com/v3",
+        "auth_type": "api_key",
+        "api_key_header": "api-key",
+        "test_path": "account"
+      }
+    },
+    {
+      "id": "zapier-webhook",
+      "title": "Zapier webhook",
+      "description": "Trigger a Zap and reach services connected in Zapier.",
+      "connector_type": "webhook",
+      "category": "automation",
+      "setup_url": "https://zapier.com/apps/webhook/integrations",
+      "defaults": {}
+    },
+    {
+      "id": "make-webhook",
+      "title": "Make webhook",
+      "description": "Trigger a Make scenario and reach services connected in Make.",
+      "connector_type": "webhook",
+      "category": "automation",
+      "setup_url": "https://www.make.com/en/integrations/webhooks",
+      "defaults": {}
+    },
+    {
+      "id": "n8n-webhook",
+      "title": "n8n webhook",
+      "description": "Trigger a self-hosted or cloud n8n workflow.",
+      "connector_type": "webhook",
+      "category": "automation",
+      "setup_url": "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/",
+      "defaults": {}
+    },
+    {
+      "id": "pipedream-webhook",
+      "title": "Pipedream HTTP workflow",
+      "description": "Trigger a Pipedream workflow through its HTTP endpoint.",
+      "connector_type": "webhook",
+      "category": "automation",
+      "setup_url": "https://pipedream.com/docs/workflows/steps/triggers/",
+      "defaults": {}
+    },
+    {
+      "id": "browserless",
+      "title": "Browserless website automation",
+      "description": "Operate websites that expose no suitable API using a managed browser workflow.",
+      "connector_type": "browserless",
+      "category": "websites",
+      "setup_url": "https://www.browserless.io/",
+      "defaults": {
+        "endpoint": "https://production-sfo.browserless.io"
+      }
+    }
+  ]
+}

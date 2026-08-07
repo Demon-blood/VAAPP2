@@ -1,0 +1,114 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../app_state.dart';
+
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final config = state.configuration;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('Operations', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: config['google_connected'] == true ? () => state.syncGmail() : null,
+          icon: const Icon(Icons.mark_email_read_outlined),
+          label: const Text('Process Gmail now'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: (config['bank_accounts_connected'] as num? ?? 0) > 0 ? () => state.syncBanks() : null,
+          icon: const Icon(Icons.account_balance_outlined),
+          label: const Text('Synchronize bank accounts'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: config['google_connected'] == true ? () => state.syncExternalServices() : null,
+          icon: const Icon(Icons.sync),
+          label: const Text('Synchronize contacts and external services'),
+        ),
+        const Divider(height: 32),
+        Text('Build and update from phone', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        const Text(
+          'The GitHub connector can start the included Android build workflow. GitHub performs the Flutter build in the cloud; Android still requires confirmation before installing the resulting APK.',
+        ),
+        const SizedBox(height: 12),
+        FilledButton.tonalIcon(
+          onPressed: config['github_configured'] == true ? () => _triggerBuild(context) : null,
+          icon: const Icon(Icons.build_circle_outlined),
+          label: const Text('Build Android update'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: config['github_configured'] == true ? () => _showBuildRuns(context) : null,
+          icon: const Icon(Icons.history),
+          label: const Text('View build runs'),
+        ),
+        const Divider(height: 32),
+        Text('Device', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => context.read<AppState>().disconnect(),
+          icon: const Icon(Icons.link_off),
+          label: const Text('Unpair this phone'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _triggerBuild(BuildContext context) async {
+    try {
+      final result = await context.read<AppState>().triggerAndroidBuild();
+      final url = result['actions_url']?.toString();
+      if (url != null && url.isNotEmpty) {
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('GitHub accepted the Android build request.')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _showBuildRuns(BuildContext context) async {
+    try {
+      final runs = await context.read<AppState>().loadAndroidBuildRuns();
+      if (!context.mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) => ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text('Android build runs', style: Theme.of(sheetContext).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            if (runs.isEmpty) const ListTile(title: Text('No workflow runs found.')),
+            for (final run in runs)
+              ListTile(
+                leading: Icon(run['conclusion'] == 'success' ? Icons.check_circle : Icons.pending_outlined),
+                title: Text('${run['name'] ?? 'Android build'} · ${run['status'] ?? 'unknown'}'),
+                subtitle: Text('${run['created_at'] ?? ''}'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () {
+                  final url = run['html_url']?.toString();
+                  if (url != null && url.isNotEmpty) launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                },
+              ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+}

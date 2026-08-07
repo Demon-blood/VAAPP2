@@ -1,0 +1,131 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'backend/**'
+      - '.github/workflows/android-release.yml'
+
+# The workflow intentionally contains no `uses:` steps. This avoids the
+# marketplace/action-download phase and provides a fallback when GitHub's
+# action metadata service is degraded. It still requires a GitHub-hosted
+# runner to start successfully.
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FLUTTER_VERSION: '3.38.7'
+      RELEASE_TAG: va-android-${{ github.run_number }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Check out this commit without actions/checkout
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          cat > "$RUNNER_TEMP/git-askpass.sh" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/git-askpass.sh"
+          for attempt in 1 2 3 4 5; do
+            if GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+              git fetch --no-tags --depth=1 origin "$GITHUB_SHA"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Repository fetch failed after five attempts." >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          git checkout --detach FETCH_HEAD
+          rm -f "$RUNNER_TEMP/git-askpass.sh"
+
+      - name: Test backend with the runner's Python
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 -m venv "$RUNNER_TEMP/va-venv"
+          source "$RUNNER_TEMP/va-venv/bin/activate"
+          python -m pip install --upgrade pip
+          pip install -e './backend[dev]'
+          python -m compileall -q backend/app backend/tests
+          PUBLIC_BASE_URL=https://example.invalid \
+          PAIRING_SECRET=github-actions-pairing-secret-00000000 \
+          TOKEN_ENCRYPTION_KEY=MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE= \
+          pytest -q backend/tests
+
+      - name: Install Flutter directly from the official repository
+        run: |
+          set -euo pipefail
+          FLUTTER_DIR="$RUNNER_TEMP/flutter"
+          for attempt in 1 2 3 4 5; do
+            if git clone --filter=blob:none --depth=1 --branch "$FLUTTER_VERSION" \
+              https://github.com/flutter/flutter.git "$FLUTTER_DIR"; then
+              break
+            fi
+            rm -rf "$FLUTTER_DIR"
+            if [ "$attempt" -eq 5 ]; then
+              echo "Flutter SDK download failed after five attempts." >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "$FLUTTER_DIR/bin" >> "$GITHUB_PATH"
+          "$FLUTTER_DIR/bin/flutter" config --no-analytics
+          "$FLUTTER_DIR/bin/flutter" --version
+          "$FLUTTER_DIR/bin/flutter" precache --android
+
+      - name: Analyze, test and build the Android app
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
+          cd android
+          flutter create --platforms=android --org com.fulltimeva --project-name full_time_va .
+          cp tooling/app-build.gradle.kts android/app/build.gradle.kts
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build apk --release
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk"
+          sha256sum "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk" \
+            | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk.sha256"
+
+      - name: Publish the APK as a GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk" \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Full-Time VA Android v0.4.6 · run ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
+            --notes "Automated Android release build for commit ${GITHUB_SHA}." \
+            --prerelease
+          {
+            echo '## Android APK ready'
+            echo
+            echo "Download it from: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}"
+          } >> "$GITHUB_STEP_SUMMARY"
