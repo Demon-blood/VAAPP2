@@ -14,6 +14,7 @@ class AppState extends ChangeNotifier {
   bool refreshComplete = false;
   String? error;
   String? serverWarning;
+  bool repairRecommended = false;
   Map<String, String> endpointErrors = {};
   Map<String, dynamic> systemInfo = {};
   DashboardData? dashboard;
@@ -93,6 +94,7 @@ class AppState extends ChangeNotifier {
     systemInfo = {};
     endpointErrors = {};
     serverWarning = null;
+    repairRecommended = false;
     refreshComplete = false;
     notifyListeners();
   }
@@ -101,6 +103,7 @@ class AppState extends ChangeNotifier {
     if (showBusy) busy = true;
     error = null;
     endpointErrors = {};
+    repairRecommended = false;
     notifyListeners();
 
     try {
@@ -108,14 +111,17 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.4.8')) {
+        if (!_versionAtLeast(backendVersion, '0.4.10')) {
+          repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.4.8 requires backend 0.4.8 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.4.10 requires backend 0.4.10 or newer.';
         } else {
           serverWarning = null;
+          repairRecommended = false;
         }
       } else {
+        repairRecommended = true;
         serverWarning = 'The connected VA server is running an older or incomplete backend. Redeploy the backend from the current repository, then refresh.';
       }
 
@@ -164,7 +170,7 @@ class AppState extends ChangeNotifier {
       cloudflareResources = {};
       if (configuration['github_configured'] == true) {
         final repositories = await _safeGet('/api/github/repositories');
-        final notifications = await _safeGet('/api/github/notifications');
+        final notifications = await _safeGet('/api/github/notifications', optional: true);
         if (repositories is List) githubRepositories = _list(repositories);
         if (notifications is List) githubNotifications = _list(notifications);
       }
@@ -184,11 +190,17 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<dynamic> _safeGet(String path, {bool public = false}) async {
+  Future<dynamic> _safeGet(
+    String path, {
+    bool public = false,
+    bool optional = false,
+  }) async {
     try {
       return public ? await api.getPublicJson(path) : await api.getJson(path);
     } catch (requestError) {
-      endpointErrors[path] = requestError.toString();
+      if (!optional) {
+        endpointErrors[path] = requestError.toString();
+      }
       return null;
     }
   }

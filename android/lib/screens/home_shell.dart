@@ -56,7 +56,8 @@ class _HomeShellState extends State<HomeShell> {
                 if (state.endpointErrors.isNotEmpty)
                   TextButton(onPressed: () => _showDiagnostics(context), child: const Text('Details')),
                 TextButton(onPressed: () => context.read<AppState>().refreshAll(), child: const Text('Retry')),
-                TextButton(onPressed: () => _repairServer(context), child: const Text('Repair server')),
+                if (state.repairRecommended)
+                  TextButton(onPressed: () => _repairServer(context), child: const Text('Repair server')),
               ],
             ),
           if (state.error != null)

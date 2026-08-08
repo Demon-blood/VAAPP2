@@ -72,11 +72,29 @@ async def list_repositories(db: AsyncSession) -> list[dict[str, Any]]:
 
 
 async def list_notifications(db: AsyncSession) -> list[dict[str, Any]]:
-    return await github_get(
-        db,
-        "/notifications",
-        params={"all": "false", "participating": "false", "per_page": 100},
-    )
+    """Return personal GitHub notifications when the configured token supports them.
+
+    GitHub's personal notifications REST endpoints accept classic PATs only. The VA
+    deliberately uses a fine-grained PAT for repository Actions/secrets access, so a
+    `github_pat_...` token must not make the whole VA dashboard unhealthy. A classic
+    token can still be used here if a user explicitly configures one in the future.
+    """
+    token = await _token(db)
+    if token.startswith("github_pat_"):
+        return []
+    try:
+        result = await github_get(
+            db,
+            "/notifications",
+            params={"all": "false", "participating": "false", "per_page": 100},
+        )
+        return list(result or [])
+    except httpx.HTTPError:
+        # Personal GitHub notifications are an optional convenience feature.
+        # They must never make the VA dashboard unhealthy if GitHub rejects,
+        # rate-limits, times out, or temporarily fails this endpoint. Repository,
+        # Actions, releases, issues, and signing automation use separate calls.
+        return []
 
 
 async def create_issue(

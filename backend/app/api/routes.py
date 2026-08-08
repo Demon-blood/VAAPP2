@@ -909,10 +909,12 @@ async def github_repositories(_: Device = Depends(require_device), db: AsyncSess
 
 @router.get("/api/github/notifications")
 async def github_notifications(_: Device = Depends(require_device), db: AsyncSession = Depends(get_db)) -> list[dict]:
+    # GitHub personal notifications are optional and are not part of VA server
+    # health. A failure here must never surface as a global server outage banner.
     try:
         return await github_list_notifications(db)
-    except GitHubConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception:
+        return []
 
 
 @router.post("/api/github/issues")
