@@ -303,15 +303,39 @@ class _OnboardingPageState extends State<OnboardingPage> {
         deploymentMode: deploymentMode,
       );
       if (!mounted) return;
-      setState(() => deploymentStatus = 'Backend created or updated. Verifying version 0.4.6 and live health…');
-      final healthy = await deployment.waitUntilHealthy(result.serverUrl);
-      if (!healthy) throw Exception('Render did not expose backend 0.4.6 after deployment. Confirm the repository contains the current backend folder and inspect the latest Render deploy logs.');
+      if (result.deployId.isNotEmpty) {
+        setState(() => deploymentStatus = 'Render is deploying the repaired server. Waiting for the new instance to become Live…');
+        await deployment.waitForDeployLive(
+          apiToken: _renderToken.text,
+          serviceId: result.serviceId,
+          deployId: result.deployId,
+        );
+      }
       if (!mounted) return;
-      await context.read<AppState>().pair(
-            serverUrl: result.serverUrl,
-            pairingSecret: result.pairingSecret,
-            deviceName: _device.text,
-          );
+      setState(() => deploymentStatus = 'New server instance is Live. Verifying backend 0.4.8…');
+      final healthy = await deployment.waitUntilHealthy(result.serverUrl);
+      if (!healthy) throw Exception('Render did not expose backend 0.4.8 after deployment. Confirm the repository contains the current backend folder and inspect the latest Render deploy logs.');
+      if (!mounted) return;
+      setState(() => deploymentStatus = 'Backend verified. Pairing this phone with the newly deployed secret…');
+      Object? lastPairingError;
+      for (var attempt = 0; attempt < 6; attempt++) {
+        try {
+          await context.read<AppState>().pair(
+                serverUrl: result.serverUrl,
+                pairingSecret: result.pairingSecret,
+                deviceName: _device.text,
+              );
+          lastPairingError = null;
+          break;
+        } catch (error) {
+          lastPairingError = error;
+          if (!error.toString().toLowerCase().contains('invalid pairing secret') || attempt == 5) {
+            rethrow;
+          }
+          await Future<void>.delayed(const Duration(seconds: 10));
+        }
+      }
+      if (lastPairingError != null) throw lastPairingError;
     } catch (error) {
       if (mounted) setState(() => deploymentStatus = '$error');
     } finally {

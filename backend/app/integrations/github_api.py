@@ -55,6 +55,10 @@ async def github_post(db: AsyncSession, path: str, payload: dict[str, Any]) -> A
     return await github_request(db, "POST", path, payload=payload)
 
 
+async def github_put(db: AsyncSession, path: str, payload: dict[str, Any]) -> Any:
+    return await github_request(db, "PUT", path, payload=payload)
+
+
 async def verify_github_connection(db: AsyncSession) -> dict[str, Any]:
     return await github_get(db, "/user")
 

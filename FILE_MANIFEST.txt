@@ -28,11 +28,6 @@ android/pubspec.yaml
 android/test/widget_test.dart
 android/tooling/app-build.gradle.kts
 backend/.env.example
-backend/.pytest_cache/.gitignore
-backend/.pytest_cache/CACHEDIR.TAG
-backend/.pytest_cache/README.md
-backend/.pytest_cache/v/cache/lastfailed
-backend/.pytest_cache/v/cache/nodeids
 backend/Dockerfile
 backend/app/__init__.py
 backend/app/__pycache__/__init__.cpython-313.pyc
@@ -78,6 +73,7 @@ backend/app/schemas/__pycache__/api.cpython-313.pyc
 backend/app/schemas/api.py
 backend/app/services/__init__.py
 backend/app/services/__pycache__/__init__.cpython-313.pyc
+backend/app/services/__pycache__/android_signing.cpython-313.pyc
 backend/app/services/__pycache__/audit.cpython-313.pyc
 backend/app/services/__pycache__/automation_engine.cpython-313.pyc
 backend/app/services/__pycache__/banking_service.cpython-313.pyc
@@ -87,6 +83,7 @@ backend/app/services/__pycache__/email_processor.cpython-313.pyc
 backend/app/services/__pycache__/operations_service.cpython-313.pyc
 backend/app/services/__pycache__/runtime_config.cpython-313.pyc
 backend/app/services/__pycache__/scheduler.cpython-313.pyc
+backend/app/services/android_signing.py
 backend/app/services/audit.py
 backend/app/services/automation_engine.py
 backend/app/services/banking_service.py
@@ -98,12 +95,10 @@ backend/app/services/runtime_config.py
 backend/app/services/scheduler.py
 backend/docker-compose.yml
 backend/pyproject.toml
-backend/tests/__pycache__/test_connector_catalog.cpython-313-pytest-9.0.2.pyc
 backend/tests/__pycache__/test_connector_catalog.cpython-313.pyc
-backend/tests/__pycache__/test_crypto.cpython-313-pytest-9.0.2.pyc
 backend/tests/__pycache__/test_crypto.cpython-313.pyc
-backend/tests/__pycache__/test_version_and_routes.cpython-313-pytest-9.0.2.pyc
 backend/tests/__pycache__/test_version_and_routes.cpython-313.pyc
+backend/tests/test_android_signing.py
 backend/tests/test_connector_catalog.py
 backend/tests/test_crypto.py
 backend/tests/test_version_and_routes.py

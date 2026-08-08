@@ -108,10 +108,10 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.4.6')) {
+        if (!_versionAtLeast(backendVersion, '0.4.8')) {
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.4.6 requires backend 0.4.6 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.4.8 requires backend 0.4.8 or newer.';
         } else {
           serverWarning = null;
         }
@@ -469,6 +469,12 @@ class AppState extends ChangeNotifier {
       await api.deleteJson('/api/rules/$ruleId');
       await refreshAll(showBusy: false);
     });
+  }
+
+  Future<Map<String, dynamic>> androidSigningStatus() async {
+    return Map<String, dynamic>.from(
+      await api.getJson('/api/github/android/signing/status') as Map,
+    );
   }
 
   Future<Map<String, dynamic>> triggerAndroidBuild() async {

@@ -40,6 +40,16 @@ class SettingsPage extends StatelessWidget {
           'The GitHub connector can start the included Android build workflow. GitHub performs the Flutter build in the cloud; Android still requires confirmation before installing the resulting APK.',
         ),
         const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: config['github_configured'] == true ? () => _openSigningSetup(context) : null,
+          icon: const Icon(Icons.key_outlined),
+          label: const Text('Set up persistent update signing'),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Android only accepts an APK as an update when it is signed by the same release key as the installed app. Initialize this once before building the first stable-signed APK; never rotate that key afterward.',
+        ),
+        const SizedBox(height: 12),
         FilledButton.tonalIcon(
           onPressed: config['github_configured'] == true ? () => _triggerBuild(context) : null,
           icon: const Icon(Icons.build_circle_outlined),
@@ -63,9 +73,36 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
+
+  Future<void> _openSigningSetup(BuildContext context) async {
+    try {
+      final serverUrl = await context.read<AppState>().api.serverUrl;
+      if (serverUrl == null || serverUrl.isEmpty) {
+        throw Exception('This phone is not paired with a VA server.');
+      }
+      final uri = Uri.parse('${serverUrl.replaceAll(RegExp(r'/+$'), '')}/setup/android-signing');
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw Exception('Could not open the Android signing setup page.');
+      }
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
   Future<void> _triggerBuild(BuildContext context) async {
     try {
-      final result = await context.read<AppState>().triggerAndroidBuild();
+      final state = context.read<AppState>();
+      final signing = await state.androidSigningStatus();
+      if (signing['configured'] != true) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Persistent Android signing must be initialized before building an update.')),
+          );
+          await _openSigningSetup(context);
+        }
+        return;
+      }
+      final result = await state.triggerAndroidBuild();
       final url = result['actions_url']?.toString();
       if (url != null && url.isNotEmpty) {
         await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);

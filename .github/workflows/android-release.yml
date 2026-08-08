@@ -27,6 +27,10 @@ jobs:
     env:
       FLUTTER_VERSION: '3.38.7'
       RELEASE_TAG: va-android-${{ github.run_number }}-${{ github.run_attempt }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
     steps:
       - name: Check out this commit without actions/checkout
@@ -94,6 +98,22 @@ jobs:
           "$FLUTTER_DIR/bin/flutter" --version
           "$FLUTTER_DIR/bin/flutter" precache --android
 
+      - name: Prepare persistent Android release signing
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing GitHub Actions secret: $name" >&2
+              echo "Open https://<your-va-server>/setup/android-signing from your phone after deploying backend 0.4.8, or configure the four Android signing secrets manually." >&2
+              exit 1
+            fi
+          done
+          KEYSTORE_PATH="$RUNNER_TEMP/full-time-va-release.p12"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
       - name: Analyze, test and build the Android app
         run: |
           set -euo pipefail
@@ -107,9 +127,9 @@ jobs:
           flutter build apk --release
           test -s build/app/outputs/flutter-apk/app-release.apk
           cp build/app/outputs/flutter-apk/app-release.apk \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk"
-          sha256sum "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk" \
-            | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk.sha256"
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.8.apk"
+          sha256sum "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.8.apk" \
+            | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.8.apk.sha256"
 
       - name: Publish the APK as a GitHub prerelease
         env:
@@ -117,11 +137,11 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$RELEASE_TAG" \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk" \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.6.apk.sha256" \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.8.apk" \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.4.8.apk.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Full-Time VA Android v0.4.6 · run ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
+            --title "Full-Time VA Android v0.4.8 · run ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
             --notes "Automated Android release build for commit ${GITHUB_SHA}." \
             --prerelease
           {

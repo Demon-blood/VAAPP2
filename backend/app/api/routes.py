@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,6 +81,7 @@ from app.schemas.api import (
 )
 from app.services.audit import write_audit
 from app.services.certificate_service import generate_enable_banking_keypair
+from app.services.android_signing import install_repository_signing, repository_signing_status
 from app.services.banking_service import (
     complete_bank_connection,
     complete_payment_authorization,
@@ -817,6 +818,85 @@ async def live_service_status(_: Device = Depends(require_device), db: AsyncSess
             result[name] = {"configured": True, "live": False, "detail": str(exc)}
     result["custom_connectors"] = await list_connectors(db)
     return result
+
+
+
+
+@router.get("/api/github/android/signing/status")
+async def android_signing_status(
+    repository: str = Query(default=""),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        return await repository_signing_status(db, repository)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/api/github/android/signing/setup")
+async def android_signing_setup(
+    payload: dict,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        result = await install_repository_signing(db, str(payload.get("repository") or ""))
+        await write_audit(
+            db,
+            "android_release_signing_configured",
+            entity_type="github_repository",
+            entity_id=result["repository"],
+            details={"fingerprint_sha256": result["fingerprint_sha256"]},
+        )
+        await db.commit()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/setup/android-signing", response_class=HTMLResponse)
+async def android_signing_bootstrap_page(db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+    repository = html.escape(await get_runtime_value(db, "github_default_repository"))
+    page = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Full-Time VA Android signing</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 18px;background:#111;color:#eee}}input,button{{width:100%;box-sizing:border-box;padding:14px;margin:8px 0;border-radius:10px;border:1px solid #666;background:#1d1d22;color:#fff}}button{{background:#b8b5ff;color:#17151f;font-weight:700}}code{{word-break:break-all}}.note{{color:#c9c6d8;line-height:1.5}}</style></head>
+<body><h1>Android update signing</h1>
+<p class="note">This creates one persistent Android release key, keeps a copy encrypted in the VA database, and installs the signing values as GitHub Actions repository secrets. Do not rotate the key after the first stable-signed APK is installed.</p>
+<form method="post" action="/setup/android-signing">
+<label>Pairing secret</label><input name="pairing_secret" type="password" required autocomplete="off">
+<label>GitHub repository</label><input name="repository" value="{repository}" placeholder="owner/repository" required>
+<button type="submit">Initialize persistent signing</button></form>
+<p class="note">Your configured GitHub token needs repository <strong>Secrets: Read and write</strong> permission. The pairing secret is checked by this server and is not stored by this page.</p></body></html>"""
+    return HTMLResponse(page)
+
+
+@router.post("/setup/android-signing", response_class=HTMLResponse)
+async def android_signing_bootstrap_submit(
+    pairing_secret: str = Form(...),
+    repository: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    import secrets as secrets_module
+
+    if not secrets_module.compare_digest(pairing_secret, settings.pairing_secret):
+        return HTMLResponse("<h1>Invalid pairing secret</h1><p>Return and enter the current Render PAIRING_SECRET value.</p>", status_code=403)
+    try:
+        result = await install_repository_signing(db, repository)
+        await write_audit(
+            db,
+            "android_release_signing_configured",
+            entity_type="github_repository",
+            entity_id=result["repository"],
+            details={"fingerprint_sha256": result["fingerprint_sha256"]},
+        )
+        await db.commit()
+        fingerprint = html.escape(result["fingerprint_sha256"])
+        repo = html.escape(result["repository"])
+        return HTMLResponse(f"""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{font-family:system-ui,sans-serif;max-width:720px;margin:32px auto;padding:0 18px;background:#111;color:#eee}}code{{word-break:break-all}}</style></head><body><h1>Signing configured</h1><p>Repository: <strong>{repo}</strong></p><p>Certificate SHA-256:</p><code>{fingerprint}</code><p>The next APK build will use this same persistent release key. Keep this key for all future updates.</p></body></html>""")
+    except Exception as exc:
+        return HTMLResponse(f"<h1>Signing setup failed</h1><pre>{html.escape(str(exc))}</pre><p>If GitHub says the token lacks permission, recreate the fine-grained token with repository Secrets: Read and write.</p>", status_code=503)
 
 
 @router.get("/api/github/repositories")

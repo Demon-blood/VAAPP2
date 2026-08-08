@@ -55,7 +55,7 @@ CONFIG_SECTIONS: dict[str, dict[str, Any]] = {
     },
     "github": {
         "title": "GitHub",
-        "description": "Repository, issues, workflow and release access.",
+        "description": "Repository, issues, workflow, release and persistent Android signing-secret access. The fine-grained token should include Actions read/write and repository Secrets read/write.",
         "setup_url": "https://github.com/settings/personal-access-tokens",
         "fields": [
             {"key": "github_token", "label": "Fine-grained token", "type": "secret", "required": True},

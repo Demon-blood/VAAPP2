@@ -1,6 +1,6 @@
 [project]
 name = "full-time-va-backend"
-version = "0.4.6"
+version = "0.4.8"
 description = "Production backend for the Full-Time VA Android application"
 requires-python = ">=3.11"
 dependencies = [
@@ -24,7 +24,8 @@ dependencies = [
   "tenacity>=9.1,<10",
   "firebase-admin>=6.9,<7",
   "feedparser>=6.0.11,<7",
-  "paramiko>=3.5,<4"
+  "paramiko>=3.5,<4",
+  "PyNaCl>=1.5,<2"
 ]
 
 [project.optional-dependencies]

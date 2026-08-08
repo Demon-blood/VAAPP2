@@ -6,6 +6,13 @@ if (-not (Get-Command flutter -ErrorAction SilentlyContinue)) {
     throw 'Flutter is not installed or is not available in PATH.'
 }
 
+$required = @('ANDROID_KEYSTORE_PATH','ANDROID_KEYSTORE_PASSWORD','ANDROID_KEY_ALIAS','ANDROID_KEY_PASSWORD')
+foreach ($name in $required) {
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+        throw "$name is required. Release builds must use the persistent signing key; debug signing is intentionally disabled."
+    }
+}
+
 Push-Location $App
 try {
     $Manifest = Join-Path $App 'android\app\src\main\AndroidManifest.xml'

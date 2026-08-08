@@ -17,12 +17,14 @@ class DeploymentResult {
     required this.pairingSecret,
     required this.serviceId,
     this.databaseId = '',
+    this.deployId = '',
   });
 
   final String serverUrl;
   final String pairingSecret;
   final String serviceId;
   final String databaseId;
+  final String deployId;
 }
 
 class MobileDeploymentService {
@@ -154,12 +156,13 @@ class MobileDeploymentService {
           value: entry.value,
         );
       }
-      await _triggerDeploy(apiToken: apiToken, serviceId: serviceId);
+      final deployId = await _triggerDeploy(apiToken: apiToken, serviceId: serviceId);
       return DeploymentResult(
         serverUrl: serverUrl,
         pairingSecret: pairingSecret,
         serviceId: serviceId,
         databaseId: databaseId,
+        deployId: deployId,
       );
     }
 
@@ -330,15 +333,73 @@ class MobileDeploymentService {
     }
   }
 
-  Future<void> _triggerDeploy({required String apiToken, required String serviceId}) async {
+  Future<String> _triggerDeploy({required String apiToken, required String serviceId}) async {
     final response = await http.post(
       Uri.parse('$_renderApi/services/$serviceId/deploys'),
       headers: _headers(apiToken, json: true),
       body: jsonEncode({'clearCache': 'clear'}),
     ).timeout(const Duration(seconds: 60));
+    final decoded = _decode(response);
     if (response.statusCode >= 300) {
-      throw Exception('Deploy trigger failed: ${_renderError(_decode(response), response.statusCode)}');
+      throw Exception('Deploy trigger failed: ${_renderError(decoded, response.statusCode)}');
     }
+    if (decoded is Map) {
+      final wrapper = Map<String, dynamic>.from(decoded);
+      final deploy = wrapper['deploy'] is Map
+          ? Map<String, dynamic>.from(wrapper['deploy'] as Map)
+          : wrapper;
+      return '${deploy['id'] ?? wrapper['id'] ?? ''}'.trim();
+    }
+    return '';
+  }
+
+  Future<void> waitForDeployLive({
+    required String apiToken,
+    required String serviceId,
+    required String deployId,
+  }) async {
+    if (deployId.trim().isEmpty) return;
+    const failedStatuses = {
+      'build_failed',
+      'update_failed',
+      'pre_deploy_failed',
+      'canceled',
+      'deactivated',
+    };
+    for (var attempt = 0; attempt < 120; attempt++) {
+      try {
+        final response = await http.get(
+          Uri.parse('$_renderApi/services/$serviceId/deploys/$deployId'),
+          headers: _headers(apiToken),
+        ).timeout(const Duration(seconds: 30));
+        final decoded = _decode(response);
+        if (response.statusCode >= 300) {
+          if (response.statusCode != 503 && response.statusCode != 429) {
+            throw Exception('Deploy status check failed: ${_renderError(decoded, response.statusCode)}');
+          }
+        } else if (decoded is Map) {
+          final wrapper = Map<String, dynamic>.from(decoded);
+          final deploy = wrapper['deploy'] is Map
+              ? Map<String, dynamic>.from(wrapper['deploy'] as Map)
+              : wrapper;
+          final status = '${deploy['status'] ?? ''}'.trim().toLowerCase();
+          if (status == 'live') return;
+          if (failedStatuses.contains(status)) {
+            final reason = deploy['errorMessage'] ?? deploy['error_message'] ?? status;
+            throw Exception('Render deployment failed: $reason');
+          }
+        }
+      } catch (error) {
+        final message = error.toString();
+        if (message.contains('Render deployment failed:') ||
+            message.contains('Deploy status check failed:')) {
+          rethrow;
+        }
+        // Timeouts and transient network failures are retried.
+      }
+      await Future<void>.delayed(const Duration(seconds: 8));
+    }
+    throw Exception('Timed out waiting for the new Render deployment to become Live. Open Render > Deploys to inspect the latest deployment.');
   }
 
   Future<(String, Map<String, dynamic>)?> _findPostgresByName({
@@ -463,7 +524,7 @@ class MobileDeploymentService {
     return value;
   }
 
-  Future<bool> waitUntilHealthy(String serverUrl, {String requiredVersion = '0.4.6'}) async {
+  Future<bool> waitUntilHealthy(String serverUrl, {String requiredVersion = '0.4.8'}) async {
     for (var attempt = 0; attempt < 90; attempt++) {
       try {
         final health = await http.get(Uri.parse('$serverUrl/health')).timeout(const Duration(seconds: 20));
