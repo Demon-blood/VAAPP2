@@ -1,11 +1,16 @@
 from pathlib import Path
+import re
 
 
 def test_android_treats_github_notifications_as_optional() -> None:
     source = Path(__file__).parents[2] / "android" / "lib" / "app_state.dart"
     text = source.read_text()
     assert "_safeGet('/api/github/notifications', optional: true)" in text
-    assert "if (!optional) endpointErrors[path] = requestError.toString();" in text
+    assert re.search(
+        r"if\s*\(!optional\)\s*\{?\s*endpointErrors\[path\]\s*=\s*requestError\.toString\(\);",
+        text,
+        re.DOTALL,
+    )
 
 
 def test_backend_notifications_route_is_fail_soft() -> None:

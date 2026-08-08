@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 import jwt
@@ -52,8 +53,78 @@ async def _request(db: AsyncSession, method: str, path: str, *, json_body: dict[
             headers={"Authorization": f"Bearer {await _jwt_token(db)}", "Accept": "application/json"},
             json=json_body,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            detail = response.text.strip()
+            try:
+                payload = response.json()
+                if isinstance(payload, dict):
+                    detail = str(
+                        payload.get("detail")
+                        or payload.get("message")
+                        or payload.get("error_description")
+                        or payload.get("error")
+                        or detail
+                    )
+            except Exception:
+                pass
+            raise EnableBankingConfigurationError(
+                f"Enable Banking rejected {method} {path} ({response.status_code}): {detail or response.reason_phrase}"
+            )
         return response.json() if response.content else {}
+
+
+def _normalize_aspsp_name(value: str) -> str:
+    return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def resolve_aspsp(aspsps: list[dict[str, Any]], requested_name: str, psu_type: str) -> dict[str, Any]:
+    requested = _normalize_aspsp_name(requested_name)
+    if not requested:
+        raise EnableBankingConfigurationError("A bank name is required")
+
+    compatible: list[dict[str, Any]] = []
+    for item in aspsps:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        supported = [str(value).casefold() for value in (item.get("psu_types") or [])]
+        if supported and psu_type.casefold() not in supported:
+            continue
+        compatible.append(item)
+
+    exact = [item for item in compatible if _normalize_aspsp_name(str(item["name"])) == requested]
+    if exact:
+        return exact[0]
+
+    partial = [
+        item
+        for item in compatible
+        if requested in _normalize_aspsp_name(str(item["name"]))
+        or _normalize_aspsp_name(str(item["name"])) in requested
+    ]
+    if len(partial) == 1:
+        return partial[0]
+    if len(partial) > 1:
+        partial.sort(key=lambda item: (len(_normalize_aspsp_name(str(item["name"]))), str(item["name"])))
+        return partial[0]
+
+    available = ", ".join(str(item.get("name")) for item in compatible[:20])
+    raise EnableBankingConfigurationError(
+        f'Enable Banking does not currently expose a compatible Belgian AIS institution matching "{requested_name}"'
+        + (f". Available institutions include: {available}" if available else ".")
+    )
+
+
+async def list_aspsps(
+    db: AsyncSession, *, country: str, psu_type: str | None = None, service: str | None = None
+) -> list[dict[str, Any]]:
+    params = {"country": country.upper()}
+    if psu_type:
+        params["psu_type"] = psu_type
+    if service:
+        params["service"] = service
+    payload = await _request(db, "GET", f"/aspsps?{urlencode(params)}")
+    values = payload.get("aspsps") if isinstance(payload, dict) else None
+    return [item for item in (values or []) if isinstance(item, dict)]
 
 
 async def start_account_authorization(
@@ -65,18 +136,39 @@ async def start_account_authorization(
     state: str,
     redirect_url: str,
 ) -> dict[str, Any]:
-    return await _request(
+    aspsps = await list_aspsps(
+        db,
+        country=institution_country,
+        psu_type=psu_type,
+        service="AIS",
+    )
+    aspsp = resolve_aspsp(aspsps, institution_name, psu_type)
+    now = datetime.now(timezone.utc)
+    requested_seconds = 180 * 24 * 60 * 60
+    try:
+        maximum_seconds = int(aspsp.get("maximum_consent_validity") or requested_seconds)
+    except (TypeError, ValueError):
+        maximum_seconds = requested_seconds
+    consent_seconds = max(60, min(requested_seconds, maximum_seconds))
+    valid_until = (now + timedelta(seconds=consent_seconds)).isoformat(timespec="seconds")
+    response = await _request(
         db,
         "POST",
         "/auth",
         json_body={
-            "access": {"valid_until": (datetime.now(timezone.utc) + timedelta(days=180)).date().isoformat()},
-            "aspsp": {"country": institution_country.upper(), "name": institution_name},
+            "access": {
+                "valid_until": valid_until,
+                "balances": True,
+                "transactions": True,
+            },
+            "aspsp": {"country": institution_country.upper(), "name": str(aspsp["name"])},
             "psu_type": psu_type,
             "redirect_url": redirect_url,
             "state": state,
         },
     )
+    response["_resolved_aspsp_name"] = str(aspsp["name"])
+    return response
 
 
 async def complete_account_authorization(db: AsyncSession, code: str) -> dict[str, Any]:
@@ -87,8 +179,8 @@ async def get_session(db: AsyncSession, session_id: str) -> dict[str, Any]:
     return await _request(db, "GET", f"/sessions/{session_id}")
 
 
-async def get_accounts(db: AsyncSession, session_id: str) -> dict[str, Any]:
-    return await _request(db, "GET", f"/accounts?session_id={session_id}")
+async def get_account_details(db: AsyncSession, account_id: str) -> dict[str, Any]:
+    return await _request(db, "GET", f"/accounts/{account_id}/details")
 
 
 async def get_account_balances(db: AsyncSession, account_id: str) -> dict[str, Any]:
@@ -114,12 +206,19 @@ async def create_sepa_payment(
     state: str,
     redirect_url: str,
 ) -> dict[str, Any]:
+    aspsps = await list_aspsps(
+        db,
+        country=institution_country,
+        psu_type=psu_type,
+        service="PIS",
+    )
+    aspsp = resolve_aspsp(aspsps, institution_name, psu_type)
     return await _request(
         db,
         "POST",
         "/payments",
         json_body={
-            "aspsp": {"country": institution_country.upper(), "name": institution_name},
+            "aspsp": {"country": institution_country.upper(), "name": str(aspsp["name"])},
             "payment_request": {
                 "credit_transfer_transaction": [
                     {

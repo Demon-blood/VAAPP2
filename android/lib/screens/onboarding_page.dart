@@ -312,9 +312,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
         );
       }
       if (!mounted) return;
-      setState(() => deploymentStatus = 'New server instance is Live. Verifying backend 0.4.10…');
+      setState(() => deploymentStatus = 'New server instance is Live. Verifying backend 0.4.12…');
       final healthy = await deployment.waitUntilHealthy(result.serverUrl);
-      if (!healthy) throw Exception('Render did not expose backend 0.4.10 after deployment. Confirm the repository contains the current backend folder and inspect the latest Render deploy logs.');
+      if (!healthy) throw Exception('Render did not expose backend 0.4.12 after deployment. Confirm the repository contains the current backend folder and inspect the latest Render deploy logs.');
       if (!mounted) return;
       setState(() => deploymentStatus = 'Backend verified. Pairing this phone with the newly deployed secret…');
       Object? lastPairingError;

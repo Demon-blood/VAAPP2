@@ -22,20 +22,19 @@ async def start_bank_connection(
     db: AsyncSession, *, institution_country: str, institution_name: str, psu_type: str, redirect_url: str
 ) -> str:
     state = new_token(24)
-    db.add(
-        OAuthState(
-            state=state,
-            provider="enable_banking",
-            payload_json=json.dumps(
-                {
-                    "institution_country": institution_country.upper(),
-                    "institution_name": institution_name,
-                    "psu_type": psu_type,
-                }
-            ),
-            expires_at=datetime.utcnow() + timedelta(minutes=30),
-        )
+    state_row = OAuthState(
+        state=state,
+        provider="enable_banking",
+        payload_json=json.dumps(
+            {
+                "institution_country": institution_country.upper(),
+                "institution_name": institution_name,
+                "psu_type": psu_type,
+            }
+        ),
+        expires_at=datetime.utcnow() + timedelta(minutes=30),
     )
+    db.add(state_row)
     await db.commit()
     response = await enable_banking.start_account_authorization(
         db,
@@ -45,7 +44,21 @@ async def start_bank_connection(
         state=state,
         redirect_url=redirect_url,
     )
-    return response["url"]
+    resolved_name = str(response.pop("_resolved_aspsp_name", institution_name))
+    state_row.payload_json = json.dumps(
+        {
+            "institution_country": institution_country.upper(),
+            "institution_name": resolved_name,
+            "psu_type": psu_type,
+        }
+    )
+    await db.commit()
+    url = str(response.get("url") or "").strip()
+    if not url:
+        raise enable_banking.EnableBankingConfigurationError(
+            "Enable Banking did not return an authorization URL for this institution"
+        )
+    return url
 
 
 async def complete_bank_connection(db: AsyncSession, *, code: str, state: str) -> BankConnection:
@@ -57,13 +70,15 @@ async def complete_bank_connection(db: AsyncSession, *, code: str, state: str) -
     session_id = session.get("session_id") or session.get("id")
     if not session_id:
         raise RuntimeError("Enable Banking did not return a session ID")
+    access = session.get("access") if isinstance(session.get("access"), dict) else {}
+    valid_until_value = access.get("valid_until") or session.get("valid_until")
     connection = BankConnection(
         institution_country=context["institution_country"],
         institution_name=context["institution_name"],
         psu_type=context["psu_type"],
         session_id_encrypted=encrypt_text(session_id),
-        valid_until=datetime.fromisoformat(session["valid_until"].replace("Z", "+00:00")).replace(tzinfo=None)
-        if session.get("valid_until")
+        valid_until=datetime.fromisoformat(str(valid_until_value).replace("Z", "+00:00")).replace(tzinfo=None)
+        if valid_until_value
         else None,
     )
     db.add(connection)
@@ -100,38 +115,49 @@ def _extract_balance(payload: dict[str, Any], preferred: tuple[str, ...]) -> Dec
 
 async def sync_bank_connection(db: AsyncSession, connection: BankConnection) -> int:
     session_id = decrypt_text(connection.session_id_encrypted)
-    response = await enable_banking.get_accounts(db, session_id)
-    accounts_payload = response.get("accounts") if isinstance(response, dict) else response
-    if not isinstance(accounts_payload, list):
-        accounts_payload = []
+    session = await enable_banking.get_session(db, session_id)
+    account_ids = session.get("accounts") if isinstance(session, dict) else []
+    if not isinstance(account_ids, list):
+        account_ids = []
     count = 0
-    for item in accounts_payload:
-        external_id = str(item.get("account_id") or item.get("id") or "")
+    for raw_account_id in account_ids:
+        external_id = str(raw_account_id or "").strip()
         if not external_id:
             continue
+        item = await enable_banking.get_account_details(db, external_id)
+        if not isinstance(item, dict):
+            continue
+
+        identification = item.get("account_id") or {}
+        iban = ""
+        if isinstance(identification, dict):
+            iban = str(identification.get("iban") or identification.get("identification") or "")
+        iban = iban.replace(" ", "")
+
         existing = (
             await db.execute(select(BankAccount).where(BankAccount.external_account_id == external_id))
         ).scalar_one_or_none()
-        identification = item.get("account_id") or item.get("account_number") or {}
-        iban = ""
-        if isinstance(identification, dict):
-            iban = str(identification.get("identification") or identification.get("iban") or "")
-        elif str(identification).startswith(("BE", "LT")):
-            iban = str(identification)
+        if existing is None and iban:
+            existing = (
+                await db.execute(select(BankAccount).where(BankAccount.iban == iban))
+            ).scalar_one_or_none()
+
         account = existing or BankAccount(
             bank_connection_id=connection.id,
             external_account_id=external_id,
         )
-        account.name = str(item.get("name") or item.get("product") or connection.institution_name)
-        account.iban = iban.replace(" ", "")
+        account.bank_connection_id = connection.id
+        account.external_account_id = external_id
+        account.name = str(item.get("name") or item.get("product") or item.get("details") or connection.institution_name)
+        account.iban = iban
         account.currency = str(item.get("currency") or "EUR")
         account.account_scope = "pro" if connection.psu_type.lower() in {"business", "corporate"} else "personal"
         if existing is None:
             db.add(account)
         await db.flush()
         balances = await enable_banking.get_account_balances(db, external_id)
-        account.current_balance = _extract_balance(balances, ("closing", "interim", "current"))
-        account.available_balance = _extract_balance(balances, ("available", "interim", "current"))
+        account.current_balance = _extract_balance(balances, ("closing", "interim", "current", "clav", "clbd"))
+        account.available_balance = _extract_balance(balances, ("available", "interim", "current", "itav", "xpcd"))
         account.last_synced_at = datetime.utcnow()
         count += 1
     await db.commit()

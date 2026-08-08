@@ -1,22 +1,36 @@
-# Full-Time VA Android v0.4.10
+# Full-Time VA Android v0.4.12
 
-## v0.4.10 GitHub notification health isolation
+## v0.4.12 Open Banking authorization fix
+
+- Resolves Beobank/Revolut against the exact Belgian ASPSP name returned by Enable Banking instead of assuming the display label is the API identifier.
+- Sends `access.valid_until` as an RFC3339 timestamp and caps it to each ASPSP's `maximum_consent_validity`.
+- Explicitly requests balances and transactions in the AIS consent.
+- Uses `GET /sessions/{session_id}` plus `GET /accounts/{account_id}/details` after authorization, matching the current Enable Banking API instead of the obsolete/nonexistent account-list request.
+- Reads session validity from `access.valid_until`.
+- Android now shows the exact bank-start failure in a Snackbar and verifies that the returned authorization URL can actually be opened.
+- Payment initiation also resolves the provider's exact current PIS ASPSP name.
+
+## v0.4.12 CI regression-test fix
+
+The GitHub-notification health isolation code was already correct, but its regression test required the Dart `if (!optional)` assignment to appear on one physical line. The implementation uses a normal braced block, so CI failed even though the behavior was correct. The test now checks the logic independent of whitespace/bracing.
+
+## v0.4.12 GitHub notification health isolation
 
 GitHub personal notifications are optional. The Android client no longer records `/api/github/notifications` failures as VA server-health failures, and the backend route now fails soft to an empty list for permission, rate-limit, transport, timeout, and provider-side errors. Repository, Actions, releases, issues, and persistent Android-signing automation are unaffected.
 
-## v0.4.10 persistent Android update signing
+## v0.4.12 persistent Android update signing
 
 Previous GitHub-hosted builds used Flutter's generated debug signing configuration. GitHub-hosted runners are ephemeral, so a different debug keystore can be created on different runs. Android rejects an APK update when its signing certificate differs from the installed APK.
 
-Version 0.4.10 removes debug signing from release builds. Release APKs require one persistent PKCS#12 signing key. The VA backend can generate the key, keep an encrypted copy in PostgreSQL, and install the four required values as GitHub Actions repository secrets. The GitHub token must have repository **Secrets: Read and write** permission.
+Version 0.4.12 removes debug signing from release builds. Release APKs require one persistent PKCS#12 signing key. The VA backend can generate the key, keep an encrypted copy in PostgreSQL, and install the four required values as GitHub Actions repository secrets. The GitHub token must have repository **Secrets: Read and write** permission.
 
-Phone-only bootstrap page after backend 0.4.10 is deployed:
+Phone-only bootstrap page after backend 0.4.12 is deployed:
 
 `https://<your-va-server>/setup/android-signing`
 
-The first move from an older temporary-signed APK to 0.4.10 still requires one uninstall because the previous signing private key is not recoverable from an ephemeral GitHub runner. After the first stable-signed 0.4.10 APK is installed, later APKs can update it normally as long as the signing key is never rotated and versionCode keeps increasing. Backend data, Google OAuth, banking connections, and automation settings remain on the server and are not deleted by uninstalling the Android client.
+The first move from an older temporary-signed APK to 0.4.12 still requires one uninstall because the previous signing private key is not recoverable from an ephemeral GitHub runner. After the first stable-signed 0.4.12 APK is installed, later APKs can update it normally as long as the signing key is never rotated and versionCode keeps increasing. Backend data, Google OAuth, banking connections, and automation settings remain on the server and are not deleted by uninstalling the Android client.
 
-## v0.4.10 pairing repair fix
+## v0.4.12 pairing repair fix
 
 - Fixes `Invalid pairing secret` after repairing an existing Render backend.
 - The phone now waits for the exact Render deploy triggered by the repair to reach `live` before it attempts pairing.
@@ -25,14 +39,14 @@ The first move from an older temporary-signed APK to 0.4.10 still requires one u
 - Existing PostgreSQL data, OAuth tokens, connector settings, and `TOKEN_ENCRYPTION_KEY` remain preserved during repair.
 
 
-## v0.4.10 resilient GitHub build
+## v0.4.12 resilient GitHub build
 
 - The main Android workflow contains no `uses:` actions, so it does not depend on GitHub's action-download metadata phase.
 - It checks out the repository with Git, installs Flutter directly from the official Flutter repository, tests the backend, runs Flutter analysis/tests, builds the release APK, and publishes the APK as a GitHub prerelease.
 - A GitHub-hosted runner still has to start; a full GitHub Actions runner outage cannot be bypassed from inside a workflow.
 
 
-## v0.4.10 Flutter analyzer cleanup
+## v0.4.12 Flutter analyzer cleanup
 
 - Replaced the final conditional map entry with Dart null-aware map syntax (`'category': ?category`) so `flutter analyze` completes without the `use_null_aware_elements` finding.
 - Retains the previous per-endpoint refresh isolation, local connector catalog, custom-connector dialogs, and phone-based Render repair flow.
@@ -41,7 +55,7 @@ The first move from an older temporary-signed APK to 0.4.10 still requires one u
 - Every backend endpoint is loaded independently and diagnostics identify the exact missing route.
 - The connector templates and 36-service catalog are bundled in the APK, so **Add custom** and **Choose service** open even before the server catalog loads.
 - A public `/api/system/info` endpoint verifies the deployed backend version.
-- The app can repair an existing Render service from the phone: it updates the repository/root directory, preserves the database and encryption key, rotates the pairing secret, clears the build cache, redeploys, verifies backend 0.4.10, and pairs again.
+- The app can repair an existing Render service from the phone: it updates the repository/root directory, preserves the database and encryption key, rotates the pairing secret, clears the build cache, redeploys, verifies backend 0.4.12, and pairs again.
 - The deployment wizard reuses an existing service and database instead of creating duplicates.
 
 
@@ -177,7 +191,7 @@ This covers services that expose an API, OAuth application, webhook, standard ma
 1. Put this project in a private GitHub repository while using the phone.
 2. Open **Actions → Build Android APK → Run workflow**.
 3. Open the completed workflow run.
-4. Open the run summary or **Releases**, then download `Full-Time-VA-Android-v0.4.10.apk`.
+4. Open the run summary or **Releases**, then download `Full-Time-VA-Android-v0.4.12.apk`.
 5. Extract and install `app-release.apk`.
 6. Confirm Android's installation prompt.
 

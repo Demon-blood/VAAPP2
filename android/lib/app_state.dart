@@ -111,11 +111,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.4.10')) {
+        if (!_versionAtLeast(backendVersion, '0.4.12')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.4.10 requires backend 0.4.10 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.4.12 requires backend 0.4.12 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;

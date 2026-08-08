@@ -498,8 +498,33 @@ class _BuiltInServiceCard extends StatelessWidget {
   }
 
   Future<void> _connectBank(BuildContext context, String name) async {
-    final url = await context.read<AppState>().startBankConnection(institutionName: name);
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(content: Text('Starting $name authorization…')));
+    try {
+      final url = await context.read<AppState>().startBankConnection(institutionName: name);
+      final uri = Uri.tryParse(url);
+      if (uri == null || !uri.hasScheme || !(uri.scheme == 'https' || uri.scheme == 'http')) {
+        throw StateError('The banking provider returned an invalid authorization URL: $url');
+      }
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) {
+        throw StateError('Android could not open the banking authorization page.');
+      }
+      if (context.mounted) {
+        messenger.hideCurrentSnackBar();
+      }
+    } catch (error) {
+      if (context.mounted) {
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Could not start $name connection: $error'),
+            duration: const Duration(seconds: 12),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _disconnect(BuildContext context) async {
