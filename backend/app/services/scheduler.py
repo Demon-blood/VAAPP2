@@ -1,102 +1,197 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.database import SessionLocal
 from app.core.settings import get_settings
-from app.services.action_reconciler import reconcile_action_queue
-from app.services.automation_engine import run_connector_automation_rules
-from app.services.banking_service import auto_pay_eligible_bills, refresh_all_payments, sync_all_banks
-from app.services.email_processor import sync_gmail
-from app.services.operations_service import sync_google_contacts
+from app.services.workflow_engine import enqueue_job, recover_expired_leases, worker_tick
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 scheduler = AsyncIOScheduler(timezone=settings.default_timezone)
 
 
-async def gmail_job() -> None:
+def _bucket_key(prefix: str, minutes: int) -> str:
+    window = max(1, minutes) * 60
+    bucket = int(datetime.utcnow().timestamp()) // window
+    return f"{prefix}:{bucket}"
+
+
+async def gmail_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
     async with SessionLocal() as db:
         try:
-            await sync_gmail(db, max_messages=250)
+            await enqueue_job(
+                db,
+                job_type="gmail.sync",
+                payload={"max_messages": 250},
+                idempotency_key=_bucket_key("gmail.sync", settings.gmail_sync_minutes),
+                priority=20,
+            )
         except Exception:
-            logger.exception("Gmail automation job failed")
+            logger.exception("Failed to enqueue Gmail Autopilot job")
 
 
-async def banking_job() -> None:
+async def banking_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
     async with SessionLocal() as db:
         try:
-            await sync_all_banks(db)
-            callback_url = str(settings.public_base_url).rstrip("/") + "/api/banking/payment-callback"
-            await auto_pay_eligible_bills(db, redirect_url=callback_url)
-            await refresh_all_payments(db)
-            await reconcile_action_queue(db)
+            await enqueue_job(
+                db,
+                job_type="banking.autopilot",
+                payload={},
+                idempotency_key=_bucket_key("banking.autopilot", settings.bank_sync_minutes),
+                priority=10,
+                max_attempts=10,
+            )
         except Exception:
-            logger.exception("Banking automation job failed")
+            logger.exception("Failed to enqueue banking Autopilot job")
 
 
-async def external_services_job() -> None:
+async def external_services_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
     async with SessionLocal() as db:
         try:
-            await sync_google_contacts(db)
+            await enqueue_job(
+                db,
+                job_type="google.contacts.sync",
+                payload={},
+                idempotency_key=_bucket_key("google.contacts.sync", settings.external_sync_minutes),
+                priority=60,
+            )
         except Exception:
-            logger.exception("External service automation job failed")
+            logger.exception("Failed to enqueue external-services Autopilot job")
 
 
-async def connector_rules_job() -> None:
+async def connector_rules_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
     async with SessionLocal() as db:
         try:
-            await run_connector_automation_rules(db)
+            await enqueue_job(
+                db,
+                job_type="connectors.rules.run",
+                payload={},
+                idempotency_key=_bucket_key("connectors.rules.run", 1),
+                priority=50,
+            )
         except Exception:
-            logger.exception("Scheduled connector automation job failed")
+            logger.exception("Failed to enqueue connector-rules Autopilot job")
+
+
+async def housekeeping_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            await enqueue_job(
+                db,
+                job_type="housekeeping.documents",
+                payload={},
+                idempotency_key=_bucket_key("housekeeping.documents", 360),
+                priority=90,
+                max_attempts=5,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue housekeeping Autopilot job")
+
+
+async def workflow_worker_job() -> None:
+    if not settings.automation_enabled:
+        return
+    try:
+        await worker_tick(limit=4)
+    except Exception:
+        logger.exception("Autopilot workflow worker tick failed")
+
+
+async def workflow_watchdog_job() -> None:
+    async with SessionLocal() as db:
+        try:
+            outcome = await recover_expired_leases(db)
+            if outcome["recovered"] or outcome["dead_lettered"]:
+                logger.warning("Autopilot watchdog recovery: %s", outcome)
+        except Exception:
+            logger.exception("Autopilot workflow watchdog failed")
 
 
 def start_scheduler() -> None:
+    now = datetime.now()
     scheduler.add_job(
-        gmail_job,
+        gmail_enqueue_job,
         "interval",
         minutes=settings.gmail_sync_minutes,
-        id="gmail_sync",
+        id="gmail_sync_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        next_run_time=now,
     )
     scheduler.add_job(
-        banking_job,
+        banking_enqueue_job,
         "interval",
         minutes=settings.bank_sync_minutes,
-        id="bank_sync",
+        id="bank_sync_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        next_run_time=now,
     )
     scheduler.add_job(
-        connector_rules_job,
+        connector_rules_enqueue_job,
         "interval",
         minutes=1,
-        id="connector_rules",
+        id="connector_rules_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        next_run_time=now,
     )
     scheduler.add_job(
-        external_services_job,
+        external_services_enqueue_job,
         "interval",
         minutes=settings.external_sync_minutes,
-        id="external_services_sync",
+        id="external_services_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        housekeeping_enqueue_job,
+        "interval",
+        hours=6,
+        id="housekeeping_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        workflow_worker_job,
+        "interval",
+        seconds=5,
+        id="autopilot_worker",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        workflow_watchdog_job,
+        "interval",
+        seconds=60,
+        id="autopilot_watchdog",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
     )
     scheduler.start()
 
