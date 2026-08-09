@@ -7,7 +7,7 @@ from app.core.version import APP_VERSION
 
 
 def test_backend_version_matches_release() -> None:
-    assert APP_VERSION == "0.4.12"
+    assert APP_VERSION == "0.4.13"
 
 
 def test_required_system_and_connector_routes_exist() -> None:
@@ -24,6 +24,7 @@ def test_required_system_and_connector_routes_exist() -> None:
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
                 paths.add(value.value)
     assert "/api/system/info" in paths
+    assert "/api/ai/status" in paths
     assert "/api/connectors/templates" in paths
     assert "/api/connectors/presets" in paths
     assert "/api/connectors" in paths

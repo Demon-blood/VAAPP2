@@ -295,6 +295,7 @@ class _BuiltInServiceCard extends StatelessWidget {
               subtitle: Text(section['description'] as String),
               trailing: Text(configured ? 'Configured' : 'Setup required'),
             ),
+            if (slug == 'ai') _AiUsageSummary(usage: context.watch<AppState>().aiUsage),
             if ('${section['callback_url'] ?? ''}'.isNotEmpty)
               Row(
                 children: [
@@ -531,6 +532,38 @@ class _BuiltInServiceCard extends StatelessWidget {
     await context.read<AppState>().disconnectSetupSection(section['slug'] as String);
   }
 }
+
+class _AiUsageSummary extends StatelessWidget {
+  const _AiUsageSummary({required this.usage});
+
+  final Map<String, dynamic> usage;
+
+  @override
+  Widget build(BuildContext context) {
+    if (usage.isEmpty) return const SizedBox.shrink();
+    final requests = usage['requests'] ?? 0;
+    final requestBudget = usage['request_budget'] ?? 0;
+    final tokens = usage['total_tokens'] ?? 0;
+    final tokenBudget = usage['token_budget'] ?? 0;
+    final shortcuts = usage['rule_shortcuts'] ?? 0;
+    final fingerprints = usage['fingerprint_hits'] ?? 0;
+    final deferred = usage['deferred_count'] ?? 0;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        'Today: $requests / $requestBudget AI requests · $tokens / $tokenBudget tokens\n'
+        'Saved AI calls: $shortcuts rule shortcuts + $fingerprints fingerprint hits · Deferred: $deferred',
+      ),
+    );
+  }
+}
+
 
 class _ConnectorCard extends StatelessWidget {
   const _ConnectorCard({required this.connector});

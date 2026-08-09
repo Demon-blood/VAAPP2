@@ -298,6 +298,53 @@ class SubscriptionRecord(Base):
     )
 
 
+class AIUsageDaily(Base):
+    __tablename__ = "ai_usage_daily"
+
+    day_key: Mapped[str] = mapped_column(String(10), primary_key=True)
+    request_count: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    backfill_requests: Mapped[int] = mapped_column(Integer, default=0)
+    rate_limit_count: Mapped[int] = mapped_column(Integer, default=0)
+    deferred_count: Mapped[int] = mapped_column(Integer, default=0)
+    rule_shortcuts: Mapped[int] = mapped_column(Integer, default=0)
+    fingerprint_hits: Mapped[int] = mapped_column(Integer, default=0)
+    provider_remaining_requests: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    provider_remaining_tokens_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class SenderRule(Base):
+    __tablename__ = "sender_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_key: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(120))
+    priority: Mapped[str] = mapped_column(String(20), default="normal")
+    preserve: Mapped[bool] = mapped_column(Boolean, default=False)
+    archive: Mapped[bool] = mapped_column(Boolean, default=False)
+    trash_when_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    labels_json: Mapped[str] = mapped_column(Text, default="[]")
+    sample_count: Mapped[int] = mapped_column(Integer, default=1)
+    safe_shortcut: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class MessageFingerprint(Base):
+    __tablename__ = "message_fingerprints"
+
+    fingerprint: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_message_id: Mapped[str] = mapped_column(String(255), index=True)
+    decision_json: Mapped[str] = mapped_column(Text)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class RuntimeSetting(Base):
     __tablename__ = "runtime_settings"
 

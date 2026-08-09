@@ -14,7 +14,14 @@ from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.integrations.ai_client import AIConfigurationError, analyze_email
+from app.integrations.ai_client import (
+    AIConfigurationError,
+    AIQuotaDeferred,
+    analyze_email,
+    mark_ai_deferred,
+    mark_fingerprint_hit,
+    mark_rule_shortcut,
+)
 from app.integrations.google_api import (
     create_calendar_event,
     extract_gmail_body,
@@ -25,6 +32,19 @@ from app.integrations.google_api import (
 )
 from app.models.entities import AutomationRule, Bill, Creditor, EmailMessage, Task
 from app.schemas.api import AutomationDecision
+from app.services.ai_policy import (
+    cache_decision,
+    cached_decision,
+    content_fingerprint,
+    deterministic_shortcut,
+    learn_sender_rule,
+    local_extract,
+    protected_hint,
+    safe_fallback_decision,
+    sender_rule_for,
+    strip_quoted_history_and_signature,
+    urgent_hint,
+)
 from app.services.audit import write_audit
 from app.services.operations_service import (
     archive_email_attachments,
@@ -95,8 +115,25 @@ def _is_protected(decision: AutomationDecision) -> bool:
 def _parse_amount(value: Any) -> Decimal | None:
     if value is None:
         return None
-    normalized = str(value).replace("€", "").replace(" ", "").replace(",", ".")
-    normalized = re.sub(r"[^0-9.\-]", "", normalized)
+    normalized = re.sub(r"[^0-9,.-]", "", str(value).replace("€", "").replace("EUR", ""))
+    if not normalized:
+        return None
+    if "," in normalized and "." in normalized:
+        # The right-most separator is the decimal separator; the other is thousands grouping.
+        decimal_sep = "," if normalized.rfind(",") > normalized.rfind(".") else "."
+        thousands_sep = "." if decimal_sep == "," else ","
+        normalized = normalized.replace(thousands_sep, "")
+        if decimal_sep == ",":
+            normalized = normalized.replace(",", ".")
+    elif "," in normalized:
+        parts = normalized.split(",")
+        if len(parts) == 2 and len(parts[1]) in {1, 2}:
+            normalized = ".".join(parts)
+        else:
+            normalized = "".join(parts)
+    elif normalized.count(".") > 1:
+        parts = normalized.split(".")
+        normalized = "".join(parts[:-1]) + ("." + parts[-1] if len(parts[-1]) in {1, 2} else parts[-1])
     try:
         return Decimal(normalized).quantize(Decimal("0.01"))
     except (InvalidOperation, ValueError):
@@ -209,13 +246,14 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
     existing = (
         await db.execute(select(EmailMessage).where(EmailMessage.provider_message_id == message["id"]))
     ).scalar_one_or_none()
-    if existing and existing.status in {"processed", "failed_safe"}:
+    if existing and existing.status == "processed":
         return existing
 
     payload = message.get("payload") or {}
     headers = headers_to_dict(payload)
     plain, html = extract_gmail_body(payload)
-    body_text = plain or BeautifulSoup(html, "html.parser").get_text("\n", strip=True)
+    raw_body_text = plain or BeautifulSoup(html, "html.parser").get_text("\n", strip=True)
+    body_text = strip_quoted_history_and_signature(raw_body_text)
     service = await gmail_service(db)
     attachments = await _load_attachments(service, message)
     label_ids = set(message.get("labelIds") or [])
@@ -235,46 +273,133 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
         db.add(record)
     await db.flush()
 
-    analysis_input = {
-        "message_id": message["id"],
-        "is_read": is_read,
-        "sender": record.sender,
-        "recipients": record.recipients,
-        "subject": record.subject,
-        "body": body_text[:80_000],
-        "attachments": [
-            {key: value for key, value in item.items() if key != "_content"}
-            for item in attachments
-        ],
-        "existing_gmail_labels": list(label_ids),
-    }
-    try:
-        decision = await analyze_email(db, analysis_input)
-    except AIConfigurationError:
-        record.status = "waiting_for_ai_configuration"
-        await write_audit(
-            db,
-            "email_processing_blocked",
-            entity_type="email",
-            entity_id=message["id"],
-            result="blocked",
-            details={"reason": "AI provider is not configured"},
-        )
-        await db.commit()
-        return record
-    except Exception as exc:
-        record.status = "failed_safe"
-        await write_audit(
-            db,
-            "email_processing_failed",
-            entity_type="email",
-            entity_id=message["id"],
-            result="failed",
-            details={"error": str(exc)},
-        )
-        await db.commit()
-        return record
+    extraction = local_extract(body_text, attachments)
+    fingerprint = content_fingerprint(record.sender, record.subject, body_text, attachments)
+    decision: AutomationDecision | None = await cached_decision(db, fingerprint)
+    decision_source = "fingerprint" if decision else ""
+    deferred_ai = False
 
+    if decision is not None:
+        await mark_fingerprint_hit(db)
+    else:
+        learned_rule = await sender_rule_for(db, record.sender)
+        decision, decision_source = deterministic_shortcut(
+            sender=record.sender,
+            subject=record.subject,
+            body=body_text,
+            headers=headers,
+            label_ids=label_ids,
+            is_read=is_read,
+            extraction=extraction,
+            sender_rule=learned_rule,
+        )
+        if decision is not None:
+            await mark_rule_shortcut(db)
+
+    if decision is None:
+        compact_attachments = []
+        for item in attachments[:6]:
+            compact_attachments.append(
+                {
+                    "filename": item.get("filename"),
+                    "mime_type": item.get("mime_type"),
+                    "size": item.get("size"),
+                    "extracted_excerpt": strip_quoted_history_and_signature(
+                        str(item.get("extracted_text") or ""), 1_500
+                    ),
+                }
+            )
+        analysis_input = {
+            "message_id": message["id"],
+            "is_read": is_read,
+            "sender": record.sender,
+            "recipients": record.recipients,
+            "subject": record.subject,
+            "body": body_text[:12_000],
+            "attachments": compact_attachments,
+            "local_extraction": extraction,
+            "existing_gmail_labels": list(label_ids),
+        }
+        sensitive = protected_hint(record.sender, record.subject, body_text) is not None
+        urgent = urgent_hint(record.subject, body_text, extraction)
+        is_backfill = bool(
+            record.received_at
+            and (datetime.utcnow() - record.received_at).total_seconds() > 48 * 3600
+        )
+        try:
+            decision = await analyze_email(
+                db,
+                analysis_input,
+                urgent=urgent,
+                sensitive=sensitive,
+                is_backfill=is_backfill,
+            )
+            decision_source = "ai"
+            # Cache the paid AI decision immediately. If a later Gmail/Calendar/Drive action
+            # fails, the next retry reuses this decision instead of spending a second AI call.
+            await cache_decision(db, fingerprint, message["id"], decision)
+            await learn_sender_rule(db, record.sender, decision)
+            await db.commit()
+        except AIConfigurationError as exc:
+            deferred_ai = True
+            decision_source = "safe_fallback"
+            decision = safe_fallback_decision(
+                sender=record.sender,
+                subject=record.subject,
+                body=body_text,
+                is_read=is_read,
+                extraction=extraction,
+                reason=str(exc),
+            )
+            await write_audit(
+                db,
+                "email_processing_ai_deferred",
+                entity_type="email",
+                entity_id=message["id"],
+                result="deferred",
+                details={"reason": str(exc), "fallback": "deterministic"},
+            )
+        except AIQuotaDeferred as exc:
+            await mark_ai_deferred(db)
+            deferred_ai = True
+            decision_source = "safe_fallback"
+            decision = safe_fallback_decision(
+                sender=record.sender,
+                subject=record.subject,
+                body=body_text,
+                is_read=is_read,
+                extraction=extraction,
+                reason=str(exc),
+            )
+            await write_audit(
+                db,
+                "email_processing_ai_deferred",
+                entity_type="email",
+                entity_id=message["id"],
+                result="deferred",
+                details={"reason": str(exc), "retry_after": exc.retry_after, "fallback": "deterministic"},
+            )
+        except Exception as exc:
+            deferred_ai = True
+            decision_source = "safe_fallback"
+            decision = safe_fallback_decision(
+                sender=record.sender,
+                subject=record.subject,
+                body=body_text,
+                is_read=is_read,
+                extraction=extraction,
+                reason=str(exc),
+            )
+            await write_audit(
+                db,
+                "email_processing_ai_failed",
+                entity_type="email",
+                entity_id=message["id"],
+                result="deferred",
+                details={"error": str(exc), "fallback": "deterministic"},
+            )
+
+    assert decision is not None
     protected = _is_protected(decision)
     if not is_read:
         decision.trash = False
@@ -310,17 +435,23 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 )
             except ValueError:
                 due_at = None
-        db.add(
-            Task(
-                title=str(decision.task.get("title") or record.subject or "Email action"),
-                description=str(decision.task.get("description") or decision.reasoning_summary),
-                source_type="email",
-                source_id=message["id"],
-                due_at=due_at,
-                priority=decision.priority,
-                requires_approval=bool(decision.task.get("requires_approval", False)),
+        existing_task = (
+            await db.execute(
+                select(Task).where(Task.source_type == "email", Task.source_id == message["id"])
             )
-        )
+        ).scalars().first()
+        if existing_task is None:
+            db.add(
+                Task(
+                    title=str(decision.task.get("title") or record.subject or "Email action"),
+                    description=str(decision.task.get("description") or decision.reasoning_summary),
+                    source_type="email",
+                    source_id=message["id"],
+                    due_at=due_at,
+                    priority=decision.priority,
+                    requires_approval=bool(decision.task.get("requires_approval", False)),
+                )
+            )
 
     bill = await _upsert_bill(db, message["id"], decision)
 
@@ -362,16 +493,26 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 received_at=record.received_at,
             )
         except Exception as exc:
-            db.add(
-                Task(
-                    title=f"Archive documents: {record.subject}",
-                    description=f"Google Drive archival failed: {exc}",
-                    source_type="email",
-                    source_id=message["id"],
-                    priority="high" if protected else "normal",
-                    requires_approval=False,
+            existing_archive_task = (
+                await db.execute(
+                    select(Task).where(
+                        Task.source_type == "email_archive",
+                        Task.source_id == message["id"],
+                        Task.status.in_(["open", "waiting"]),
+                    )
                 )
-            )
+            ).scalars().first()
+            if existing_archive_task is None:
+                db.add(
+                    Task(
+                        title=f"Archive documents: {record.subject}",
+                        description=f"Google Drive archival failed: {exc}",
+                        source_type="email_archive",
+                        source_id=message["id"],
+                        priority="high" if protected else "normal",
+                        requires_approval=False,
+                    )
+                )
             await write_audit(
                 db,
                 "document_archival_failed",
@@ -381,7 +522,7 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 details={"error": str(exc)},
             )
 
-    if decision.calendar_event:
+    if decision.calendar_event and not deferred_ai:
         try:
             event_id = await create_calendar_event(db, decision.calendar_event)
             await write_audit(
@@ -392,18 +533,26 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 details={"calendar_event_id": event_id},
             )
         except Exception as exc:
-            db.add(
-                Task(
-                    title=f"Review calendar item: {record.subject}",
-                    description=f"The VA could not create the event automatically: {exc}",
-                    source_type="email",
-                    source_id=message["id"],
-                    priority="high",
-                    requires_approval=True,
+            existing_calendar_task = (
+                await db.execute(
+                    select(Task).where(
+                        Task.source_type == "calendar_review", Task.source_id == message["id"]
+                    )
                 )
-            )
+            ).scalars().first()
+            if existing_calendar_task is None:
+                db.add(
+                    Task(
+                        title=f"Review calendar item: {record.subject}",
+                        description=f"The VA could not create the event automatically: {exc}",
+                        source_type="calendar_review",
+                        source_id=message["id"],
+                        priority="high",
+                        requires_approval=True,
+                    )
+                )
 
-    if decision.reply:
+    if decision.reply and not deferred_ai:
         rule = await _matching_reply_rule(db, record.sender, decision.category)
         if rule:
             actions = json.loads(rule.actions_json)
@@ -423,35 +572,55 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                     details={"rule_id": rule.id},
                 )
             else:
+                existing_reply_task = (
+                    await db.execute(
+                        select(Task).where(Task.source_type == "email_reply", Task.source_id == message["id"])
+                    )
+                ).scalars().first()
+                if existing_reply_task is None:
+                    db.add(
+                        Task(
+                            title=f"Approve reply: {record.subject}",
+                            description=str(decision.reply.get("body") or ""),
+                            source_type="email_reply",
+                            source_id=message["id"],
+                            priority=decision.priority,
+                            requires_approval=True,
+                        )
+                    )
+        else:
+            existing_reply_task = (
+                await db.execute(
+                    select(Task).where(Task.source_type == "email_reply", Task.source_id == message["id"])
+                )
+            ).scalars().first()
+            if existing_reply_task is None:
                 db.add(
                     Task(
                         title=f"Approve reply: {record.subject}",
                         description=str(decision.reply.get("body") or ""),
-                        source_type="email",
+                        source_type="email_reply",
                         source_id=message["id"],
                         priority=decision.priority,
                         requires_approval=True,
                     )
                 )
-        else:
-            db.add(
-                Task(
-                    title=f"Approve reply: {record.subject}",
-                    description=str(decision.reply.get("body") or ""),
-                    source_type="email",
-                    source_id=message["id"],
-                    priority=decision.priority,
-                    requires_approval=True,
-                )
-            )
 
-    record.status = "processed"
+    if not deferred_ai:
+        if decision_source != "ai":
+            await cache_decision(db, fingerprint, message["id"], decision)
+        record.status = "processed"
+    else:
+        record.status = "deferred_ai"
+
     await write_audit(
         db,
-        "email_processed",
+        "email_processed" if not deferred_ai else "email_processed_safe_fallback",
         entity_type="email",
         entity_id=message["id"],
+        result="success" if not deferred_ai else "deferred",
         details={
+            "decision_source": decision_source,
             "category": decision.category,
             "priority": decision.priority,
             "archived": decision.archive,
@@ -461,6 +630,7 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
             "order_id": order.id if order else None,
             "subscription_id": subscription.id if subscription else None,
             "documents_archived": archived_documents,
+            "fingerprint": fingerprint,
         },
     )
     await db.commit()
@@ -477,10 +647,12 @@ async def sync_gmail(db: AsyncSession, max_messages: int = 100) -> int:
     )
     processed = 0
     for item in response.get("messages", []) or []:
-        existing = (
-            await db.execute(select(EmailMessage.id).where(EmailMessage.provider_message_id == item["id"]))
+        existing_status = (
+            await db.execute(
+                select(EmailMessage.status).where(EmailMessage.provider_message_id == item["id"])
+            )
         ).scalar_one_or_none()
-        if existing:
+        if existing_status == "processed":
             continue
         message = await asyncio.to_thread(
             lambda item_id=item["id"]: service.users()
@@ -491,3 +663,4 @@ async def sync_gmail(db: AsyncSession, max_messages: int = 100) -> int:
         await process_single_message(db, message)
         processed += 1
     return processed
+

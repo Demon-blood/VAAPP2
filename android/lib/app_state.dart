@@ -33,6 +33,7 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> githubRepositories = [];
   List<Map<String, dynamic>> githubNotifications = [];
   Map<String, dynamic> cloudflareResources = {};
+  Map<String, dynamic> aiUsage = {};
   List<Map<String, dynamic>> setupSections = [];
   List<Map<String, dynamic>> connectorTemplates = [];
   List<Map<String, dynamic>> connectorPresets = [];
@@ -88,6 +89,7 @@ class AppState extends ChangeNotifier {
     githubRepositories = [];
     githubNotifications = [];
     cloudflareResources = {};
+    aiUsage = {};
     setupSections = [];
     connectors = [];
     automationRules = [];
@@ -111,11 +113,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.4.12')) {
+        if (!_versionAtLeast(backendVersion, '0.4.13')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.4.12 requires backend 0.4.12 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.4.13 requires backend 0.4.13 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -168,6 +170,11 @@ class AppState extends ChangeNotifier {
       githubRepositories = [];
       githubNotifications = [];
       cloudflareResources = {};
+      aiUsage = {};
+      if (configuration['ai_configured'] == true) {
+        final usage = await _safeGet('/api/ai/status', optional: true);
+        if (usage is Map) aiUsage = Map<String, dynamic>.from(usage);
+      }
       if (configuration['github_configured'] == true) {
         final repositories = await _safeGet('/api/github/repositories');
         final notifications = await _safeGet('/api/github/notifications', optional: true);

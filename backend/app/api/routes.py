@@ -15,7 +15,7 @@ from app.core.crypto import hash_token, new_token
 from app.core.database import get_db
 from app.core.settings import get_settings
 from app.core.version import APP_VERSION, REQUIRED_ANDROID_VERSION
-from app.integrations.ai_client import AIConfigurationError, ensure_ai_configured
+from app.integrations.ai_client import AIConfigurationError, ai_usage_status, ensure_ai_configured
 from app.integrations.enable_banking import EnableBankingConfigurationError, ensure_enable_banking_configured
 from app.integrations.cloudflare_api import (
     CloudflareConfigurationError,
@@ -135,6 +135,9 @@ async def system_info() -> dict:
             "service_catalog",
             "universal_connectors",
             "automation_rules",
+            "ai_free_tier_budgeting",
+            "ai_sender_learning",
+            "ai_message_fingerprints",
             "phone_deployment",
         ],
     }
@@ -192,6 +195,13 @@ async def configuration_status(
         "automation_enabled": settings.automation_enabled,
         "mobile_setup_enabled": True,
     }
+
+
+@router.get("/api/ai/status")
+async def ai_status(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    return await ai_usage_status(db)
 
 
 @router.get("/api/dashboard", response_model=DashboardResponse)
@@ -1139,7 +1149,15 @@ async def test_setup_section(
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.get(base_url.rstrip("/") + "/models", headers={"Authorization": f"Bearer {key}"})
                 response.raise_for_status()
-            return {"live": True, "model": model, "status": response.status_code}
+            return {
+                "live": True,
+                "model": model,
+                "status": response.status_code,
+                "usage": await ai_usage_status(db),
+                "structured_output": "strict_json_schema"
+                if "api.groq.com" in base_url.lower() and model in {"openai/gpt-oss-20b", "openai/gpt-oss-120b"}
+                else "json_object",
+            }
         if section_slug == "enable_banking":
             from app.integrations.enable_banking import verify_connection
             result = await verify_connection(db)
