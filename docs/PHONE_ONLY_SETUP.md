@@ -10,7 +10,7 @@ From the phone:
 2. Upload the project while preserving `.github/workflows/android-release.yml`, `android/`, and `backend/`.
 3. Open the repository's **Actions** tab.
 4. Open **Build Android APK** and select **Run workflow**.
-5. After the run succeeds, open **Releases** and download `Full-Time-VA-Android-v0.4.13.apk`.
+5. After the run succeeds, open **Releases** and download `Full-Time-VA-Android-v0.4.14.apk`.
 6. Extract the artifact and install `app-release.apk`.
 7. Allow installation from the browser or file manager when Android requests it.
 
@@ -146,12 +146,12 @@ When the app reports that routes are missing or the backend version is too old:
 4. Leave the database field empty.
 5. Tap **Provision, deploy, verify and pair**.
 
-The wizard detects the existing Render service, preserves its database and encryption key, updates the repository, branch, and `backend` root directory, rotates the one-time pairing secret, triggers a clean-cache deployment, waits for `/api/system/info` to report backend 0.4.13 or newer, and then pairs the phone again. It does not create a duplicate service.
+The wizard detects the existing Render service, preserves its database and encryption key, updates the repository, branch, and `backend` root directory, rotates the one-time pairing secret, triggers a clean-cache deployment, waits for `/api/system/info` to report backend 0.4.14 or newer, and then pairs the phone again. It does not create a duplicate service.
 
 
 ## Persistent Android update signing
 
-Before building the first stable-signed APK, deploy backend 0.4.13 and open `https://<your-va-server>/setup/android-signing` on the phone. Enter the current Render `PAIRING_SECRET` and the GitHub repository (`owner/name`). The configured GitHub fine-grained token needs repository **Secrets: Read and write** permission. The backend generates one 4096-bit RSA PKCS#12 signing key, stores it encrypted in PostgreSQL, and installs these GitHub Actions secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
+Before building the first stable-signed APK, deploy backend 0.4.14 and open `https://<your-va-server>/setup/android-signing` on the phone. Enter the current Render `PAIRING_SECRET` and the GitHub repository (`owner/name`). The configured GitHub fine-grained token needs repository **Secrets: Read and write** permission. The backend generates one 4096-bit RSA PKCS#12 signing key, stores it encrypted in PostgreSQL, and installs these GitHub Actions secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
 
 Do not rotate this key after installing the first stable-signed APK. Android requires all future update APKs to be signed by the same key.
 

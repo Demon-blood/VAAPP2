@@ -128,12 +128,12 @@ def local_extract(body: str, attachments: list[dict[str, Any]]) -> dict[str, Any
 
     amounts: list[str] = []
     amount_patterns = [
-        r"(?:€|EUR)\s*([0-9][0-9.,\s]*(?:[,.][0-9]{2})?)",
-        r"([0-9][0-9.,\s]*(?:[,.][0-9]{2}))\s*(?:€|EUR)\b",
+        r"(?:€|EUR)[ \t\u00A0\u202F]*([0-9][0-9., \t\u00A0\u202F]*(?:[,.][0-9]{2})?)",
+        r"([0-9][0-9., \t\u00A0\u202F]*(?:[,.][0-9]{2}))[ \t\u00A0\u202F]*(?:€|EUR)\b",
     ]
     for pattern in amount_patterns:
         for match in re.finditer(pattern, combined, re.I):
-            raw = match.group(1).replace(" ", "")
+            raw = re.sub(r"[ \t\u00A0\u202F]+", "", match.group(1)).strip()
             if raw:
                 amounts.append(raw)
 

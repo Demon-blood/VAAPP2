@@ -524,7 +524,7 @@ class MobileDeploymentService {
     return value;
   }
 
-  Future<bool> waitUntilHealthy(String serverUrl, {String requiredVersion = '0.4.13'}) async {
+  Future<bool> waitUntilHealthy(String serverUrl, {String requiredVersion = '0.4.14'}) async {
     for (var attempt = 0; attempt < 90; attempt++) {
       try {
         final health = await http.get(Uri.parse('$serverUrl/health')).timeout(const Duration(seconds: 20));

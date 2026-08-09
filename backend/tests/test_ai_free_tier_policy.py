@@ -43,6 +43,15 @@ def test_local_invoice_extraction_uses_body_without_ai() -> None:
     assert "BE68539007547034" in extraction["iban_candidates"]
     assert extraction["reference"] == "+++123/4567/89012+++"
     assert "invoice" in extraction["cues"]
+    assert all("\n" not in value and "\r" not in value for value in extraction["amount_candidates"])
+
+
+def test_amount_extraction_does_not_cross_line_boundaries() -> None:
+    extraction = local_extract(
+        "Te betalen: EUR 123,45\n2026-08-20\nIBAN BE68 5390 0754 7034",
+        [],
+    )
+    assert extraction["amount_candidates"] == ["123,45"]
 
 
 def test_read_newsletter_is_shortcut_without_ai() -> None:
