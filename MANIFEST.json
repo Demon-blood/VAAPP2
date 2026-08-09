@@ -1,0 +1,9 @@
+{
+  "target_commit": "910648297bb9e6da9492744df60082fb0fd4b7aa",
+  "files": [
+    "repair_v050_autopilot.py",
+    "model_append.pyfrag",
+    "README.md"
+  ],
+  "purpose": "Repair missing workflow ORM models and v0.5.0 release metadata"
+}
