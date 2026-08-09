@@ -10,6 +10,7 @@ from app.core.version import APP_VERSION
 from app.core.settings import get_settings
 from app.services.action_reconciler import reconcile_action_queue
 from app.services.scheduler import start_scheduler, stop_scheduler
+from app.services.operations_service import cleanup_low_value_documents
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -25,6 +26,13 @@ async def lifespan(_: FastAPI):
             await reconcile_action_queue(db)
     except Exception:
         logger.exception("Initial action-queue reconciliation failed")
+    # Remove legacy low-value attachments such as generic Terms of Service files that
+    # older versions may have archived before the retention policy was tightened.
+    try:
+        async with SessionLocal() as db:
+            await cleanup_low_value_documents(db)
+    except Exception:
+        logger.exception("Initial document-retention cleanup failed")
     start_scheduler()
     yield
     stop_scheduler()

@@ -27,6 +27,7 @@ android/lib/services/mobile_deployment_service.dart
 android/lib/theme/va_theme.dart
 android/lib/widgets/automation_rules_section.dart
 android/lib/widgets/common_widgets.dart
+android/lib/widgets/va_mascot.dart
 android/pubspec.yaml
 android/test/widget_test.dart
 android/tooling/app-build.gradle.kts
@@ -68,6 +69,7 @@ backend/app/services/automation_engine.py
 backend/app/services/banking_service.py
 backend/app/services/certificate_service.py
 backend/app/services/connector_service.py
+backend/app/services/document_policy.py
 backend/app/services/email_processor.py
 backend/app/services/operations_service.py
 backend/app/services/runtime_config.py
@@ -79,6 +81,7 @@ backend/tests/test_ai_free_tier_policy.py
 backend/tests/test_android_signing.py
 backend/tests/test_connector_catalog.py
 backend/tests/test_crypto.py
+backend/tests/test_document_retention_policy.py
 backend/tests/test_enable_banking_aspsp_resolution.py
 backend/tests/test_github_notifications.py
 backend/tests/test_github_notifications_optional.py

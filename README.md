@@ -1,6 +1,16 @@
-# Full-Time VA Android v0.4.15
+# Full-Time VA Android v0.4.16
 
-## v0.4.15 action centre + visual redesign
+## v0.4.16 smart document retention + premium UI
+
+- Filters generic Terms of Service, privacy/cookie policies, legal boilerplate, unsubscribe pages, calendar/vCard attachments, signatures, logos and tracking/branding assets before they can enter the durable document archive.
+- Keeps actual invoices, receipts, statements, contracts, signed agreements, tax/legal/medical records and scanned receipts even when their filenames contain generic words such as “terms”.
+- Cleans legacy low-value VA-managed files from both the document index and Google Drive at backend startup; **Run VA now** and **Clean document archive** retry cleanup later if Google was temporarily unavailable.
+- `/api/documents` hides filtered boilerplate immediately so the Work > Documents screen never presents it as a retained document.
+- Fixes the Money/Bills navigation state so stale `Not Found` errors are cleared, money data is refreshed on entry, and a failed bills endpoint is shown as an explicit load error instead of a false “No detected bills” state.
+- Recreates the reference design as native Flutter UI: darker glass-like surfaces, purple/blue gradients, compact status cards, search/filter chips, richer Money/Work layouts and a runtime-drawn assistant mascot. No UI asset is cropped from the reference image.
+- Adds searchable/filterable Documents and Inbox views while preserving real action execution, bank authorization and automation controls.
+
+## v0.4.16 action centre + visual redesign
 
 - Replaces the passive Today counters with tappable action cards for **Emails needing action**, **Unpaid bills**, **Open tasks**, and **Payment approvals**.
 - Adds **Run VA now**, which executes the same safe Gmail, bank, auto-pay, payment-status, contacts, connector-rule, and reconciliation stages as the background scheduler.
@@ -13,13 +23,13 @@
 - Adds a cohesive dark navy/purple visual system, redesigned action cards, richer status surfaces, a branded onboarding experience, and a new Full-Time VA launcher icon.
 - The Android build workflow installs the persistent branded launcher icon after `flutter create`, so cloud builds no longer fall back to Flutter's default icon.
 
-## v0.4.15 invoice amount extraction fix
+## v0.4.16 invoice amount extraction fix
 
 - Prevents local EUR amount extraction from consuming newline characters or crossing line boundaries.
 - Normalizes horizontal whitespace, including non-breaking spaces commonly used in European invoices.
 - Adds regression coverage for newline-safe amount candidates before bill parsing and AI fallback.
 
-## v0.4.15 free-tier AI optimization
+## v0.4.16 free-tier AI optimization
 
 - Uses deterministic Gmail signals and learned low-risk sender rules before calling the AI provider.
 - Reuses cached decisions for identical message fingerprints so the same content is never charged twice.
@@ -38,7 +48,7 @@
 Recommended free primary configuration: `https://api.groq.com/openai/v1` + `openai/gpt-oss-20b`.
 
 
-## v0.4.15 Open Banking authorization fix
+## v0.4.16 Open Banking authorization fix
 
 - Resolves Beobank/Revolut against the exact Belgian ASPSP name returned by Enable Banking instead of assuming the display label is the API identifier.
 - Sends `access.valid_until` as an RFC3339 timestamp and caps it to each ASPSP's `maximum_consent_validity`.
@@ -48,27 +58,27 @@ Recommended free primary configuration: `https://api.groq.com/openai/v1` + `open
 - Android now shows the exact bank-start failure in a Snackbar and verifies that the returned authorization URL can actually be opened.
 - Payment initiation also resolves the provider's exact current PIS ASPSP name.
 
-## v0.4.15 CI regression-test fix
+## v0.4.16 CI regression-test fix
 
 The GitHub-notification health isolation code was already correct, but its regression test required the Dart `if (!optional)` assignment to appear on one physical line. The implementation uses a normal braced block, so CI failed even though the behavior was correct. The test now checks the logic independent of whitespace/bracing.
 
-## v0.4.15 GitHub notification health isolation
+## v0.4.16 GitHub notification health isolation
 
 GitHub personal notifications are optional. The Android client no longer records `/api/github/notifications` failures as VA server-health failures, and the backend route now fails soft to an empty list for permission, rate-limit, transport, timeout, and provider-side errors. Repository, Actions, releases, issues, and persistent Android-signing automation are unaffected.
 
-## v0.4.15 persistent Android update signing
+## v0.4.16 persistent Android update signing
 
 Previous GitHub-hosted builds used Flutter's generated debug signing configuration. GitHub-hosted runners are ephemeral, so a different debug keystore can be created on different runs. Android rejects an APK update when its signing certificate differs from the installed APK.
 
-Version 0.4.15 removes debug signing from release builds. Release APKs require one persistent PKCS#12 signing key. The VA backend can generate the key, keep an encrypted copy in PostgreSQL, and install the four required values as GitHub Actions repository secrets. The GitHub token must have repository **Secrets: Read and write** permission.
+Version 0.4.16 removes debug signing from release builds. Release APKs require one persistent PKCS#12 signing key. The VA backend can generate the key, keep an encrypted copy in PostgreSQL, and install the four required values as GitHub Actions repository secrets. The GitHub token must have repository **Secrets: Read and write** permission.
 
-Phone-only bootstrap page after backend 0.4.15 is deployed:
+Phone-only bootstrap page after backend 0.4.16 is deployed:
 
 `https://<your-va-server>/setup/android-signing`
 
-The first move from an older temporary-signed APK to 0.4.15 still requires one uninstall because the previous signing private key is not recoverable from an ephemeral GitHub runner. After the first stable-signed 0.4.15 APK is installed, later APKs can update it normally as long as the signing key is never rotated and versionCode keeps increasing. Backend data, Google OAuth, banking connections, and automation settings remain on the server and are not deleted by uninstalling the Android client.
+The first move from an older temporary-signed APK to 0.4.16 still requires one uninstall because the previous signing private key is not recoverable from an ephemeral GitHub runner. After the first stable-signed 0.4.16 APK is installed, later APKs can update it normally as long as the signing key is never rotated and versionCode keeps increasing. Backend data, Google OAuth, banking connections, and automation settings remain on the server and are not deleted by uninstalling the Android client.
 
-## v0.4.15 pairing repair fix
+## v0.4.16 pairing repair fix
 
 - Fixes `Invalid pairing secret` after repairing an existing Render backend.
 - The phone now waits for the exact Render deploy triggered by the repair to reach `live` before it attempts pairing.
@@ -77,14 +87,14 @@ The first move from an older temporary-signed APK to 0.4.15 still requires one u
 - Existing PostgreSQL data, OAuth tokens, connector settings, and `TOKEN_ENCRYPTION_KEY` remain preserved during repair.
 
 
-## v0.4.15 resilient GitHub build
+## v0.4.16 resilient GitHub build
 
 - The main Android workflow contains no `uses:` actions, so it does not depend on GitHub's action-download metadata phase.
 - It checks out the repository with Git, installs Flutter directly from the official Flutter repository, tests the backend, runs Flutter analysis/tests, builds the release APK, and publishes the APK as a GitHub prerelease.
 - A GitHub-hosted runner still has to start; a full GitHub Actions runner outage cannot be bypassed from inside a workflow.
 
 
-## v0.4.15 Flutter analyzer cleanup
+## v0.4.16 Flutter analyzer cleanup
 
 - Replaced the final conditional map entry with Dart null-aware map syntax (`'category': ?category`) so `flutter analyze` completes without the `use_null_aware_elements` finding.
 - Retains the previous per-endpoint refresh isolation, local connector catalog, custom-connector dialogs, and phone-based Render repair flow.
@@ -93,7 +103,7 @@ The first move from an older temporary-signed APK to 0.4.15 still requires one u
 - Every backend endpoint is loaded independently and diagnostics identify the exact missing route.
 - The connector templates and 36-service catalog are bundled in the APK, so **Add custom** and **Choose service** open even before the server catalog loads.
 - A public `/api/system/info` endpoint verifies the deployed backend version.
-- The app can repair an existing Render service from the phone: it updates the repository/root directory, preserves the database and encryption key, rotates the pairing secret, clears the build cache, redeploys, verifies backend 0.4.15, and pairs again.
+- The app can repair an existing Render service from the phone: it updates the repository/root directory, preserves the database and encryption key, rotates the pairing secret, clears the build cache, redeploys, verifies backend 0.4.16, and pairs again.
 - The deployment wizard reuses an existing service and database instead of creating duplicates.
 
 
@@ -229,7 +239,7 @@ This covers services that expose an API, OAuth application, webhook, standard ma
 1. Put this project in a private GitHub repository while using the phone.
 2. Open **Actions → Build Android APK → Run workflow**.
 3. Open the completed workflow run.
-4. Open the run summary or **Releases**, then download `Full-Time-VA-Android-v0.4.15.apk`.
+4. Open the run summary or **Releases**, then download `Full-Time-VA-Android-v0.4.16.apk`.
 5. Extract and install `app-release.apk`.
 6. Confirm Android's installation prompt.
 

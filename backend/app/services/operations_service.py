@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import get_settings
-from app.integrations.google_api import list_google_contacts, upload_drive_file
+from app.integrations.google_api import delete_drive_file, list_google_contacts, upload_drive_file
 from app.models.entities import (
     ContactRecord,
     DocumentRecord,
@@ -19,6 +19,7 @@ from app.models.entities import (
     SupportCase,
 )
 from app.services.audit import write_audit
+from app.services.document_policy import document_retention_decision
 
 settings = get_settings()
 
@@ -94,6 +95,20 @@ async def archive_email_attachments(
         content = attachment.get("_content")
         if not isinstance(content, bytes) or not content:
             continue
+        filename = str(attachment.get("filename") or "attachment")
+        mime_type = str(attachment.get("mime_type") or "application/octet-stream")
+        keep, reason = document_retention_decision(filename, mime_type, len(content))
+        if not keep:
+            await write_audit(
+                db,
+                "document_archive_skipped",
+                entity_type="email",
+                entity_id=message_id,
+                result="filtered",
+                details={"name": filename, "mime_type": mime_type, "reason": reason},
+            )
+            continue
+
         checksum = hashlib.sha256(content).hexdigest()
         existing = (
             await db.execute(
@@ -108,8 +123,8 @@ async def archive_email_attachments(
             continue
         uploaded = await upload_drive_file(
             db,
-            name=str(attachment.get("filename") or "attachment"),
-            mime_type=str(attachment.get("mime_type") or "application/octet-stream"),
+            name=filename,
+            mime_type=mime_type,
             content=content,
             folder_path=folder_path,
             app_properties={
@@ -124,8 +139,8 @@ async def archive_email_attachments(
         record = DocumentRecord(
             source_type="email",
             source_id=message_id,
-            name=str(uploaded.get("name") or attachment.get("filename") or "attachment"),
-            mime_type=str(uploaded.get("mimeType") or attachment.get("mime_type") or "application/octet-stream"),
+            name=str(uploaded.get("name") or filename),
+            mime_type=str(uploaded.get("mimeType") or mime_type),
             size_bytes=int(uploaded.get("size") or len(content)),
             category=category,
             account_scope=account_scope,
@@ -143,6 +158,40 @@ async def archive_email_attachments(
             details={"message_id": message_id, "name": record.name, "category": category},
         )
     return archived
+
+
+async def cleanup_low_value_documents(db: AsyncSession) -> dict[str, int]:
+    """Remove legacy VA-managed boilerplate from both Drive and the document index."""
+    rows = list((await db.execute(select(DocumentRecord).order_by(DocumentRecord.id))).scalars())
+    result = {"removed": 0, "kept": 0, "failed": 0}
+    for row in rows:
+        keep, reason = document_retention_decision(row.name, row.mime_type, row.size_bytes)
+        if keep:
+            result["kept"] += 1
+            continue
+        try:
+            await delete_drive_file(db, row.drive_file_id)
+            await write_audit(
+                db,
+                "document_removed_by_retention_policy",
+                entity_type="document",
+                entity_id=str(row.id),
+                details={"name": row.name, "drive_file_id": row.drive_file_id, "reason": reason},
+            )
+            await db.delete(row)
+            result["removed"] += 1
+        except Exception as exc:
+            result["failed"] += 1
+            await write_audit(
+                db,
+                "document_retention_cleanup_failed",
+                entity_type="document",
+                entity_id=str(row.id),
+                result="failed",
+                details={"name": row.name, "reason": reason, "error": str(exc)},
+            )
+    await db.commit()
+    return result
 
 
 async def upsert_support_case(

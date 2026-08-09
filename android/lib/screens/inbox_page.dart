@@ -8,7 +8,7 @@ import '../app_state.dart';
 import '../theme/va_theme.dart';
 import '../widgets/common_widgets.dart';
 
-class InboxPage extends StatelessWidget {
+class InboxPage extends StatefulWidget {
   const InboxPage({
     this.actionOnly = false,
     this.onShowAll,
@@ -23,85 +23,134 @@ class InboxPage extends StatelessWidget {
   final VoidCallback? onOpenBills;
 
   @override
+  State<InboxPage> createState() => _InboxPageState();
+}
+
+class _InboxPageState extends State<InboxPage> {
+  final searchController = TextEditingController();
+  String priorityFilter = 'All';
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final emails = actionOnly
-        ? state.emails.where((email) => email['action_required'] == true).toList()
+    final query = searchController.text.trim().toLowerCase();
+    final base = widget.actionOnly
+        ? state.emails.where((email) => email['action_required'] == true)
         : state.emails;
-    if (emails.isEmpty) {
-      return EmptyState(
-        icon: Icons.inbox_outlined,
-        title: actionOnly ? 'No unresolved email actions' : 'No processed messages',
-        message: actionOnly
-            ? 'The VA has executed or resolved every current email action.'
-            : 'Connect Google and run Gmail sync. This screen never displays fabricated mail.',
-      );
-    }
+    final emails = base.where((email) {
+      final priority = '${email['priority'] ?? 'normal'}'.toLowerCase();
+      final priorityMatch = switch (priorityFilter) {
+        'High' => priority == 'high' || priority == 'urgent',
+        'Medium' => priority == 'medium' || priority == 'normal',
+        'Low' => priority == 'low',
+        _ => true,
+      };
+      final haystack = '${email['subject'] ?? ''} ${email['sender'] ?? ''} ${email['category'] ?? ''} ${email['snippet'] ?? ''}'.toLowerCase();
+      return priorityMatch && (query.isEmpty || haystack.contains(query));
+    }).toList();
+
+    final sourceCount = widget.actionOnly
+        ? state.emails.where((email) => email['action_required'] == true).length
+        : state.emails.length;
+    final highCount = base.where((email) {
+      final priority = '${email['priority'] ?? ''}'.toLowerCase();
+      return priority == 'high' || priority == 'urgent';
+    }).length;
+    final lowCount = base.where((email) => '${email['priority'] ?? ''}'.toLowerCase() == 'low').length;
+    final mediumCount = sourceCount - highCount - lowCount;
+
     return RefreshIndicator(
       onRefresh: () => context.read<AppState>().syncGmail(),
-      child: ListView.builder(
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-        itemCount: emails.length + 1,
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            return _InboxHeader(
-              actionOnly: actionOnly,
-              count: emails.length,
-              onShowAll: onShowAll,
-            );
-          }
-          final email = emails[index - 1];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _EmailActionCard(
-              email: email,
-              onOpenTasks: onOpenTasks,
-              onOpenBills: onOpenBills,
+        children: [
+          if (widget.actionOnly)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Emails needing action',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                if (widget.onShowAll != null)
+                  TextButton.icon(
+                    onPressed: widget.onShowAll,
+                    icon: const Icon(Icons.all_inbox_rounded),
+                    label: const Text('Show all'),
+                  ),
+              ],
             ),
-          );
-        },
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _priorityChip('All', sourceCount),
+                _priorityChip('High', highCount),
+                _priorityChip('Medium', mediumCount < 0 ? 0 : mediumCount),
+                _priorityChip('Low', lowCount),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: searchController,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Search emails…',
+              prefixIcon: Icon(Icons.search_rounded),
+              suffixIcon: Icon(Icons.tune_rounded),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (emails.isEmpty)
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * .50,
+              child: EmptyState(
+                icon: Icons.inbox_outlined,
+                title: widget.actionOnly && sourceCount == 0
+                    ? 'No unresolved email actions'
+                    : 'No matching messages',
+                message: widget.actionOnly && sourceCount == 0
+                    ? 'The VA has executed or resolved every current email action.'
+                    : query.isNotEmpty || priorityFilter != 'All'
+                        ? 'Try another search or priority filter.'
+                        : 'Connect Google and run Gmail sync. This screen never displays fabricated mail.',
+              ),
+            )
+          else
+            for (final email in emails) ...[
+              _EmailActionCard(
+                email: email,
+                onOpenTasks: widget.onOpenTasks,
+                onOpenBills: widget.onOpenBills,
+              ),
+              const SizedBox(height: 9),
+            ],
+        ],
       ),
     );
   }
-}
 
-class _InboxHeader extends StatelessWidget {
-  const _InboxHeader({required this.actionOnly, required this.count, this.onShowAll});
-
-  final bool actionOnly;
-  final int count;
-  final VoidCallback? onShowAll;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    actionOnly ? 'Action queue' : 'Processed inbox',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  Text(
-                    actionOnly ? '$count unresolved message${count == 1 ? '' : 's'}' : '$count recent processed messages',
-                    style: const TextStyle(color: VaTheme.textMuted),
-                  ),
-                ],
-              ),
-            ),
-            if (actionOnly && onShowAll != null)
-              TextButton.icon(
-                onPressed: onShowAll,
-                icon: const Icon(Icons.all_inbox_rounded),
-                label: const Text('Show all'),
-              ),
-          ],
+  Widget _priorityChip(String label, int count) => Padding(
+        padding: const EdgeInsets.only(right: 7),
+        child: ChoiceChip(
+          selected: priorityFilter == label,
+          onSelected: (_) => setState(() => priorityFilter = label),
+          label: Text('$label $count'),
         ),
       );
 }
+
 
 class _EmailActionCard extends StatelessWidget {
   const _EmailActionCard({required this.email, this.onOpenTasks, this.onOpenBills});

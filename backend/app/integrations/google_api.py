@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 import httpx
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -402,6 +403,19 @@ async def upload_drive_file(
         fields="id,name,mimeType,size,webViewLink,createdTime",
     ).execute()
     return result
+
+
+async def delete_drive_file(db: AsyncSession, file_id: str) -> None:
+    """Delete one VA-managed Drive file; a missing file is already effectively cleaned."""
+    if not file_id:
+        return
+    service = await drive_service(db)
+    try:
+        service.files().delete(fileId=file_id).execute()
+    except HttpError as exc:
+        if getattr(exc.resp, "status", None) == 404:
+            return
+        raise
 
 
 async def list_drive_archive(db: AsyncSession, page_size: int = 100) -> list[dict[str, Any]]:

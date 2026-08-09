@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models/view_models.dart';
+import '../theme/va_theme.dart';
 import '../widgets/common_widgets.dart';
 import 'tasks_page.dart';
 
@@ -49,45 +50,222 @@ class WorkPage extends StatelessWidget {
       );
 }
 
-class _DocumentsView extends StatelessWidget {
+class _DocumentsView extends StatefulWidget {
   const _DocumentsView();
 
   @override
+  State<_DocumentsView> createState() => _DocumentsViewState();
+}
+
+class _DocumentsViewState extends State<_DocumentsView> {
+  final searchController = TextEditingController();
+  String filter = 'All';
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final rows = context.watch<AppState>().documents;
-    if (rows.isEmpty) {
-      return const EmptyState(
-        icon: Icons.folder_outlined,
-        title: 'No archived documents',
-        message: 'Durable Gmail attachments are uploaded to the connected Google Drive archive.',
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(8),
-      itemCount: rows.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final row = rows[index];
-        return ListTile(
-          leading: const Icon(Icons.description_outlined),
-          title: Text('${row['name']}'),
-          subtitle: Text('${row['category']} · ${row['account_scope']}'),
-          trailing: Text(_size(row['size_bytes'])),
-          onTap: '${row['drive_web_url'] ?? ''}'.isEmpty
-              ? null
-              : () => launchUrl(Uri.parse('${row['drive_web_url']}'), mode: LaunchMode.externalApplication),
-        );
-      },
+    final state = context.watch<AppState>();
+    final query = searchController.text.trim().toLowerCase();
+    final rows = state.documents.where((row) {
+      final name = '${row['name'] ?? ''}'.toLowerCase();
+      final category = '${row['category'] ?? ''}'.toLowerCase();
+      final matchesQuery = query.isEmpty || name.contains(query) || category.contains(query);
+      final matchesFilter = switch (filter) {
+        'Finance' => category.contains('financ') || category.contains('geld') || category.contains('bill'),
+        'Purchase' => category.contains('purchase') || category.contains('order') || category.contains('receipt'),
+        'Important' => category.contains('legal') || category.contains('contract') || category.contains('tax') || category.contains('medical'),
+        _ => true,
+      };
+      return matchesQuery && matchesFilter;
+    }).toList();
+
+    return RefreshIndicator(
+      onRefresh: () => context.read<AppState>().refreshAll(),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: searchController,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    hintText: 'Search documents…',
+                    prefixIcon: Icon(Icons.search_rounded),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                tooltip: 'Clean document archive',
+                onPressed: state.busy ? null : () => _cleanup(context),
+                icon: const Icon(Icons.auto_delete_outlined),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 38,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final option in const ['All', 'Finance', 'Purchase', 'Important']) ...[
+                  ChoiceChip(
+                    label: Text(option),
+                    selected: filter == option,
+                    onSelected: (_) => setState(() => filter = option),
+                  ),
+                  const SizedBox(width: 7),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (rows.isEmpty)
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * .48,
+              child: EmptyState(
+                icon: Icons.folder_outlined,
+                title: state.documents.isEmpty ? 'No saved documents' : 'No matching documents',
+                message: state.documents.isEmpty
+                    ? 'Only useful invoices, receipts, contracts, statements and other durable records are archived. Boilerplate Terms of Service and policy attachments are ignored.'
+                    : 'Try another search or filter.',
+              ),
+            )
+          else
+            for (final row in rows) ...[
+              _DocumentCard(row: row),
+              const SizedBox(height: 9),
+            ],
+        ],
+      ),
     );
   }
 
+  Future<void> _cleanup(BuildContext context) async {
+    try {
+      final result = await context.read<AppState>().cleanupDocuments();
+      if (!context.mounted) return;
+      final removed = (result['removed'] as num?)?.toInt() ?? 0;
+      final failed = (result['failed'] as num?)?.toInt() ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            removed == 0 && failed == 0
+                ? 'Document archive is already clean.'
+                : 'Removed $removed low-value document${removed == 1 ? '' : 's'}${failed > 0 ? ' · $failed could not be removed yet' : ''}.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+}
+
+class _DocumentCard extends StatelessWidget {
+  const _DocumentCard({required this.row});
+
+  final Map<String, dynamic> row;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = '${row['name'] ?? ''}';
+    final category = '${row['category'] ?? 'General'}';
+    final url = '${row['drive_web_url'] ?? ''}';
+    final extension = name.contains('.') ? name.split('.').last.toUpperCase() : 'FILE';
+    final accent = _accent(category);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: url.isEmpty ? null : () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              colors: [accent.withValues(alpha: .12), VaTheme.surface],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(color: accent.withValues(alpha: .30)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: .22),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(Icons.description_rounded, color: accent, size: 30),
+                    Positioned(
+                      bottom: 5,
+                      child: Text(extension.length > 4 ? extension.substring(0, 4) : extension, style: const TextStyle(fontSize: 7, fontWeight: FontWeight.w900)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Text('$category · ${row['account_scope'] ?? 'personal'}', style: const TextStyle(color: VaTheme.textMuted)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(_size(row['size_bytes']), style: const TextStyle(fontWeight: FontWeight.w700)),
+                  if (url.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    const Icon(Icons.open_in_new_rounded, size: 16, color: VaTheme.textMuted),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _accent(String category) {
+    final value = category.toLowerCase();
+    if (value.contains('financ') || value.contains('bill')) return VaTheme.success;
+    if (value.contains('purchase') || value.contains('order') || value.contains('receipt')) return VaTheme.warning;
+    if (value.contains('legal') || value.contains('contract') || value.contains('tax')) return VaTheme.primary;
+    return VaTheme.secondary;
+  }
+
   String _size(dynamic value) {
-    final bytes = (value as num?)?.toInt() ?? 0;
+    final bytes = (value as num?)?.toInt() ?? int.tryParse('$value') ?? 0;
     if (bytes >= 1024 * 1024) return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
     if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
     return '$bytes B';
   }
 }
+
 
 class _OrdersView extends StatelessWidget {
   const _OrdersView();

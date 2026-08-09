@@ -24,24 +24,43 @@ class _HomeShellState extends State<HomeShell> {
 
   static const labels = ['Today', 'Inbox', 'Work', 'Money', 'Services', 'Settings'];
 
-  void _openTasks() => setState(() => index = 2);
+  void _openTasks() {
+    context.read<AppState>().clearTransientError();
+    setState(() => index = 2);
+  }
 
-  void _openEmails() => setState(() {
-        inboxActionOnly = true;
-        index = 1;
-      });
+  void _openEmails() {
+    context.read<AppState>().clearTransientError();
+    setState(() {
+      inboxActionOnly = true;
+      index = 1;
+    });
+  }
 
-  void _openBills() => setState(() {
-        moneyTab = 0;
-        index = 3;
-      });
+  void _openBills() {
+    final state = context.read<AppState>();
+    state.clearTransientError();
+    setState(() {
+      moneyTab = 0;
+      index = 3;
+    });
+    state.refreshMoneyData();
+  }
 
-  void _openPayments() => setState(() {
-        moneyTab = 1;
-        index = 3;
-      });
+  void _openPayments() {
+    final state = context.read<AppState>();
+    state.clearTransientError();
+    setState(() {
+      moneyTab = 1;
+      index = 3;
+    });
+    state.refreshMoneyData();
+  }
 
-  void _openServices() => setState(() => index = 4);
+  void _openServices() {
+    context.read<AppState>().clearTransientError();
+    setState(() => index = 4);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -122,11 +141,14 @@ class _HomeShellState extends State<HomeShell> {
         height: 72,
         selectedIndex: index,
         onDestinationSelected: (value) {
+          final appState = context.read<AppState>();
+          appState.clearTransientError();
           setState(() {
             index = value;
             if (value == 1) inboxActionOnly = false;
             if (value == 3) moneyTab = 0;
           });
+          if (value == 3) appState.refreshMoneyData();
         },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Today'),

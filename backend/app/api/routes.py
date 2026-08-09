@@ -97,7 +97,8 @@ from app.services.banking_service import (
 )
 from app.services.action_reconciler import reconcile_action_queue
 from app.services.email_processor import sync_gmail
-from app.services.operations_service import sync_google_contacts
+from app.services.document_policy import document_retention_decision
+from app.services.operations_service import cleanup_low_value_documents, sync_google_contacts
 from app.services.runtime_config import CONFIG_SECTIONS, get_runtime_value, section_status, set_runtime_values
 from app.services.automation_engine import run_connector_automation_rules
 from app.services.connector_service import (
@@ -149,6 +150,9 @@ async def system_info() -> dict:
             "manual_safe_action_run",
             "task_action_execution",
             "branded_ui",
+            "smart_document_retention",
+            "document_cleanup",
+            "money_live_refresh",
             "phone_deployment",
         ],
     }
@@ -647,8 +651,14 @@ async def run_all_safe_actions(
         except Exception as exc:
             await db.rollback()
             errors["contacts"] = str(exc)
+        try:
+            result["document_cleanup"] = await cleanup_low_value_documents(db)
+        except Exception as exc:
+            await db.rollback()
+            errors["documents"] = str(exc)
     else:
         result["contacts_skipped"] = "Google is not connected"
+        result["document_cleanup_skipped"] = "Google is not connected"
 
     try:
         result["connector_rules"] = await run_connector_automation_rules(db)
@@ -862,9 +872,15 @@ async def list_documents(
     _: Device = Depends(require_device),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
+    # Never expose known boilerplate in the app even if a previous cleanup attempt could
+    # not remove the Drive file yet. Cleanup is retried at startup and through Run VA now.
     rows = list(
-        (await db.execute(select(DocumentRecord).order_by(DocumentRecord.id.desc()).limit(limit))).scalars()
+        (await db.execute(select(DocumentRecord).order_by(DocumentRecord.id.desc()).limit(limit * 2))).scalars()
     )
+    visible = [
+        row for row in rows
+        if document_retention_decision(row.name, row.mime_type, row.size_bytes)[0]
+    ][:limit]
     return [
         {
             "id": row.id,
@@ -877,8 +893,19 @@ async def list_documents(
             "drive_web_url": row.drive_web_url,
             "created_at": row.created_at,
         }
-        for row in rows
+        for row in visible
     ]
+
+
+@router.post("/api/documents/cleanup")
+async def cleanup_documents_now(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        return await cleanup_low_value_documents(db)
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/api/contacts")

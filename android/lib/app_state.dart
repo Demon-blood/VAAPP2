@@ -113,11 +113,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.4.15')) {
+        if (!_versionAtLeast(backendVersion, '0.4.16')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.4.15 requires backend 0.4.15 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.4.16 requires backend 0.4.16 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -245,6 +245,52 @@ class AppState extends ChangeNotifier {
       'psu_type': psuType,
     }) as Map;
     return data['authorization_url'] as String;
+  }
+
+  void clearTransientError() {
+    if (error == null) return;
+    error = null;
+    notifyListeners();
+  }
+
+  Future<void> refreshMoneyData() async {
+    busy = true;
+    error = null;
+    endpointErrors.remove('/api/bills');
+    endpointErrors.remove('/api/accounts');
+    endpointErrors.remove('/api/payments');
+    notifyListeners();
+    try {
+      final results = await Future.wait<dynamic>([
+        _safeGet('/api/bills'),
+        _safeGet('/api/accounts'),
+        _safeGet('/api/payments'),
+        _safeGet('/api/dashboard'),
+      ]);
+      if (results[0] is List) bills = _list(results[0]);
+      if (results[1] is List) accounts = _list(results[1]);
+      if (results[2] is List) payments = _list(results[2]);
+      if (results[3] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[3] as Map));
+      if (endpointErrors.isNotEmpty && serverWarning == null) {
+        final first = endpointErrors.entries.first;
+        serverWarning = 'Some VA server functions are unavailable. ${first.key}: ${first.value}';
+      }
+    } finally {
+      busy = false;
+      refreshComplete = true;
+      notifyListeners();
+    }
+  }
+
+  Future<Map<String, dynamic>> cleanupDocuments() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/documents/cleanup') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
   }
 
   Future<Map<String, dynamic>> runAutomationNow() async {

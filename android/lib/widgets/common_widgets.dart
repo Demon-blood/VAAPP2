@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/va_theme.dart';
+import 'va_mascot.dart';
 
 class CountCard extends StatelessWidget {
   const CountCard({
@@ -25,53 +26,66 @@ class CountCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(19),
           child: Ink(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: accent.withValues(alpha: .42)),
+              borderRadius: BorderRadius.circular(19),
+              border: Border.all(color: accent.withValues(alpha: .40)),
               gradient: LinearGradient(
                 colors: [
-                  accent.withValues(alpha: .16),
-                  VaTheme.surfaceRaised.withValues(alpha: .96),
+                  accent.withValues(alpha: .15),
+                  VaTheme.surface.withValues(alpha: .98),
+                  VaTheme.surfaceSoft,
                 ],
+                stops: const [0, .42, 1],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: .18),
-                  blurRadius: 18,
+                  color: accent.withValues(alpha: .07),
+                  blurRadius: 20,
                   offset: const Offset(0, 8),
                 ),
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.fromLTRB(14, 13, 13, 13),
               child: Row(
                 children: [
                   Container(
-                    width: 50,
-                    height: 50,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
-                      color: accent.withValues(alpha: .2),
-                      borderRadius: BorderRadius.circular(15),
+                      gradient: LinearGradient(
+                        colors: [accent.withValues(alpha: .40), accent.withValues(alpha: .14)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: accent.withValues(alpha: .25)),
                     ),
-                    child: Icon(icon, size: 28, color: accent),
+                    child: Icon(icon, size: 27, color: Color.lerp(accent, Colors.white, .22)),
                   ),
-                  const SizedBox(width: 15),
+                  const SizedBox(width: 13),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Text('$value', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-                            const SizedBox(width: 10),
+                            Text(
+                              '$value',
+                              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(width: 9),
                             Expanded(
                               child: Text(
                                 label,
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
                               ),
                             ),
                           ],
@@ -80,6 +94,8 @@ class CountCard extends StatelessWidget {
                           const SizedBox(height: 3),
                           Text(
                             subtitle!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodySmall?.copyWith(color: VaTheme.textMuted),
                           ),
                         ],
@@ -87,8 +103,8 @@ class CountCard extends StatelessWidget {
                     ),
                   ),
                   if (onTap != null) ...[
-                    const SizedBox(width: 8),
-                    Icon(Icons.chevron_right_rounded, color: accent),
+                    const SizedBox(width: 6),
+                    Icon(Icons.chevron_right_rounded, color: accent, size: 26),
                   ],
                 ],
               ),
@@ -108,9 +124,16 @@ class VaSectionCard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: padding,
         decoration: BoxDecoration(
-          color: VaTheme.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFF20324D)),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0C1B36), Color(0xFF09162C)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(19),
+          border: Border.all(color: VaTheme.border),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: .18), blurRadius: 18, offset: const Offset(0, 8)),
+          ],
         ),
         child: child,
       );
@@ -126,23 +149,15 @@ class EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 76,
-                height: 76,
-                decoration: BoxDecoration(
-                  color: VaTheme.primary.withValues(alpha: .14),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: const Icon(Icons.auto_awesome_rounded, size: 38, color: VaTheme.primary),
-              ),
-              const SizedBox(height: 16),
-              Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Text(message, textAlign: TextAlign.center, style: const TextStyle(color: VaTheme.textMuted)),
+              const VaAssistantMascot(size: 96, wave: false),
+              const SizedBox(height: 10),
+              Text(title, textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 7),
+              Text(message, textAlign: TextAlign.center, style: const TextStyle(color: VaTheme.textMuted, height: 1.4)),
             ],
           ),
         ),
@@ -156,6 +171,7 @@ class ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialBanner(
+        backgroundColor: const Color(0xFF261425),
         content: Text(message),
         leading: Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
         actions: const [SizedBox.shrink()],

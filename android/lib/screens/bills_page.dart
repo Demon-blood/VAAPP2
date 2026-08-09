@@ -14,20 +14,58 @@ class BillsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final outstanding = state.bills.where((bill) => !['paid', 'cancelled'].contains('${bill['status']}')).toList();
-    if (state.bills.isEmpty) {
-      return const EmptyState(
-        icon: Icons.receipt_long_outlined,
-        title: 'No detected bills',
-        message: 'Bills appear only after the live Gmail processor validates invoice information.',
+    final billsError = state.endpointErrors['/api/bills'];
+    final reportedCount = state.dashboard?.unpaidBills ?? 0;
+    if (billsError != null && state.bills.isEmpty) {
+      return _BillsLoadError(
+        message: billsError,
+        reportedCount: reportedCount,
       );
     }
-    final total = outstanding.fold<double>(0, (sum, bill) => sum + ((bill['amount'] as num?)?.toDouble() ?? double.tryParse('${bill['amount']}') ?? 0));
+
+    final outstanding = state.bills
+        .where((bill) => !['paid', 'cancelled'].contains('${bill['status']}'))
+        .toList()
+      ..sort((a, b) {
+        final aDue = DateTime.tryParse('${a['due_at'] ?? ''}');
+        final bDue = DateTime.tryParse('${b['due_at'] ?? ''}');
+        if (aDue == null && bDue == null) return 0;
+        if (aDue == null) return 1;
+        if (bDue == null) return -1;
+        return aDue.compareTo(bDue);
+      });
+    final closed = state.bills.where((bill) => ['paid', 'cancelled'].contains('${bill['status']}')).toList();
+    final visibleBills = [...outstanding, ...closed];
+
+    if (state.bills.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: () => context.read<AppState>().refreshMoneyData(),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * .62,
+              child: EmptyState(
+                icon: Icons.receipt_long_outlined,
+                title: reportedCount > 0 ? 'Bills are still loading' : 'No detected bills',
+                message: reportedCount > 0
+                    ? 'The dashboard reports $reportedCount outstanding bill${reportedCount == 1 ? '' : 's'}, but the bill list has not loaded yet. Pull to refresh or tap Retry.'
+                    : 'Bills appear after the live Gmail processor validates invoice information.',
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final total = outstanding.fold<double>(
+      0,
+      (sum, bill) => sum + ((bill['amount'] as num?)?.toDouble() ?? double.tryParse('${bill['amount']}') ?? 0),
+    );
     return RefreshIndicator(
-      onRefresh: () => context.read<AppState>().refreshAll(),
+      onRefresh: () => context.read<AppState>().refreshMoneyData(),
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-        itemCount: state.bills.length + 1,
+        itemCount: visibleBills.length + 1,
         itemBuilder: (context, index) {
           if (index == 0) {
             return Padding(
@@ -35,7 +73,7 @@ class BillsPage extends StatelessWidget {
               child: _BillsSummary(count: outstanding.length, total: total),
             );
           }
-          final bill = state.bills[index - 1];
+          final bill = visibleBills[index - 1];
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: _BillCard(bill: bill, accounts: state.accounts),
@@ -44,6 +82,68 @@ class BillsPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BillsLoadError extends StatelessWidget {
+  const _BillsLoadError({required this.message, required this.reportedCount});
+
+  final String message;
+  final int reportedCount;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(18),
+        children: [
+          const SizedBox(height: 70),
+          Center(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 520),
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: VaTheme.surface,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: VaTheme.danger.withValues(alpha: .45)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: VaTheme.danger.withValues(alpha: .14),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Icon(Icons.receipt_long_rounded, color: VaTheme.danger, size: 34),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Bills could not be loaded', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  Text(
+                    reportedCount > 0
+                        ? 'The dashboard still reports $reportedCount unpaid bill${reportedCount == 1 ? '' : 's'}, so the app will not pretend the list is empty.'
+                        : 'The bills endpoint did not return live data.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: VaTheme.textMuted),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(message, textAlign: TextAlign.center, style: const TextStyle(color: VaTheme.warning, fontSize: 12)),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => context.read<AppState>().refreshMoneyData(),
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Retry bill sync'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
 }
 
 class _BillsSummary extends StatelessWidget {
