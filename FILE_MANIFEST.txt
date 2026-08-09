@@ -1,4 +1,5 @@
 .github/workflows/android-release.yml
+FILE_MANIFEST.txt
 README.md
 android/analysis_options.yaml
 android/android/app/src/main/AndroidManifest.xml
@@ -41,6 +42,7 @@ backend/Dockerfile
 backend/app/__init__.py
 backend/app/api/__init__.py
 backend/app/api/routes.py
+backend/app/api_autopilot.py
 backend/app/core/__init__.py
 backend/app/core/auth.py
 backend/app/core/crypto.py
@@ -65,6 +67,7 @@ backend/app/services/ai_policy.py
 backend/app/services/android_signing.py
 backend/app/services/audit.py
 backend/app/services/automation_engine.py
+backend/app/services/autopilot_service.py
 backend/app/services/banking_service.py
 backend/app/services/certificate_service.py
 backend/app/services/connector_service.py
@@ -73,11 +76,13 @@ backend/app/services/email_processor.py
 backend/app/services/operations_service.py
 backend/app/services/runtime_config.py
 backend/app/services/scheduler.py
+backend/app/services/workflow_engine.py
 backend/docker-compose.yml
 backend/pyproject.toml
 backend/tests/test_action_center.py
 backend/tests/test_ai_free_tier_policy.py
 backend/tests/test_android_signing.py
+backend/tests/test_autopilot_service.py
 backend/tests/test_connector_catalog.py
 backend/tests/test_crypto.py
 backend/tests/test_document_retention_policy.py
@@ -85,9 +90,11 @@ backend/tests/test_enable_banking_aspsp_resolution.py
 backend/tests/test_github_notifications.py
 backend/tests/test_github_notifications_optional.py
 backend/tests/test_version_and_routes.py
+backend/tests/test_workflow_engine.py
 build_android.ps1
 docs/PHONE_ONLY_SETUP.md
 docs/PRODUCTION_REQUIREMENTS.md
+docs/V0.5.0_AUTOPILOT.md
 generate_enable_banking_keys.ps1
 render.yaml
 start_backend.ps1

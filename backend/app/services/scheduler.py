@@ -102,6 +102,40 @@ async def housekeeping_enqueue_job() -> None:
             logger.exception("Failed to enqueue housekeeping Autopilot job")
 
 
+async def provider_health_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            await enqueue_job(
+                db,
+                job_type="autopilot.provider_health",
+                payload={},
+                idempotency_key=_bucket_key("autopilot.provider_health", 5),
+                priority=80,
+                max_attempts=3,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue provider-health Autopilot job")
+
+
+async def daily_briefing_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            await enqueue_job(
+                db,
+                job_type="autopilot.daily_briefing",
+                payload={},
+                idempotency_key=_bucket_key("autopilot.daily_briefing", 1440),
+                priority=70,
+                max_attempts=3,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue daily-briefing Autopilot job")
+
+
 async def workflow_worker_job() -> None:
     if not settings.automation_enabled:
         return
@@ -168,6 +202,26 @@ def start_scheduler() -> None:
         "interval",
         hours=6,
         id="housekeeping_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        provider_health_enqueue_job,
+        "interval",
+        minutes=5,
+        id="autopilot_provider_health_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        daily_briefing_enqueue_job,
+        "interval",
+        hours=24,
+        id="autopilot_daily_briefing_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

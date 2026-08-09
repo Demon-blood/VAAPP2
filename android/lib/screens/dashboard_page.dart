@@ -57,6 +57,11 @@ class DashboardPage extends StatelessWidget {
         children: [
           _GreetingHero(state: state),
           const SizedBox(height: 14),
+          _AutopilotStatus(state: state),
+          const SizedBox(height: 12),
+          _NeedsYouSection(state: state, onOpenTasks: onOpenTasks, onOpenPayments: onOpenPayments),
+          const SizedBox(height: 14),
+          if (data.actionEmails > 0) ...[
           CountCard(
             label: 'Emails needing action',
             value: data.actionEmails,
@@ -68,6 +73,8 @@ class DashboardPage extends StatelessWidget {
             onTap: onOpenEmails,
           ),
           const SizedBox(height: 9),
+          ],
+          if (data.unpaidBills > 0) ...[
           CountCard(
             label: 'Unpaid bills',
             value: data.unpaidBills,
@@ -79,6 +86,8 @@ class DashboardPage extends StatelessWidget {
             onTap: onOpenBills,
           ),
           const SizedBox(height: 9),
+          ],
+          if (data.openTasks > 0) ...[
           CountCard(
             label: 'Open tasks',
             value: data.openTasks,
@@ -90,6 +99,8 @@ class DashboardPage extends StatelessWidget {
             onTap: onOpenTasks,
           ),
           const SizedBox(height: 9),
+          ],
+          if (data.paymentActions > 0) ...[
           CountCard(
             label: 'Payment approvals',
             value: data.paymentActions,
@@ -101,6 +112,7 @@ class DashboardPage extends StatelessWidget {
             onTap: onOpenPayments,
           ),
           const SizedBox(height: 12),
+          ],
           _RunVaButton(state: state),
           const SizedBox(height: 22),
           Row(
@@ -144,6 +156,115 @@ class DashboardPage extends StatelessWidget {
         'discord' => 'Discord',
         _ => key,
       };
+}
+
+class _AutopilotStatus extends StatelessWidget {
+  const _AutopilotStatus({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final health = state.autopilotHealth;
+    final status = '${health['status'] ?? 'unknown'}';
+    final healthy = status == 'healthy';
+    final jobs = Map<String, dynamic>.from(health['jobs'] as Map? ?? const {});
+    final dead = (jobs['dead_letter'] as num?)?.toInt() ?? 0;
+    final retry = (jobs['retry'] as num?)?.toInt() ?? 0;
+    final running = (jobs['running'] as num?)?.toInt() ?? 0;
+    return VaSectionCard(
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: (healthy ? VaTheme.success : VaTheme.warning).withValues(alpha: .14),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(
+              healthy ? Icons.autorenew_rounded : Icons.warning_amber_rounded,
+              color: healthy ? VaTheme.success : VaTheme.warning,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Autopilot ${healthy ? 'healthy' : status}', style: const TextStyle(fontWeight: FontWeight.w900)),
+                const SizedBox(height: 3),
+                Text(
+                  '$running running · $retry retrying · $dead needs recovery',
+                  style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          if (dead > 0)
+            TextButton(
+              onPressed: () async {
+                final failed = state.autopilotJobs.where((job) => job['status'] == 'dead_letter').toList();
+                if (failed.isEmpty) return;
+                await context.read<AppState>().requeueAutopilotJob((failed.first['id'] as num).toInt());
+              },
+              child: const Text('Retry'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NeedsYouSection extends StatelessWidget {
+  const _NeedsYouSection({required this.state, required this.onOpenTasks, required this.onOpenPayments});
+
+  final AppState state;
+  final VoidCallback onOpenTasks;
+  final VoidCallback onOpenPayments;
+
+  @override
+  Widget build(BuildContext context) {
+    final needsYou = (state.dailyBriefing['needs_you'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    if (needsYou.isEmpty) {
+      return VaSectionCard(
+        child: Row(
+          children: [
+            const Icon(Icons.done_all_rounded, color: VaTheme.success),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Nothing needs you right now. Autopilot is handling routine work.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return VaSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Needs you', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          for (final item in needsYou.take(4))
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: const Icon(Icons.priority_high_rounded, color: VaTheme.warning),
+              title: Text('${item['title'] ?? item['type'] ?? 'Action required'}', maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text('${item['detail'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: item['type'] == 'payment_authorization' ? onOpenPayments : onOpenTasks,
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _GreetingHero extends StatelessWidget {
@@ -295,14 +416,12 @@ class _RunVaButton extends StatelessWidget {
 
   Future<void> _runNow(BuildContext context) async {
     try {
-      final result = await context.read<AppState>().runAutomationNow();
+      final result = await context.read<AppState>().dispatchAutopilotIntent('run_va');
       if (!context.mounted) return;
-      final errors = (result['errors'] as Map?)?.length ?? 0;
-      final cleanup = result['document_cleanup'] as Map?;
-      final removed = (cleanup?['removed'] as num?)?.toInt() ?? 0;
-      final message = errors == 0
-          ? 'VA run completed${removed > 0 ? ' · $removed low-value document${removed == 1 ? '' : 's'} removed' : ''}.'
-          : 'VA run completed with $errors exception${errors == 1 ? '' : 's'}. Open the action cards for details.';
+      final workflowId = result['workflow_id'];
+      final message = workflowId == null
+          ? 'Autopilot accepted the request.'
+          : 'Autopilot workflow #$workflowId queued. It will continue even if you close the app.';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
       if (context.mounted) {

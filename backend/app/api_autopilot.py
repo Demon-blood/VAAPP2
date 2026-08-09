@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_device
 from app.core.database import get_db
-from app.models.entities import Device, WorkflowJob, WorkflowRun
+from app.models.entities import Device, OperationPreference, WorkflowJob, WorkflowRun
+from app.services.autopilot_service import daily_briefing, dispatch_intent, operations_profile, provider_health_snapshot
 from app.services.workflow_engine import requeue_dead_letter
 
 router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
@@ -31,11 +32,7 @@ async def autopilot_health(
     now = datetime.utcnow()
     stale_before = now - timedelta(minutes=5)
     counts = dict(
-        (
-            await db.execute(
-                select(WorkflowJob.status, func.count(WorkflowJob.id)).group_by(WorkflowJob.status)
-            )
-        ).all()
+        (await db.execute(select(WorkflowJob.status, func.count(WorkflowJob.id)).group_by(WorkflowJob.status))).all()
     )
     stalled = int(
         (
@@ -52,19 +49,80 @@ async def autopilot_health(
         (
             await db.execute(
                 select(func.count(WorkflowJob.id)).where(
-                    WorkflowJob.status.in_(["pending", "retry"]),
-                    WorkflowJob.run_after < stale_before,
+                    WorkflowJob.status.in_(["pending", "retry"]), WorkflowJob.run_after < stale_before
                 )
             )
         ).scalar_one()
     )
+    providers = await provider_health_snapshot(db)
     return {
-        "status": "degraded" if stalled or counts.get("dead_letter", 0) else "healthy",
+        "status": "degraded" if stalled or counts.get("dead_letter", 0) or providers["status"] == "degraded" else "healthy",
         "jobs": counts,
         "expired_leases": stalled,
         "overdue_jobs": overdue,
+        "providers": providers["providers"],
         "checked_at": now.isoformat() + "Z",
     }
+
+
+@router.get("/briefing")
+async def get_daily_briefing(
+    db: AsyncSession = Depends(get_db),
+    _: Device = Depends(require_device),
+) -> dict:
+    return await daily_briefing(db)
+
+
+@router.get("/profile")
+async def get_operations_profile(
+    db: AsyncSession = Depends(get_db),
+    _: Device = Depends(require_device),
+) -> dict:
+    return await operations_profile(db)
+
+
+@router.put("/profile/preferences/{domain}/{preference_key}")
+async def put_operation_preference(
+    domain: str,
+    preference_key: str,
+    value: dict = Body(default_factory=dict),
+    db: AsyncSession = Depends(get_db),
+    _: Device = Depends(require_device),
+) -> dict:
+    domain = domain.strip().lower()[:80]
+    preference_key = preference_key.strip()[:255]
+    if not domain or not preference_key:
+        raise HTTPException(status_code=400, detail="domain and preference_key are required")
+    row = (
+        await db.execute(
+            select(OperationPreference).where(
+                OperationPreference.domain == domain,
+                OperationPreference.preference_key == preference_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = OperationPreference(domain=domain, preference_key=preference_key)
+        db.add(row)
+    row.value_json = json.dumps(value, ensure_ascii=False, default=str)
+    row.confidence = 1
+    row.sample_count = max(1, row.sample_count or 0)
+    row.source = "explicit"
+    row.enabled = True
+    await db.commit()
+    return {"domain": domain, "key": preference_key, "value": value}
+
+
+@router.post("/intents")
+async def post_intent(
+    intent: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _: Device = Depends(require_device),
+) -> dict:
+    try:
+        return await dispatch_intent(db, intent)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/jobs")
@@ -105,11 +163,7 @@ async def list_autopilot_workflows(
     db: AsyncSession = Depends(get_db),
     _: Device = Depends(require_device),
 ) -> list[dict]:
-    rows = list(
-        (
-            await db.execute(select(WorkflowRun).order_by(WorkflowRun.created_at.desc()).limit(limit))
-        ).scalars()
-    )
+    rows = list((await db.execute(select(WorkflowRun).order_by(WorkflowRun.created_at.desc()).limit(limit))).scalars())
     return [
         {
             "id": row.id,

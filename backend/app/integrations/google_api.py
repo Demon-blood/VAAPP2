@@ -307,6 +307,38 @@ async def create_calendar_event(db: AsyncSession, event: dict[str, Any]) -> str:
     return result["id"]
 
 
+async def list_upcoming_calendar_events(db: AsyncSession, *, days: int = 7, max_results: int = 20) -> list[dict[str, Any]]:
+    service = await calendar_service(db)
+    now = datetime.utcnow()
+    time_min = now.isoformat(timespec="seconds") + "Z"
+    time_max = (now + timedelta(days=max(1, min(days, 30)))).isoformat(timespec="seconds") + "Z"
+    result = (
+        service.events()
+        .list(
+            calendarId="primary",
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=max(1, min(max_results, 100)),
+        )
+        .execute()
+    )
+    events = []
+    for item in result.get("items", []) or []:
+        events.append(
+            {
+                "id": item.get("id"),
+                "summary": item.get("summary") or "Untitled event",
+                "start": (item.get("start") or {}).get("dateTime") or (item.get("start") or {}).get("date"),
+                "end": (item.get("end") or {}).get("dateTime") or (item.get("end") or {}).get("date"),
+                "location": item.get("location") or "",
+                "html_link": item.get("htmlLink") or "",
+            }
+        )
+    return events
+
+
 async def start_gmail_watch(db: AsyncSession, topic_name: str) -> dict[str, Any]:
     service = await gmail_service(db)
     return service.users().watch(

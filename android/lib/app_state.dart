@@ -39,6 +39,9 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> connectorPresets = [];
   List<Map<String, dynamic>> connectors = [];
   List<Map<String, dynamic>> automationRules = [];
+  Map<String, dynamic> autopilotHealth = {};
+  Map<String, dynamic> dailyBriefing = {};
+  List<Map<String, dynamic>> autopilotJobs = [];
 
   Future<void> initialize() async {
     try {
@@ -93,6 +96,9 @@ class AppState extends ChangeNotifier {
     setupSections = [];
     connectors = [];
     automationRules = [];
+    autopilotHealth = {};
+    dailyBriefing = {};
+    autopilotJobs = [];
     systemInfo = {};
     endpointErrors = {};
     serverWarning = null;
@@ -113,11 +119,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.4.16')) {
+        if (!_versionAtLeast(backendVersion, '0.5.0')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.4.17 requires backend 0.4.16 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.5.0 requires backend 0.5.0 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -146,6 +152,9 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/connectors/presets'),
         _safeGet('/api/connectors'),
         _safeGet('/api/rules'),
+        _safeGet('/api/autopilot/health'),
+        _safeGet('/api/autopilot/briefing'),
+        _safeGet('/api/autopilot/jobs?limit=30'),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -166,6 +175,9 @@ class AppState extends ChangeNotifier {
       if (results[15] is List && (results[15] as List).isNotEmpty) connectorPresets = _list(results[15]);
       if (results[16] is List) connectors = _list(results[16]);
       if (results[17] is List) automationRules = _list(results[17]);
+      if (results[18] is Map) autopilotHealth = Map<String, dynamic>.from(results[18] as Map);
+      if (results[19] is Map) dailyBriefing = Map<String, dynamic>.from(results[19] as Map);
+      if (results[20] is List) autopilotJobs = _list(results[20]);
 
       githubRepositories = [];
       githubNotifications = [];
@@ -588,6 +600,24 @@ class AppState extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> loadAndroidBuildRuns() async {
     final data = await api.getJson('/api/github/workflows/android/runs');
     return _list(data);
+  }
+
+  Future<Map<String, dynamic>> dispatchAutopilotIntent(
+    String type, {
+    Map<String, dynamic>? payload,
+    int? billId,
+  }) async {
+    final body = <String, dynamic>{'type': type};
+    if (payload != null) body['payload'] = payload;
+    if (billId != null) body['bill_id'] = billId;
+    final result = Map<String, dynamic>.from(await api.postJson('/api/autopilot/intents', body) as Map);
+    await refreshAll(showBusy: false);
+    return result;
+  }
+
+  Future<void> requeueAutopilotJob(int jobId) async {
+    await api.postJson('/api/autopilot/jobs/$jobId/requeue');
+    await refreshAll(showBusy: false);
   }
 
   Future<void> _run(Future<void> Function() action, {bool showBusy = true}) async {

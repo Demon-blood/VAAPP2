@@ -78,6 +78,8 @@ def test_ai_defaults_match_groq_free_tier_strategy() -> None:
     assert fields["ai_model"]["default"] == "openai/gpt-oss-20b"
     assert fields["ai_daily_request_budget"]["default"] == "1000"
     assert fields["ai_daily_token_budget"]["default"] == "200000"
+    assert fields["ai_fallback_base_url"]["default"] == "https://generativelanguage.googleapis.com/v1beta/openai/"
+    assert fields["ai_fallback_model"]["default"] == "gemini-3.6-flash"
     assert fields["ai_fallback_allow_sensitive"]["default"] == "false"
 
 

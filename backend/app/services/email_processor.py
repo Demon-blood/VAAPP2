@@ -635,6 +635,30 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
         },
     )
     await db.commit()
+
+    if bill is not None:
+        try:
+            from app.services.autopilot_service import dispatch_intent
+
+            await dispatch_intent(
+                db,
+                {
+                    "type": "bill_lifecycle",
+                    "bill_id": bill.id,
+                    "correlation_key": f"bill:{bill.id}:detected",
+                },
+            )
+        except Exception as exc:
+            await db.rollback()
+            await write_audit(
+                db,
+                "bill_lifecycle_enqueue_failed",
+                entity_type="bill",
+                entity_id=str(bill.id),
+                result="failed",
+                details={"error": str(exc)},
+            )
+            await db.commit()
     return record
 
 

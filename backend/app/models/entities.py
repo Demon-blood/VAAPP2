@@ -370,3 +370,80 @@ class ServiceConnector(Base):
     last_test_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workflow_type: Mapped[str] = mapped_column(String(120), index=True)
+    correlation_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="running", index=True)
+    intent_json: Mapped[str] = mapped_column(Text, default="{}")
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class WorkflowJob(Base):
+    __tablename__ = "workflow_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workflow_run_id: Mapped[int | None] = mapped_column(ForeignKey("workflow_runs.id"), nullable=True, index=True)
+    job_type: Mapped[str] = mapped_column(String(120), index=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=8)
+    run_after: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    lease_owner: Mapped[str] = mapped_column(String(255), default="")
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        Index("ix_workflow_jobs_due", "status", "run_after", "priority"),
+    )
+
+
+class WorkflowJobDependency(Base):
+    __tablename__ = "workflow_job_dependencies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("workflow_jobs.id", ondelete="CASCADE"), index=True)
+    depends_on_job_id: Mapped[int] = mapped_column(ForeignKey("workflow_jobs.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "depends_on_job_id", name="uq_workflow_job_dependency"),
+    )
+
+
+
+class OperationPreference(Base):
+    __tablename__ = "operation_preferences"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain: Mapped[str] = mapped_column(String(80), index=True)
+    preference_key: Mapped[str] = mapped_column(String(255), index=True)
+    value_json: Mapped[str] = mapped_column(Text, default="{}")
+    confidence: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("1.0000"))
+    sample_count: Mapped[int] = mapped_column(Integer, default=1)
+    source: Mapped[str] = mapped_column(String(80), default="explicit")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("domain", "preference_key", name="uq_operation_preference"),
+    )

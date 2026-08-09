@@ -473,3 +473,160 @@ async def _document_housekeeping(db: AsyncSession, payload: dict[str, Any]) -> d
     result = await cleanup_low_value_documents(db)
     reconciled = await reconcile_action_queue(db)
     return {"documents": result, "actions": reconciled}
+
+
+@job_handler("bill.lifecycle")
+async def _bill_lifecycle(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from sqlalchemy import select
+
+    from app.core.settings import get_settings
+    from app.models.entities import BankAccount, Bill, Creditor, Payment, Task
+    from app.services.banking_service import create_payment_for_bill, refresh_payment
+
+    bill_id = int(payload.get("bill_id") or 0)
+    bill = await db.get(Bill, bill_id)
+    if bill is None:
+        raise ValueError(f"bill not found: {bill_id}")
+    if bill.status == "paid":
+        return {"bill_id": bill.id, "state": "settled"}
+
+    payment = (
+        await db.execute(
+            select(Payment)
+            .where(Payment.bill_id == bill.id, Payment.status.not_in(["failed", "cancelled", "rejected"]))
+            .order_by(Payment.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if payment is not None:
+        if payment.external_payment_id:
+            await refresh_payment(db, payment)
+        return {
+            "bill_id": bill.id,
+            "state": "settled" if payment.status == "completed" else ("authorization_required" if payment.requires_user_action else "payment_pending"),
+            "payment_id": payment.id,
+            "payment_status": payment.status,
+            "requires_user_action": payment.requires_user_action,
+            "authorization_url": payment.authorization_url,
+        }
+
+    if bill.status != "validated" or not bill.iban:
+        existing_task = (
+            await db.execute(
+                select(Task).where(
+                    Task.source_type == "bill_review",
+                    Task.source_id == str(bill.id),
+                    Task.status.in_(["open", "waiting"]),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_task is None:
+            db.add(
+                Task(
+                    title=f"Review bill from {bill.creditor_name}",
+                    description=bill.risk_reason or "The creditor or payment details require review before payment can be initiated.",
+                    source_type="bill_review",
+                    source_id=str(bill.id),
+                    priority="high",
+                    requires_approval=True,
+                )
+            )
+            await db.commit()
+        return {"bill_id": bill.id, "state": "needs_review"}
+
+    creditor = await db.get(Creditor, bill.creditor_id) if bill.creditor_id else None
+    if creditor is None or not creditor.auto_pay_enabled or creditor.iban != bill.iban:
+        existing_task = (
+            await db.execute(
+                select(Task).where(
+                    Task.source_type == "creditor_review",
+                    Task.source_id == str(bill.id),
+                    Task.status.in_(["open", "waiting"]),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_task is None:
+            db.add(
+                Task(
+                    title=f"Approve creditor: {bill.creditor_name}",
+                    description="The bill cannot be paid automatically until the exact creditor IBAN and payment limit are approved.",
+                    source_type="creditor_review",
+                    source_id=str(bill.id),
+                    priority="high",
+                    requires_approval=True,
+                )
+            )
+            await db.commit()
+        return {"bill_id": bill.id, "state": "needs_creditor_approval"}
+
+    accounts = list(
+        (
+            await db.execute(
+                select(BankAccount).where(
+                    BankAccount.enabled_for_payments.is_(True),
+                    BankAccount.account_scope == bill.account_scope,
+                    BankAccount.currency == bill.currency,
+                ).order_by(BankAccount.available_balance.desc().nullslast(), BankAccount.current_balance.desc().nullslast())
+            )
+        ).scalars()
+    )
+    selected = None
+    for account in accounts:
+        available = account.available_balance if account.available_balance is not None else account.current_balance
+        if available is not None and available - bill.amount >= account.safety_reserve:
+            selected = account
+            break
+    if selected is None:
+        existing_task = (
+            await db.execute(
+                select(Task).where(
+                    Task.source_type == "bill_payment",
+                    Task.source_id == str(bill.id),
+                    Task.status.in_(["open", "waiting"]),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_task is None:
+            db.add(
+                Task(
+                    title=f"Funding required for {bill.creditor_name}",
+                    description=f"No approved {bill.account_scope} account can pay {bill.amount} {bill.currency} while preserving its safety reserve.",
+                    source_type="bill_payment",
+                    source_id=str(bill.id),
+                    priority="high",
+                    requires_approval=False,
+                )
+            )
+            await db.commit()
+        return {"bill_id": bill.id, "state": "funding_required"}
+
+    settings = get_settings()
+    redirect_url = str(settings.public_base_url).rstrip("/") + "/api/banking/payment-callback"
+    payment = await create_payment_for_bill(
+        db,
+        bill_id=bill.id,
+        bank_account_id=selected.id,
+        redirect_url=redirect_url,
+    )
+    return {
+        "bill_id": bill.id,
+        "state": "authorization_required" if payment.requires_user_action else "payment_initiated",
+        "payment_id": payment.id,
+        "payment_status": payment.status,
+        "requires_user_action": payment.requires_user_action,
+        "authorization_url": payment.authorization_url,
+    }
+
+
+@job_handler("autopilot.provider_health")
+async def _provider_health(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.autopilot_service import provider_health_snapshot
+
+    return await provider_health_snapshot(db)
+
+
+@job_handler("autopilot.daily_briefing")
+async def _daily_briefing(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.autopilot_service import daily_briefing
+
+    return await daily_briefing(db)
