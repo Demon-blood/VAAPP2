@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../theme/va_theme.dart';
 import 'dashboard_page.dart';
 import 'inbox_page.dart';
 import 'money_page.dart';
@@ -18,40 +19,85 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
+  bool inboxActionOnly = false;
+  int moneyTab = 0;
 
-  final pages = const [
-    DashboardPage(),
-    InboxPage(),
-    WorkPage(),
-    MoneyPage(),
-    ServicesPage(),
-    SettingsPage(),
-  ];
+  static const labels = ['Today', 'Inbox', 'Work', 'Money', 'Services', 'Settings'];
 
-  final labels = const ['Today', 'Inbox', 'Work', 'Money', 'Services', 'Settings'];
+  void _openTasks() => setState(() => index = 2);
+
+  void _openEmails() => setState(() {
+        inboxActionOnly = true;
+        index = 1;
+      });
+
+  void _openBills() => setState(() {
+        moneyTab = 0;
+        index = 3;
+      });
+
+  void _openPayments() => setState(() {
+        moneyTab = 1;
+        index = 3;
+      });
+
+  void _openServices() => setState(() => index = 4);
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final pages = [
+      DashboardPage(
+        onOpenTasks: _openTasks,
+        onOpenEmails: _openEmails,
+        onOpenBills: _openBills,
+        onOpenPayments: _openPayments,
+        onOpenServices: _openServices,
+      ),
+      InboxPage(
+        actionOnly: inboxActionOnly,
+        onShowAll: () => setState(() => inboxActionOnly = false),
+        onOpenTasks: _openTasks,
+        onOpenBills: _openBills,
+      ),
+      WorkPage(onOpenBills: _openBills, onOpenPayments: _openPayments),
+      MoneyPage(key: ValueKey('money-$moneyTab'), initialIndex: moneyTab),
+      const ServicesPage(),
+      const SettingsPage(),
+    ];
     return Scaffold(
       appBar: AppBar(
-        title: Text(labels[index]),
+        titleSpacing: 16,
+        title: Row(
+          children: [
+            if (index != 0) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.asset('assets/app_icon.png', width: 34, height: 34, fit: BoxFit.cover),
+              ),
+              const SizedBox(width: 10),
+            ],
+            Text(labels[index], style: const TextStyle(fontWeight: FontWeight.w800)),
+          ],
+        ),
         actions: [
           IconButton(
             tooltip: 'Refresh live data',
             onPressed: state.busy ? null : () => context.read<AppState>().refreshAll(),
             icon: state.busy
                 ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.refresh),
+                : const Icon(Icons.refresh_rounded),
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
         children: [
           if (state.serverWarning != null)
             MaterialBanner(
+              backgroundColor: const Color(0xFF241A31),
               content: Text(state.serverWarning!),
-              leading: const Icon(Icons.cloud_off_outlined),
+              leading: const Icon(Icons.cloud_off_outlined, color: VaTheme.warning),
               actions: [
                 if (state.endpointErrors.isNotEmpty)
                   TextButton(onPressed: () => _showDiagnostics(context), child: const Text('Details')),
@@ -62,8 +108,9 @@ class _HomeShellState extends State<HomeShell> {
             ),
           if (state.error != null)
             MaterialBanner(
+              backgroundColor: const Color(0xFF2B1720),
               content: Text(state.error!),
-              leading: const Icon(Icons.error_outline),
+              leading: const Icon(Icons.error_outline, color: VaTheme.danger),
               actions: [
                 TextButton(onPressed: () => context.read<AppState>().refreshAll(), child: const Text('Refresh')),
               ],
@@ -72,15 +119,22 @@ class _HomeShellState extends State<HomeShell> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
+        height: 72,
         selectedIndex: index,
-        onDestinationSelected: (value) => setState(() => index = value),
+        onDestinationSelected: (value) {
+          setState(() {
+            index = value;
+            if (value == 1) inboxActionOnly = false;
+            if (value == 3) moneyTab = 0;
+          });
+        },
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.today_outlined), selectedIcon: Icon(Icons.today), label: 'Today'),
-          NavigationDestination(icon: Icon(Icons.inbox_outlined), selectedIcon: Icon(Icons.inbox), label: 'Inbox'),
-          NavigationDestination(icon: Icon(Icons.work_outline), selectedIcon: Icon(Icons.work), label: 'Work'),
-          NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet), label: 'Money'),
-          NavigationDestination(icon: Icon(Icons.hub_outlined), selectedIcon: Icon(Icons.hub), label: 'Services'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
+          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Today'),
+          NavigationDestination(icon: Icon(Icons.inbox_outlined), selectedIcon: Icon(Icons.inbox_rounded), label: 'Inbox'),
+          NavigationDestination(icon: Icon(Icons.work_outline), selectedIcon: Icon(Icons.work_rounded), label: 'Work'),
+          NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Money'),
+          NavigationDestination(icon: Icon(Icons.hub_outlined), selectedIcon: Icon(Icons.hub_rounded), label: 'Services'),
+          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings_rounded), label: 'Settings'),
         ],
       ),
     );

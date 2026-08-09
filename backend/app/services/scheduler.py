@@ -6,6 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.database import SessionLocal
 from app.core.settings import get_settings
+from app.services.action_reconciler import reconcile_action_queue
 from app.services.automation_engine import run_connector_automation_rules
 from app.services.banking_service import auto_pay_eligible_bills, refresh_all_payments, sync_all_banks
 from app.services.email_processor import sync_gmail
@@ -35,6 +36,7 @@ async def banking_job() -> None:
             callback_url = str(settings.public_base_url).rstrip("/") + "/api/banking/payment-callback"
             await auto_pay_eligible_bills(db, redirect_url=callback_url)
             await refresh_all_payments(db)
+            await reconcile_action_queue(db)
         except Exception:
             logger.exception("Banking automation job failed")
 

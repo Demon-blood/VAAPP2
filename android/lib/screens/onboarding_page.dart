@@ -17,10 +17,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final _deployForm = GlobalKey<FormState>();
   final _server = TextEditingController();
   final _secret = TextEditingController();
-  final _device = TextEditingController(text: 'Steven Android');
+  final _device = TextEditingController(text: 'Full-Time VA Android');
   final _renderToken = TextEditingController();
   final _repository = TextEditingController();
-  final _serviceName = TextEditingController(text: 'full-time-va-steven');
+  final _serviceName = TextEditingController(text: 'full-time-va');
   final _databaseUrl = TextEditingController();
   bool deploying = false;
   bool loadingWorkspaces = false;
@@ -46,10 +46,25 @@ class _OnboardingPageState extends State<OnboardingPage> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Icon(Icons.support_agent, size: 64),
-            const SizedBox(height: 8),
-            Text('Phone-first installation', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 8),
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(26),
+                child: Image.asset('assets/app_icon.png', width: 96, height: 96, fit: BoxFit.cover),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Your Full-Time VA',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Automated. Intelligent. Secure.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFFA8B3C7), fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
             const Text(
               'Deploy the private automation backend from this phone or pair with an existing deployment. External providers still use their official authorization pages.',
               textAlign: TextAlign.center,
@@ -312,9 +327,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
         );
       }
       if (!mounted) return;
-      setState(() => deploymentStatus = 'New server instance is Live. Verifying backend 0.4.14…');
+      setState(() => deploymentStatus = 'New server instance is Live. Verifying backend 0.4.15…');
       final healthy = await deployment.waitUntilHealthy(result.serverUrl);
-      if (!healthy) throw Exception('Render did not expose backend 0.4.14 after deployment. Confirm the repository contains the current backend folder and inspect the latest Render deploy logs.');
+      if (!healthy) throw Exception('Render did not expose backend 0.4.15 after deployment. Confirm the repository contains the current backend folder and inspect the latest Render deploy logs.');
       if (!mounted) return;
       setState(() => deploymentStatus = 'Backend verified. Pairing this phone with the newly deployed secret…');
       Object? lastPairingError;

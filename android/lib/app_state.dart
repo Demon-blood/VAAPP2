@@ -113,11 +113,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.4.14')) {
+        if (!_versionAtLeast(backendVersion, '0.4.15')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.4.14 requires backend 0.4.14 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.4.15 requires backend 0.4.15 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -247,11 +247,33 @@ class AppState extends ChangeNotifier {
     return data['authorization_url'] as String;
   }
 
+  Future<Map<String, dynamic>> runAutomationNow() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/actions/run') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
   Future<void> syncGmail() async {
     await _run(() async {
       await api.postJson('/api/sync/gmail');
       await refreshAll(showBusy: false);
     });
+  }
+
+  Future<Map<String, dynamic>> runAutomaticPaymentsNow() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/payments/auto-run') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
   }
 
   Future<void> syncBanks() async {
@@ -314,6 +336,17 @@ class AppState extends ChangeNotifier {
       });
       await refreshAll(showBusy: false);
     });
+  }
+
+  Future<Map<String, dynamic>> executeTaskAction(int taskId) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/tasks/$taskId/execute') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
   }
 
   Future<void> setTaskStatus(int taskId, String status) async {

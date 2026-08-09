@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'app_state.dart';
@@ -6,9 +7,17 @@ import 'screens/home_shell.dart';
 import 'screens/onboarding_page.dart';
 import 'services/api_client.dart';
 import 'services/background_service.dart';
+import 'theme/va_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: VaTheme.background,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
   await initializeBackgroundService();
   final state = AppState(ApiClient());
   await state.initialize();
@@ -27,20 +36,9 @@ class FullTimeVaApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         title: 'Full-Time VA',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4B5FFF)),
-          useMaterial3: true,
-          inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF8994FF),
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-          inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
-        ),
-        themeMode: ThemeMode.system,
+        theme: VaTheme.dark,
+        darkTheme: VaTheme.dark,
+        themeMode: ThemeMode.dark,
         home: Consumer<AppState>(
           builder: (context, state, _) {
             if (!state.initialized) {

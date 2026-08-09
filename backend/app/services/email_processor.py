@@ -32,6 +32,7 @@ from app.integrations.google_api import (
 )
 from app.models.entities import AutomationRule, Bill, Creditor, EmailMessage, Task
 from app.schemas.api import AutomationDecision
+from app.services.action_reconciler import reconcile_action_queue
 from app.services.ai_policy import (
     cache_decision,
     cached_decision,
@@ -662,5 +663,6 @@ async def sync_gmail(db: AsyncSession, max_messages: int = 100) -> int:
         )
         await process_single_message(db, message)
         processed += 1
+    await reconcile_action_queue(db)
     return processed
 

@@ -25,12 +25,14 @@ void callbackDispatcher() {
       if (response.statusCode != 200) return true;
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final actions = (data['action_emails'] as num?)?.toInt() ?? 0;
+      final tasks = (data['open_tasks'] as num?)?.toInt() ?? 0;
+      final bills = (data['unpaid_bills'] as num?)?.toInt() ?? 0;
       final paymentActions = (data['payments_requiring_action'] as num?)?.toInt() ?? 0;
-      if (actions + paymentActions > 0) {
+      if (actions + tasks + bills + paymentActions > 0) {
         await notifications.show(
           id: 1001,
-          title: 'Full-Time VA needs your attention',
-          body: '$actions message actions and $paymentActions payment approvals are waiting.',
+          title: 'Full-Time VA action centre',
+          body: '$actions email actions · $tasks tasks · $bills unpaid bills · $paymentActions payment approvals.',
           notificationDetails: const NotificationDetails(
             android: AndroidNotificationDetails(
               'va_priority',

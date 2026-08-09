@@ -31,6 +31,8 @@ class TaskResponse(BaseModel):
     id: int
     title: str
     description: str
+    source_type: str
+    source_id: str | None
     due_at: datetime | None
     priority: str
     status: str
@@ -50,6 +52,7 @@ class EmailResponse(BaseModel):
     priority: str
     action_required: bool
     status: str
+    analysis_json: str
 
     model_config = {"from_attributes": True}
 

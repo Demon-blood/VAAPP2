@@ -9,14 +9,17 @@ import '../widgets/common_widgets.dart';
 import 'tasks_page.dart';
 
 class WorkPage extends StatelessWidget {
-  const WorkPage({super.key});
+  const WorkPage({this.onOpenBills, this.onOpenPayments, super.key});
+
+  final VoidCallback? onOpenBills;
+  final VoidCallback? onOpenPayments;
 
   @override
-  Widget build(BuildContext context) => const DefaultTabController(
+  Widget build(BuildContext context) => DefaultTabController(
         length: 7,
         child: Column(
           children: [
-            TabBar(
+            const TabBar(
               isScrollable: true,
               tabs: [
                 Tab(text: 'Tasks'),
@@ -31,13 +34,13 @@ class WorkPage extends StatelessWidget {
             Expanded(
               child: TabBarView(
                 children: [
-                  TasksPage(),
-                  _DocumentsView(),
-                  _OrdersView(),
-                  _SubscriptionsView(),
-                  _SupportView(),
-                  _ContactsView(),
-                  _ProjectsView(),
+                  TasksPage(onOpenBills: onOpenBills, onOpenPayments: onOpenPayments),
+                  const _DocumentsView(),
+                  const _OrdersView(),
+                  const _SubscriptionsView(),
+                  const _SupportView(),
+                  const _ContactsView(),
+                  const _ProjectsView(),
                 ],
               ),
             ),

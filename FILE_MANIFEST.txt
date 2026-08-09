@@ -1,7 +1,9 @@
 .github/workflows/android-release.yml
+FILE_MANIFEST.txt
 README.md
 android/analysis_options.yaml
 android/android/app/src/main/AndroidManifest.xml
+android/assets/app_icon.png
 android/assets/connector_catalog.json
 android/lib/app_state.dart
 android/lib/main.dart
@@ -22,11 +24,18 @@ android/lib/services/api_client.dart
 android/lib/services/background_service.dart
 android/lib/services/local_connector_catalog.dart
 android/lib/services/mobile_deployment_service.dart
+android/lib/theme/va_theme.dart
 android/lib/widgets/automation_rules_section.dart
 android/lib/widgets/common_widgets.dart
 android/pubspec.yaml
 android/test/widget_test.dart
 android/tooling/app-build.gradle.kts
+android/tooling/app_icon/app_icon_1024.png
+android/tooling/app_icon/ic_launcher_hdpi.png
+android/tooling/app_icon/ic_launcher_mdpi.png
+android/tooling/app_icon/ic_launcher_xhdpi.png
+android/tooling/app_icon/ic_launcher_xxhdpi.png
+android/tooling/app_icon/ic_launcher_xxxhdpi.png
 backend/.env.example
 backend/Dockerfile
 backend/app/__init__.py
@@ -51,6 +60,7 @@ backend/app/models/entities.py
 backend/app/schemas/__init__.py
 backend/app/schemas/api.py
 backend/app/services/__init__.py
+backend/app/services/action_reconciler.py
 backend/app/services/ai_policy.py
 backend/app/services/android_signing.py
 backend/app/services/audit.py
@@ -64,6 +74,7 @@ backend/app/services/runtime_config.py
 backend/app/services/scheduler.py
 backend/docker-compose.yml
 backend/pyproject.toml
+backend/tests/test_action_center.py
 backend/tests/test_ai_free_tier_policy.py
 backend/tests/test_android_signing.py
 backend/tests/test_connector_catalog.py

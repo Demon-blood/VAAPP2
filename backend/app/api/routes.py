@@ -39,8 +39,10 @@ from app.integrations.github_api import (
 from app.integrations.google_api import (
     GoogleConfigurationError,
     complete_google_authorization,
+    create_calendar_event,
     create_google_authorization,
     ensure_google_configured,
+    send_gmail_message,
 )
 from app.models.entities import (
     AuditLog,
@@ -63,6 +65,7 @@ from app.models.entities import (
 from app.schemas.api import (
     AccountPolicyRequest,
     AccountResponse,
+    AutomationDecision,
     AutomationRuleRequest,
     BillResponse,
     ConnectionStartResponse,
@@ -83,16 +86,20 @@ from app.services.audit import write_audit
 from app.services.certificate_service import generate_enable_banking_keypair
 from app.services.android_signing import install_repository_signing, repository_signing_status
 from app.services.banking_service import (
+    auto_pay_eligible_bills,
     complete_bank_connection,
     complete_payment_authorization,
     create_payment_for_bill,
+    refresh_all_payments,
     refresh_payment,
     start_bank_connection,
     sync_all_banks,
 )
+from app.services.action_reconciler import reconcile_action_queue
 from app.services.email_processor import sync_gmail
 from app.services.operations_service import sync_google_contacts
 from app.services.runtime_config import CONFIG_SECTIONS, get_runtime_value, section_status, set_runtime_values
+from app.services.automation_engine import run_connector_automation_rules
 from app.services.connector_service import (
     CONNECTOR_PRESETS,
     CONNECTOR_TEMPLATES,
@@ -138,6 +145,10 @@ async def system_info() -> dict:
             "ai_free_tier_budgeting",
             "ai_sender_learning",
             "ai_message_fingerprints",
+            "action_center",
+            "manual_safe_action_run",
+            "task_action_execution",
+            "branded_ui",
             "phone_deployment",
         ],
     }
@@ -275,7 +286,108 @@ async def set_task_status(
     task.status = status_value
     await write_audit(db, "task_status_changed", entity_type="task", entity_id=str(task.id), details={"status": status_value})
     await db.commit()
+    await reconcile_action_queue(db)
     return {"updated": True}
+
+
+@router.post("/api/tasks/{task_id}/execute")
+async def execute_task_action(
+    task_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    task = await db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status not in {"open", "waiting"}:
+        return {"executed": False, "status": task.status, "message": "Task is no longer open"}
+    if not task.source_id:
+        raise HTTPException(status_code=409, detail="This task has no executable source")
+
+    email = (
+        await db.execute(
+            select(EmailMessage).where(EmailMessage.provider_message_id == task.source_id).limit(1)
+        )
+    ).scalar_one_or_none()
+    if email is None:
+        raise HTTPException(status_code=409, detail="The source email is no longer available")
+    try:
+        decision = AutomationDecision.model_validate_json(email.analysis_json or "{}")
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="The saved email action is invalid") from exc
+
+    if task.source_type == "email_reply":
+        if not decision.reply:
+            raise HTTPException(status_code=409, detail="No reply action is stored for this email")
+        already_sent = (
+            await db.execute(
+                select(AuditLog.id).where(
+                    AuditLog.event_type == "email_reply_sent",
+                    AuditLog.entity_type == "email",
+                    AuditLog.entity_id == email.provider_message_id,
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if already_sent is not None:
+            task.status = "completed"
+            await db.commit()
+            await reconcile_action_queue(db)
+            return {"executed": False, "action": "email_reply", "message": "Reply was already sent"}
+        sent_id = await send_gmail_message(
+            db,
+            to=str(decision.reply.get("to") or email.sender),
+            subject=str(decision.reply.get("subject") or f"Re: {email.subject}"),
+            body=str(decision.reply.get("body") or ""),
+        )
+        task.status = "completed"
+        await write_audit(
+            db,
+            "email_reply_sent",
+            entity_type="email",
+            entity_id=email.provider_message_id,
+            details={"gmail_message_id": sent_id, "task_id": task.id, "manual_approval": True},
+        )
+        await db.commit()
+        await reconcile_action_queue(db)
+        return {"executed": True, "action": "email_reply", "message": "Reply sent"}
+
+    if task.source_type == "calendar_review":
+        if not decision.calendar_event:
+            raise HTTPException(status_code=409, detail="No calendar action is stored for this email")
+        already_created = (
+            await db.execute(
+                select(AuditLog.id).where(
+                    AuditLog.event_type == "calendar_event_created",
+                    AuditLog.entity_type == "email",
+                    AuditLog.entity_id == email.provider_message_id,
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if already_created is not None:
+            task.status = "completed"
+            await db.commit()
+            await reconcile_action_queue(db)
+            return {"executed": False, "action": "calendar_event", "message": "Calendar event already exists"}
+        event_id = await create_calendar_event(db, decision.calendar_event)
+        task.status = "completed"
+        await write_audit(
+            db,
+            "calendar_event_created",
+            entity_type="email",
+            entity_id=email.provider_message_id,
+            details={"calendar_event_id": event_id, "task_id": task.id, "manual_approval": True},
+        )
+        await db.commit()
+        await reconcile_action_queue(db)
+        return {"executed": True, "action": "calendar_event", "message": "Calendar event created"}
+
+    if task.source_type == "bill_review":
+        raise HTTPException(status_code=409, detail="Review and approve this creditor in Money > Bills")
+
+    raise HTTPException(
+        status_code=409,
+        detail="This task represents a follow-up that cannot be executed safely by a generic button. Complete it manually or use its linked workflow.",
+    )
 
 
 @router.get("/api/emails", response_model=list[EmailResponse])
@@ -365,6 +477,7 @@ async def upsert_creditor(
         bill.risk_reason = "" if creditor.auto_pay_enabled else "Creditor is not enabled for automatic payment"
     await write_audit(db, "creditor_policy_updated", entity_type="creditor", entity_id=str(creditor.id), details={"matching_bills": len(matching_bills)})
     await db.commit()
+    await reconcile_action_queue(db)
     return {"id": creditor.id, "updated": True}
 
 
@@ -484,6 +597,75 @@ async def google_callback(code: str, state: str, db: AsyncSession = Depends(get_
         return HTMLResponse(f"<html><body><h2>Connection failed</h2><p>{html.escape(str(exc))}</p></body></html>", status_code=400)
 
 
+@router.post("/api/actions/run")
+async def run_all_safe_actions(
+    request: Request,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Run the same safe automation stages used by the background scheduler.
+
+    Provider-mandated authorization is never bypassed; resulting payment authorization
+    URLs remain visible through the payment approval queue.
+    """
+    result: dict[str, object] = {}
+    errors: dict[str, str] = {}
+    google_connected = bool(
+        (
+            await db.execute(
+                select(func.count()).select_from(OAuthConnection).where(OAuthConnection.provider == "google")
+            )
+        ).scalar()
+    )
+    bank_connected = bool((await db.execute(select(func.count()).select_from(BankAccount))).scalar())
+
+    if google_connected:
+        try:
+            result["gmail_processed"] = await sync_gmail(db, max_messages=250)
+        except Exception as exc:
+            await db.rollback()
+            errors["gmail"] = str(exc)
+    else:
+        result["gmail_skipped"] = "Google is not connected"
+
+    if bank_connected:
+        try:
+            result["accounts_synced"] = await sync_all_banks(db)
+            result["auto_pay"] = await auto_pay_eligible_bills(
+                db, redirect_url=str(request.url_for("payment_authorization_callback"))
+            )
+            result["payments_refreshed"] = await refresh_all_payments(db)
+        except Exception as exc:
+            await db.rollback()
+            errors["banking"] = str(exc)
+    else:
+        result["banking_skipped"] = "No bank account is connected"
+
+    if google_connected:
+        try:
+            result["contacts_synced"] = await sync_google_contacts(db)
+        except Exception as exc:
+            await db.rollback()
+            errors["contacts"] = str(exc)
+    else:
+        result["contacts_skipped"] = "Google is not connected"
+
+    try:
+        result["connector_rules"] = await run_connector_automation_rules(db)
+    except Exception as exc:
+        await db.rollback()
+        errors["connectors"] = str(exc)
+
+    try:
+        result["action_queue"] = await reconcile_action_queue(db)
+    except Exception as exc:
+        await db.rollback()
+        errors["action_queue"] = str(exc)
+
+    result["errors"] = errors
+    return result
+
+
 @router.post("/api/sync/gmail")
 async def manual_gmail_sync(
     _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
@@ -533,6 +715,36 @@ async def manual_bank_sync(
 ) -> dict:
     try:
         return {"accounts_synced": await sync_all_banks(db)}
+    except EnableBankingConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/api/payments/auto-run")
+async def run_automatic_payments_now(
+    request: Request,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    bank_count = (await db.execute(select(func.count()).select_from(BankAccount))).scalar() or 0
+    if bank_count == 0:
+        return {
+            "accounts_synced": 0,
+            "auto_pay": {"initiated": 0, "skipped": 0, "failed": 0},
+            "payments_refreshed": 0,
+            "message": "No bank account is connected",
+        }
+    try:
+        synced = await sync_all_banks(db)
+        auto_pay = await auto_pay_eligible_bills(
+            db, redirect_url=str(request.url_for("payment_authorization_callback"))
+        )
+        refreshed = await refresh_all_payments(db)
+        await reconcile_action_queue(db)
+        return {
+            "accounts_synced": synced,
+            "auto_pay": auto_pay,
+            "payments_refreshed": refreshed,
+        }
     except EnableBankingConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -806,6 +1018,7 @@ async def update_support_case_status(
         details={"status": status_value},
     )
     await db.commit()
+    await reconcile_action_queue(db)
     return {"updated": True}
 
 

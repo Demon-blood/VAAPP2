@@ -1,7 +1,7 @@
 name: full_time_va
 description: Android control centre for the Full-Time VA automation service.
 publish_to: none
-version: 0.4.14+18
+version: 0.4.15+19
 environment:
   sdk: '>=3.10.0 <4.0.0'
 
@@ -25,3 +25,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/connector_catalog.json
+    - assets/app_icon.png

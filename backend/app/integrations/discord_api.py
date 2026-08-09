@@ -16,7 +16,7 @@ async def _headers(db: AsyncSession) -> dict[str, str]:
     token = await get_runtime_value(db, "discord_bot_token")
     if not token:
         raise DiscordConfigurationError("Discord bot token is not configured")
-    return {"Authorization": f"Bot {token}", "Content-Type": "application/json", "User-Agent": "DiscordBot (Full-Time-VA, 0.4.14)"}
+    return {"Authorization": f"Bot {token}", "Content-Type": "application/json", "User-Agent": "DiscordBot (Full-Time-VA, 0.4.15)"}
 
 
 async def discord_get(db: AsyncSession, path: str) -> Any:

@@ -16,6 +16,12 @@ class SettingsPage extends StatelessWidget {
       children: [
         Text('Operations', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: state.busy ? null : () => _runVaNow(context),
+          icon: const Icon(Icons.bolt_rounded),
+          label: const Text('Run complete VA workflow now'),
+        ),
+        const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: config['google_connected'] == true ? () => state.syncGmail() : null,
           icon: const Icon(Icons.mark_email_read_outlined),
@@ -73,6 +79,24 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
+
+
+  Future<void> _runVaNow(BuildContext context) async {
+    try {
+      final result = await context.read<AppState>().runAutomationNow();
+      if (!context.mounted) return;
+      final errors = (result['errors'] as Map?)?.length ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errors == 0
+              ? 'VA workflow completed successfully.'
+              : 'VA workflow completed with $errors exception${errors == 1 ? '' : 's'}.'),
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
 
   Future<void> _openSigningSetup(BuildContext context) async {
     try {
