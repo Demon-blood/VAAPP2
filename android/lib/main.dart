@@ -19,6 +19,30 @@ Future<void> main() async {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
   await initializeBackgroundService();
+  ErrorWidget.builder = (details) => Material(
+        color: VaTheme.background,
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.error_outline_rounded, color: VaTheme.warning, size: 48),
+                  SizedBox(height: 14),
+                  Text('This screen could not be rendered', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                  SizedBox(height: 8),
+                  Text(
+                    'Return to another tab and tap Refresh. The VA will keep the rest of the app available instead of showing a blank grey screen.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: VaTheme.textMuted, height: 1.4),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
   final state = AppState(ApiClient());
   await state.initialize();
   runApp(

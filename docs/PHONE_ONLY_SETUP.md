@@ -10,7 +10,7 @@ From the phone:
 2. Upload the project while preserving `.github/workflows/android-release.yml`, `android/`, and `backend/`.
 3. Open the repository's **Actions** tab.
 4. Open **Build Android APK** and select **Run workflow**.
-5. After the run succeeds, open **Releases** and download `Full-Time-VA-Android-v0.4.16.apk`.
+5. After the run succeeds, open **Releases** and download `Full-Time-VA-Android-v0.4.17.apk`.
 6. Extract the artifact and install `app-release.apk`.
 7. Allow installation from the browser or file manager when Android requests it.
 

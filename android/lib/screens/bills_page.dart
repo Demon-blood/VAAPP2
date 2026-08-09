@@ -59,7 +59,7 @@ class BillsPage extends StatelessWidget {
     }
     final total = outstanding.fold<double>(
       0,
-      (sum, bill) => sum + ((bill['amount'] as num?)?.toDouble() ?? double.tryParse('${bill['amount']}') ?? 0),
+      (sum, bill) => sum + numericValue(bill['amount']),
     );
     return RefreshIndicator(
       onRefresh: () => context.read<AppState>().refreshMoneyData(),

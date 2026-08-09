@@ -1,5 +1,4 @@
 .github/workflows/android-release.yml
-FILE_MANIFEST.txt
 README.md
 android/analysis_options.yaml
 android/android/app/src/main/AndroidManifest.xml

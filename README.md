@@ -1,4 +1,12 @@
-# Full-Time VA Android v0.4.16
+# Full-Time VA Android v0.4.17
+
+## v0.4.17 Bills rendering hotfix
+
+- Fixes the release-mode grey Bills tab when FastAPI/Pydantic serializes a Decimal bill amount as a JSON string such as `"89.99"`.
+- Uses tolerant numeric parsing instead of a direct Dart `as num?` cast when calculating the outstanding total.
+- Adds regression coverage for string, numeric, and European-formatted decimal values.
+- Adds a branded render-error fallback so a future widget exception cannot degrade into an unexplained solid grey screen.
+- Android `0.4.17+21` remains compatible with backend `0.4.16+`; no backend migration is required for this hotfix.
 
 ## v0.4.16 smart document retention + premium UI
 

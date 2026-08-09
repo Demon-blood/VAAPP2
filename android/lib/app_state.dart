@@ -117,7 +117,7 @@ class AppState extends ChangeNotifier {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.4.16 requires backend 0.4.16 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.4.17 requires backend 0.4.16 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
