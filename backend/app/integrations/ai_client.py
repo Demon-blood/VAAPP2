@@ -18,11 +18,19 @@ Return only the structured decision requested by the response schema. Never inve
 Classify Dutch and English email. Protect legal, government, bailiff, financial, receipt,
 contract, account-security, family, and medical messages. Never trash an unread message.
 Only trash a genuine low-value promotion/newsletter/routine notification when is_read=true.
-Use local_extraction as hints, not as unquestionable truth. Detect bills, tasks, sufficiently
-certain calendar events, support cases, orders, subscriptions and reply drafts. A changed or
-unverified IBAN must be action_required and preserved. Never claim a payment was made.
-Keep reasoning_summary to one short sentence. Sending replies and executing payments are
-controlled by separate safety rules outside this model."""
+Use local_extraction as hints, not as unquestionable truth. Distinguish payable invoices from
+paid receipts and informational statements/notices. A bill is allowed only when the message
+contains evidence that money is still owed (for example amount due, due date, outstanding
+balance, payment request/instructions, or a verified payable invoice). Purchase receipts,
+payment confirmations, card charges, order confirmations and completed subscription renewals
+must set financial_document_type=paid_receipt and bill=null. Informational statements/notices
+must set financial_document_type=statement_or_notice and bill=null. A Google Play GPA order
+identifier is normally a completed purchase/receipt, not an unpaid invoice, unless the message
+explicitly says payment remains due. Detect tasks, sufficiently certain calendar events, support
+cases, orders, subscriptions and reply drafts. A changed or unverified IBAN must be
+action_required and preserved. Never claim a payment was made unless the source explicitly
+confirms it. Keep reasoning_summary to one short sentence. Sending replies and executing
+payments are controlled by separate safety rules outside this model."""
 
 
 def _nullable_object(properties: dict[str, Any]) -> dict[str, Any]:
@@ -44,6 +52,10 @@ AUTOMATION_DECISION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "category": {"type": "string"},
+        "financial_document_type": {
+            "type": "string",
+            "enum": ["none", "payable_invoice", "paid_receipt", "statement_or_notice"],
+        },
         "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
         "action_required": {"type": "boolean"},
         "preserve": {"type": "boolean"},
@@ -108,7 +120,7 @@ AUTOMATION_DECISION_SCHEMA: dict[str, Any] = {
         "reasoning_summary": {"type": "string"},
     },
     "required": [
-        "category", "priority", "action_required", "preserve", "archive", "trash", "labels",
+        "category", "financial_document_type", "priority", "action_required", "preserve", "archive", "trash", "labels",
         "task", "bill", "calendar_event", "reply", "support_case", "order", "subscription",
         "archive_attachments", "reasoning_summary",
     ],

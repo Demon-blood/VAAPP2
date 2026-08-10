@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -73,6 +73,26 @@ class BillResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class FinancialRecordResponse(BaseModel):
+    id: int
+    source_message_id: str
+    record_type: str
+    provider_name: str
+    description: str
+    order_number: str
+    amount: Decimal | None
+    currency: str
+    occurred_at: datetime | None
+    status: str
+    account_scope: str
+    subscription_id: int | None
+    matched_bank_account_id: int | None
+    matched_transaction_id: str
+    matched_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
 class AccountResponse(BaseModel):
     id: int
     name: str
@@ -115,6 +135,7 @@ class CreatePaymentRequest(BaseModel):
 
 class AutomationDecision(BaseModel):
     category: str
+    financial_document_type: Literal["none", "payable_invoice", "paid_receipt", "statement_or_notice"] = "none"
     priority: str = "normal"
     action_required: bool = False
     preserve: bool = False

@@ -1,3 +1,29 @@
+# Full-Time VA v0.5.1 — Financial document correctness
+
+Built on the supplied v0.4.17 source and the v0.5.0 Autopilot implementation. v0.5.1 fixes the critical distinction between **money that was already paid** and **money that is still owed**.
+
+## v0.5.1 highlights
+
+- Adds deterministic financial-document classes: `payable_invoice`, `paid_receipt`, and `statement_or_notice`.
+- A `Bill` can be created only when there is evidence that payment remains outstanding; a bare amount, invoice/order identifier, or finance sender is not sufficient.
+- Google Commerce / Google Play messages with `GPA.xxxx-xxxx-xxxx-xxxxx` order identifiers are treated as completed purchase receipts unless the source explicitly contains outstanding-payment evidence.
+- The same non-payable protection covers common PayPal payment confirmations, Amazon order/purchase confirmations, Apple/App Store receipts, Stripe receipts, and card-purchase confirmations.
+- New `financial_records` table stores receipts/notices separately from payable bills without deleting the original email or audit trail.
+- Existing false-positive bills are conservatively reclassified at backend startup and during housekeeping. Their bill/creditor/payment review tasks are completed automatically and the original Bill row is retained as `reclassified_nonpayable` for auditability.
+- Historical reclassification is blocked when a non-terminal payment already exists, so an in-flight banking action is never hidden automatically.
+- The payment service now rejects every bill that is not explicitly `validated`, including records reclassified as non-payable.
+- Paid receipts can be matched to real Enable Banking transactions using amount, currency, date proximity and provider/order evidence. Matching is informational only and never initiates or changes a payment.
+- Recurring receipts update the existing subscription system only when the source/AI explicitly identifies the recurring product; the VA does not invent a generic subscription.
+- Android Money now includes a **Receipts** tab. Receipts show `No payment action required` and can be reconciled manually.
+- The Bills tab no longer offers **Process payment** until a genuine bill is in `validated` state.
+- Backend version is `0.5.1`; Android version is `0.5.1+23`.
+
+## Validation
+
+Python `compileall` passes for backend application and tests, and the release/version route tests pass locally. The packaging environment does not contain `aiosqlite`, Ruff, Flutter or Dart, so database-backed pytest, Ruff, Flutter analyze/test, and the signed APK build remain authoritative GitHub Actions gates.
+
+---
+
 # Full-Time VA v0.5.0 — Autopilot
 
 Built directly on the supplied v0.4.17 source tree. This release makes the backend execution model durable and Autopilot-first while preserving the existing real Gmail, Google Calendar/Drive/Contacts, Open Banking, connector, AI, and Android setup flows.

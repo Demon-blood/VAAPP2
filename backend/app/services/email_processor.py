@@ -47,6 +47,13 @@ from app.services.ai_policy import (
     urgent_hint,
 )
 from app.services.audit import write_audit
+from app.services.financial_document_policy import (
+    PAYABLE_INVOICE,
+    assess_financial_document,
+    infer_recurring_subscription,
+    receipt_label,
+)
+from app.services.financial_reconciliation import upsert_financial_record
 from app.services.operations_service import (
     archive_email_attachments,
     upsert_order,
@@ -401,6 +408,81 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
             )
 
     assert decision is not None
+
+    # Financial safety gate: an amount/order/invoice identifier does not by itself mean
+    # money is still owed. This deterministic layer overrides AI/cached decisions before
+    # any Bill or payment-capable object can be created.
+    financial_assessment = assess_financial_document(
+        sender=record.sender,
+        subject=record.subject,
+        body=body_text,
+        extraction=extraction,
+        bill=decision.bill,
+    )
+    protected_context = protected_hint(record.sender, record.subject, body_text)
+    suppressed_bill_data = None
+    if decision.bill is not None and financial_assessment.document_type != PAYABLE_INVOICE:
+        suppressed_bill_data = dict(decision.bill)
+        decision.bill = None
+        await write_audit(
+            db,
+            "bill_candidate_suppressed_nonpayable",
+            entity_type="email",
+            entity_id=message["id"],
+            details={
+                "financial_document_type": financial_assessment.document_type,
+                "confidence": financial_assessment.confidence,
+                "reasons": list(financial_assessment.reasons),
+            },
+        )
+
+    decision.financial_document_type = financial_assessment.document_type
+    if financial_assessment.is_nonpayable:
+        decision.preserve = True
+        decision.archive_attachments = True
+        decision.labels = list(
+            dict.fromkeys(decision.labels + [receipt_label(financial_assessment.document_type)])
+        )
+        routine_finance_context = protected_context is None or protected_context[0] == "Finance"
+        if routine_finance_context:
+            decision.category = "Finance"
+            decision.archive = True
+            # A receipt/statement alone is not a human action. Preserve unrelated actions if
+            # the same email also contains a genuine task, reply, calendar or support matter.
+            if not any(
+                value is not None
+                for value in (
+                    decision.task,
+                    decision.calendar_event,
+                    decision.reply,
+                    decision.support_case,
+                )
+            ):
+                decision.action_required = False
+        if not decision.action_required:
+            decision.labels = [
+                label for label in decision.labels if label != "Mail/00 Status/Actie nodig"
+            ]
+
+    if decision.subscription is None and financial_assessment.is_nonpayable:
+        subscription_source = suppressed_bill_data or decision.bill or {}
+        amount_candidates = extraction.get("amount_candidates") or []
+        inferred_subscription = infer_recurring_subscription(
+            subject=record.subject,
+            body=body_text,
+            assessment=financial_assessment,
+            amount=str(subscription_source.get("amount") or (amount_candidates[0] if amount_candidates else "")) or None,
+            currency=str(subscription_source.get("currency") or "EUR"),
+            account_scope=str(subscription_source.get("account_scope") or "personal"),
+        )
+        if inferred_subscription is not None:
+            decision.subscription = inferred_subscription
+
+    if decision_source == "ai":
+        # Replace the pre-side-effect AI cache with the safety-gated decision so retries
+        # never reintroduce the suppressed bill candidate.
+        await cache_decision(db, fingerprint, message["id"], decision)
+
     protected = _is_protected(decision)
     if not is_read:
         decision.trash = False
@@ -480,6 +562,36 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
     if decision.subscription:
         subscription = await upsert_subscription(
             db, message_id=message["id"], data=decision.subscription
+        )
+
+    financial_record = None
+    if financial_assessment.is_nonpayable:
+        source_data = suppressed_bill_data or decision.bill or {}
+        amount = _parse_amount(source_data.get("amount"))
+        if amount is None:
+            amount_candidates = extraction.get("amount_candidates") or []
+            amount = _parse_amount(amount_candidates[0]) if amount_candidates else None
+        financial_record = await upsert_financial_record(
+            db,
+            message_id=message["id"],
+            assessment=financial_assessment,
+            description=record.subject or financial_assessment.provider_name,
+            amount=amount,
+            currency=str(source_data.get("currency") or "EUR"),
+            occurred_at=record.received_at,
+            account_scope=account_scope,
+            order_number=str(
+                financial_assessment.order_number
+                or extraction.get("order_number")
+                or source_data.get("invoice_number")
+                or ""
+            ),
+            subscription_id=subscription.id if subscription is not None else None,
+            metadata={
+                "decision_source": decision_source,
+                "subject": record.subject,
+                "sender": record.sender,
+            },
         )
 
     archived_documents = 0
@@ -630,6 +742,8 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
             "support_case_id": support_case.id if support_case else None,
             "order_id": order.id if order else None,
             "subscription_id": subscription.id if subscription else None,
+            "financial_record_id": financial_record.id if financial_record else None,
+            "financial_document_type": financial_assessment.document_type,
             "documents_archived": archived_documents,
             "fingerprint": fingerprint,
         },

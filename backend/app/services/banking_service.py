@@ -177,6 +177,10 @@ async def create_payment_for_bill(db: AsyncSession, *, bill_id: int, bank_accoun
     account = await db.get(BankAccount, bank_account_id)
     if bill is None or account is None:
         raise ValueError("Bill or bank account does not exist")
+    if bill.status == "reclassified_nonpayable":
+        raise ValueError("This record was reclassified as non-payable and cannot be paid")
+    if bill.status != "validated":
+        raise ValueError("Bill is not validated for payment")
     if not account.enabled_for_payments:
         raise ValueError("This bank account has not been approved for payment execution")
     if not bill.iban:

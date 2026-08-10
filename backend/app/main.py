@@ -10,6 +10,7 @@ from app.core.database import SessionLocal, init_db
 from app.core.version import APP_VERSION
 from app.core.settings import get_settings
 from app.services.action_reconciler import reconcile_action_queue
+from app.services.financial_reconciliation import reclassify_existing_nonpayable_bills
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.services.operations_service import cleanup_low_value_documents
 from app.services.workflow_engine import recover_expired_leases
@@ -27,6 +28,15 @@ async def lifespan(_: FastAPI):
             await recover_expired_leases(db)
     except Exception:
         logger.exception("Initial Autopilot workflow recovery failed")
+    # Correct historical receipts/paid confirmations that older classifiers may have
+    # inserted as payable bills before reconciling the exception queue.
+    try:
+        async with SessionLocal() as db:
+            outcome = await reclassify_existing_nonpayable_bills(db)
+            if outcome["reclassified"]:
+                logger.warning("Financial document reclassification: %s", outcome)
+    except Exception:
+        logger.exception("Initial financial-document reconciliation failed")
     # Repair any older action flags immediately after an upgrade so the Today cards
     # never show an orphaned counter without a concrete task behind it.
     try:

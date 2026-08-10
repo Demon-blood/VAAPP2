@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.entities import MessageFingerprint, SenderRule
 from app.schemas.api import AutomationDecision
+from app.services.financial_document_policy import PAID_RECEIPT, PAYABLE_INVOICE, STATEMENT_OR_NOTICE, assess_financial_document, receipt_label
 
 _DYNAMIC_TERMS = {
     "invoice", "factuur", "betaling", "payment", "amount due", "openstaand", "vervaldatum",
@@ -145,6 +146,11 @@ def local_extract(body: str, attachments: list[dict[str, Any]]) -> dict[str, Any
     if invoice_match:
         invoice_number = invoice_match.group(1).strip()
 
+    order_number = ""
+    gpa_match = re.search(r"\bGPA\.\d{4}-\d{4}-\d{4}-\d{5}\b", combined, re.I)
+    if gpa_match:
+        order_number = gpa_match.group(0).upper()
+
     reference = ""
     structured = re.search(r"\+\+\+\s*\d{3}/\d{4}/\d{5}\s*\+\+\+", combined)
     if structured:
@@ -175,6 +181,7 @@ def local_extract(body: str, attachments: list[dict[str, Any]]) -> dict[str, Any
     cues = []
     cue_map = {
         "invoice": _INVOICE_TERMS,
+        "receipt": ("receipt", "purchase confirmation", "payment confirmation", "payment received", "bestelbevestiging", "betalingsbevestiging", "betaling ontvangen"),
         "calendar": ("appointment", "afspraak", "meeting", "vergadering", "reservation", "reservering"),
         "order": ("order", "bestelling", "tracking", "shipment", "verzending", "delivery", "levering"),
         "subscription": ("subscription", "abonnement", "renewal", "verlenging", "next charge", "volgende betaling"),
@@ -189,6 +196,7 @@ def local_extract(body: str, attachments: list[dict[str, Any]]) -> dict[str, Any
         "iban_candidates": _unique(ibans)[:6],
         "amount_candidates": _unique(amounts)[:10],
         "invoice_number": invoice_number,
+        "order_number": order_number,
         "reference": reference,
         "due_date_candidates": _unique(due_dates)[:6],
         "date_time_candidates": date_times,
@@ -320,6 +328,41 @@ def deterministic_shortcut(
     extraction: dict[str, Any],
     sender_rule: SenderRule | None,
 ) -> tuple[AutomationDecision | None, str]:
+    financial = assess_financial_document(
+        sender=sender,
+        subject=subject,
+        body=body,
+        extraction=extraction,
+    )
+    protected_context = protected_hint(sender, subject, body)
+    if (
+        financial.is_nonpayable
+        and financial.confidence >= 0.90
+        and (protected_context is None or protected_context[0] == "Finance")
+    ):
+        return (
+            AutomationDecision(
+                category="Finance",
+                financial_document_type=financial.document_type,
+                priority="normal",
+                action_required=False,
+                preserve=True,
+                archive=True,
+                trash=False,
+                labels=[receipt_label(financial.document_type)],
+                task=None,
+                bill=None,
+                calendar_event=None,
+                reply=None,
+                support_case=None,
+                order=None,
+                subscription=None,
+                archive_attachments=True,
+                reasoning_summary="Deterministic non-payable financial document classification.",
+            ),
+            "deterministic_financial",
+        )
+
     dynamic = has_dynamic_signals(subject, body, extraction)
     if sender_rule and sender_rule.safe_shortcut and not dynamic:
         return decision_from_sender_rule(sender_rule, is_read=is_read), "sender_rule"
@@ -474,28 +517,47 @@ def safe_fallback_decision(
     labels = [protected[1]] if protected else []
     preserve = protected is not None
     priority = "high" if protected or urgent_hint(subject, body, extraction) else "normal"
-    bill: dict[str, Any] | None = None
+    bill_candidate: dict[str, Any] | None = None
     if "invoice" in extraction.get("cues", []) and _first_amount(extraction):
         sender_name, sender_addr = parseaddr(sender)
-        bill = {
+        bill_candidate = {
             "creditor_name": sender_name.strip() or sender_addr or sender,
             "amount": _first_amount(extraction),
             "currency": "EUR",
-            "due_at": None,
+            "due_at": (extraction.get("due_date_candidates") or [None])[0],
             "iban": (extraction.get("iban_candidates") or [None])[0],
             "reference": extraction.get("reference") or "",
             "invoice_number": extraction.get("invoice_number") or "",
             "account_scope": "personal",
         }
+
+    assessment = assess_financial_document(
+        sender=sender,
+        subject=subject,
+        body=body,
+        extraction=extraction,
+        bill=bill_candidate,
+    )
+    bill = bill_candidate if assessment.document_type == PAYABLE_INVOICE else None
+    action_required = True
+    if assessment.document_type in {PAID_RECEIPT, STATEMENT_OR_NOTICE}:
+        labels = list(dict.fromkeys(labels + [receipt_label(assessment.document_type)]))
+        preserve = True
+        if protected is None or protected[0] == "Finance":
+            category = "Finance"
+            action_required = False
+    elif bill is not None:
         category = "Finance"
         labels = list(dict.fromkeys(labels + ["Mail/02 Geldzaken & betalingen/Facturen & betalingen"]))
         preserve = True
+
     return AutomationDecision(
         category=category,
+        financial_document_type=assessment.document_type,
         priority=priority,
-        action_required=True,
+        action_required=action_required,
         preserve=preserve,
-        archive=False,
+        archive=bool(assessment.is_nonpayable and (protected is None or protected[0] == "Finance")),
         trash=False,
         labels=labels,
         task=None,
@@ -505,6 +567,6 @@ def safe_fallback_decision(
         support_case=None,
         order=None,
         subscription=None,
-        archive_attachments=bool(protected or bill),
+        archive_attachments=bool(protected or bill or assessment.is_nonpayable),
         reasoning_summary=f"Safe deterministic fallback because AI was unavailable: {reason}",
     )

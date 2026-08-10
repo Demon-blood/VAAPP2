@@ -216,7 +216,7 @@ class _BillCard extends StatelessWidget {
     final due = DateTime.tryParse('${bill['due_at'] ?? ''}');
     final status = '${bill['status'] ?? ''}';
     final needsCreditor = status == 'requires_review' || status == 'detected';
-    final canPay = !['paid', 'cancelled', 'payment_initiated'].contains(status);
+    final canPay = status == 'validated';
     final statusColor = switch (status) {
       'paid' => VaTheme.success,
       'requires_review' || 'detected' => VaTheme.warning,

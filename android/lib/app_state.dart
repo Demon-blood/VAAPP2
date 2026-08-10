@@ -22,6 +22,7 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> emails = [];
   List<Map<String, dynamic>> tasks = [];
   List<Map<String, dynamic>> bills = [];
+  List<Map<String, dynamic>> financialRecords = [];
   List<Map<String, dynamic>> accounts = [];
   List<Map<String, dynamic>> payments = [];
   List<Map<String, dynamic>> documents = [];
@@ -81,6 +82,7 @@ class AppState extends ChangeNotifier {
     emails = [];
     tasks = [];
     bills = [];
+    financialRecords = [];
     accounts = [];
     payments = [];
     documents = [];
@@ -119,11 +121,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.5.0')) {
+        if (!_versionAtLeast(backendVersion, '0.5.1')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.5.0 requires backend 0.5.0 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.5.1 requires backend 0.5.1 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -139,6 +141,7 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/emails'),
         _safeGet('/api/tasks'),
         _safeGet('/api/bills'),
+        _safeGet('/api/financial-records'),
         _safeGet('/api/accounts'),
         _safeGet('/api/payments'),
         _safeGet('/api/documents'),
@@ -162,22 +165,23 @@ class AppState extends ChangeNotifier {
       if (results[2] is List) emails = _list(results[2]);
       if (results[3] is List) tasks = _list(results[3]);
       if (results[4] is List) bills = _list(results[4]);
-      if (results[5] is List) accounts = _list(results[5]);
-      if (results[6] is List) payments = _list(results[6]);
-      if (results[7] is List) documents = _list(results[7]);
-      if (results[8] is List) contacts = _list(results[8]);
-      if (results[9] is List) orders = _list(results[9]);
-      if (results[10] is List) subscriptions = _list(results[10]);
-      if (results[11] is List) supportCases = _list(results[11]);
-      if (results[12] is Map) serviceStatus = Map<String, dynamic>.from(results[12] as Map);
-      if (results[13] is List) setupSections = _list(results[13]);
-      if (results[14] is List && (results[14] as List).isNotEmpty) connectorTemplates = _list(results[14]);
-      if (results[15] is List && (results[15] as List).isNotEmpty) connectorPresets = _list(results[15]);
-      if (results[16] is List) connectors = _list(results[16]);
-      if (results[17] is List) automationRules = _list(results[17]);
-      if (results[18] is Map) autopilotHealth = Map<String, dynamic>.from(results[18] as Map);
-      if (results[19] is Map) dailyBriefing = Map<String, dynamic>.from(results[19] as Map);
-      if (results[20] is List) autopilotJobs = _list(results[20]);
+      if (results[5] is List) financialRecords = _list(results[5]);
+      if (results[6] is List) accounts = _list(results[6]);
+      if (results[7] is List) payments = _list(results[7]);
+      if (results[8] is List) documents = _list(results[8]);
+      if (results[9] is List) contacts = _list(results[9]);
+      if (results[10] is List) orders = _list(results[10]);
+      if (results[11] is List) subscriptions = _list(results[11]);
+      if (results[12] is List) supportCases = _list(results[12]);
+      if (results[13] is Map) serviceStatus = Map<String, dynamic>.from(results[13] as Map);
+      if (results[14] is List) setupSections = _list(results[14]);
+      if (results[15] is List && (results[15] as List).isNotEmpty) connectorTemplates = _list(results[15]);
+      if (results[16] is List && (results[16] as List).isNotEmpty) connectorPresets = _list(results[16]);
+      if (results[17] is List) connectors = _list(results[17]);
+      if (results[18] is List) automationRules = _list(results[18]);
+      if (results[19] is Map) autopilotHealth = Map<String, dynamic>.from(results[19] as Map);
+      if (results[20] is Map) dailyBriefing = Map<String, dynamic>.from(results[20] as Map);
+      if (results[21] is List) autopilotJobs = _list(results[21]);
 
       githubRepositories = [];
       githubNotifications = [];
@@ -269,20 +273,23 @@ class AppState extends ChangeNotifier {
     busy = true;
     error = null;
     endpointErrors.remove('/api/bills');
+    endpointErrors.remove('/api/financial-records');
     endpointErrors.remove('/api/accounts');
     endpointErrors.remove('/api/payments');
     notifyListeners();
     try {
       final results = await Future.wait<dynamic>([
         _safeGet('/api/bills'),
+        _safeGet('/api/financial-records'),
         _safeGet('/api/accounts'),
         _safeGet('/api/payments'),
         _safeGet('/api/dashboard'),
       ]);
       if (results[0] is List) bills = _list(results[0]);
-      if (results[1] is List) accounts = _list(results[1]);
-      if (results[2] is List) payments = _list(results[2]);
-      if (results[3] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[3] as Map));
+      if (results[1] is List) financialRecords = _list(results[1]);
+      if (results[2] is List) accounts = _list(results[2]);
+      if (results[3] is List) payments = _list(results[3]);
+      if (results[4] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[4] as Map));
       if (endpointErrors.isNotEmpty && serverWarning == null) {
         final first = endpointErrors.entries.first;
         serverWarning = 'Some VA server functions are unavailable. ${first.key}: ${first.value}';
@@ -292,6 +299,17 @@ class AppState extends ChangeNotifier {
       refreshComplete = true;
       notifyListeners();
     }
+  }
+
+  Future<Map<String, dynamic>> reconcileFinancialRecords() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/financial-records/reconcile') as Map,
+      );
+      await refreshMoneyData();
+    });
+    return result;
   }
 
   Future<Map<String, dynamic>> cleanupDocuments() async {

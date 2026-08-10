@@ -54,6 +54,7 @@ from app.models.entities import (
     DocumentRecord,
     ContactRecord,
     EmailMessage,
+    FinancialRecord,
     OAuthConnection,
     OrderRecord,
     Payment,
@@ -75,6 +76,7 @@ from app.schemas.api import (
     DeviceFcmRequest,
     DiscordMessageRequest,
     EmailResponse,
+    FinancialRecordResponse,
     GitHubIssueRequest,
     PairDeviceRequest,
     PairDeviceResponse,
@@ -98,6 +100,10 @@ from app.services.banking_service import (
 from app.services.action_reconciler import reconcile_action_queue
 from app.services.email_processor import sync_gmail
 from app.services.document_policy import document_retention_decision
+from app.services.financial_reconciliation import (
+    reconcile_receipts_with_bank_transactions,
+    reclassify_existing_nonpayable_bills,
+)
 from app.services.operations_service import cleanup_low_value_documents, sync_google_contacts
 from app.services.runtime_config import CONFIG_SECTIONS, get_runtime_value, section_status, set_runtime_values
 from app.services.automation_engine import run_connector_automation_rules
@@ -230,7 +236,11 @@ async def dashboard(
         await db.execute(select(func.count()).select_from(EmailMessage).where(EmailMessage.action_required.is_(True)))
     ).scalar() or 0
     unpaid_bills = (
-        await db.execute(select(func.count()).select_from(Bill).where(Bill.status.not_in(["paid", "cancelled"])))
+        await db.execute(
+            select(func.count()).select_from(Bill).where(
+                Bill.status.not_in(["paid", "cancelled", "reclassified_nonpayable"])
+            )
+        )
     ).scalar() or 0
     payment_actions = (
         await db.execute(
@@ -410,7 +420,43 @@ async def list_emails(
 async def list_bills(
     _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
 ) -> list[Bill]:
-    return list((await db.execute(select(Bill).order_by(Bill.due_at.asc().nullslast(), Bill.id.desc()))).scalars())
+    return list(
+        (
+            await db.execute(
+                select(Bill)
+                .where(Bill.status != "reclassified_nonpayable")
+                .order_by(Bill.due_at.asc().nullslast(), Bill.id.desc())
+            )
+        ).scalars()
+    )
+
+
+@router.get("/api/financial-records", response_model=list[FinancialRecordResponse])
+async def list_financial_records(
+    record_type: str | None = Query(default=None),
+    limit: int = Query(default=250, ge=1, le=1000),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[FinancialRecord]:
+    query = (
+        select(FinancialRecord)
+        .order_by(FinancialRecord.occurred_at.desc().nullslast(), FinancialRecord.id.desc())
+        .limit(limit)
+    )
+    if record_type:
+        query = query.where(FinancialRecord.record_type == record_type)
+    return list((await db.execute(query)).scalars())
+
+
+@router.post("/api/financial-records/reconcile")
+async def reconcile_financial_records_now(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    reclassified = await reclassify_existing_nonpayable_bills(db)
+    bank_matches = await reconcile_receipts_with_bank_transactions(db)
+    await reconcile_action_queue(db)
+    return {"reclassified_bills": reclassified, "bank_matches": bank_matches}
 
 
 @router.get("/api/accounts", response_model=list[AccountResponse])
@@ -635,6 +681,7 @@ async def run_all_safe_actions(
     if bank_connected:
         try:
             result["accounts_synced"] = await sync_all_banks(db)
+            result["receipt_reconciliation"] = await reconcile_receipts_with_bank_transactions(db)
             result["auto_pay"] = await auto_pay_eligible_bills(
                 db, redirect_url=str(request.url_for("payment_authorization_callback"))
             )
@@ -659,6 +706,12 @@ async def run_all_safe_actions(
     else:
         result["contacts_skipped"] = "Google is not connected"
         result["document_cleanup_skipped"] = "Google is not connected"
+
+    try:
+        result["financial_reclassification"] = await reclassify_existing_nonpayable_bills(db)
+    except Exception as exc:
+        await db.rollback()
+        errors["financial_reclassification"] = str(exc)
 
     try:
         result["connector_rules"] = await run_connector_automation_rules(db)
@@ -724,7 +777,9 @@ async def manual_bank_sync(
     _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
 ) -> dict:
     try:
-        return {"accounts_synced": await sync_all_banks(db)}
+        synced = await sync_all_banks(db)
+        receipts = await reconcile_receipts_with_bank_transactions(db)
+        return {"accounts_synced": synced, "receipt_reconciliation": receipts}
     except EnableBankingConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -745,6 +800,7 @@ async def run_automatic_payments_now(
         }
     try:
         synced = await sync_all_banks(db)
+        receipt_reconciliation = await reconcile_receipts_with_bank_transactions(db)
         auto_pay = await auto_pay_eligible_bills(
             db, redirect_url=str(request.url_for("payment_authorization_callback"))
         )
@@ -752,6 +808,7 @@ async def run_automatic_payments_now(
         await reconcile_action_queue(db)
         return {
             "accounts_synced": synced,
+            "receipt_reconciliation": receipt_reconciliation,
             "auto_pay": auto_pay,
             "payments_refreshed": refreshed,
         }

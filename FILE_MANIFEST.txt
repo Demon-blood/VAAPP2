@@ -1,5 +1,6 @@
 .github/workflows/android-release.yml
 FILE_MANIFEST.txt
+FILE_MANIFEST.txt.tmp
 README.md
 android/analysis_options.yaml
 android/android/app/src/main/AndroidManifest.xml
@@ -16,6 +17,7 @@ android/lib/screens/inbox_page.dart
 android/lib/screens/money_page.dart
 android/lib/screens/onboarding_page.dart
 android/lib/screens/payments_page.dart
+android/lib/screens/receipts_page.dart
 android/lib/screens/services_page.dart
 android/lib/screens/settings_page.dart
 android/lib/screens/tasks_page.dart
@@ -73,6 +75,8 @@ backend/app/services/certificate_service.py
 backend/app/services/connector_service.py
 backend/app/services/document_policy.py
 backend/app/services/email_processor.py
+backend/app/services/financial_document_policy.py
+backend/app/services/financial_reconciliation.py
 backend/app/services/operations_service.py
 backend/app/services/runtime_config.py
 backend/app/services/scheduler.py
@@ -87,6 +91,8 @@ backend/tests/test_connector_catalog.py
 backend/tests/test_crypto.py
 backend/tests/test_document_retention_policy.py
 backend/tests/test_enable_banking_aspsp_resolution.py
+backend/tests/test_financial_document_policy.py
+backend/tests/test_financial_reconciliation.py
 backend/tests/test_github_notifications.py
 backend/tests/test_github_notifications_optional.py
 backend/tests/test_version_and_routes.py
@@ -95,6 +101,8 @@ build_android.ps1
 docs/PHONE_ONLY_SETUP.md
 docs/PRODUCTION_REQUIREMENTS.md
 docs/V0.5.0_AUTOPILOT.md
+docs/V0.5.1_FINANCIAL_DOCUMENTS.md
+docs/V0.5.1_VALIDATION.md
 generate_enable_banking_keys.ps1
 render.yaml
 start_backend.ps1

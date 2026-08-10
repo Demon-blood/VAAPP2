@@ -436,15 +436,18 @@ async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[
     from app.core.settings import get_settings
     from app.services.action_reconciler import reconcile_action_queue
     from app.services.banking_service import auto_pay_eligible_bills, refresh_all_payments, sync_all_banks
+    from app.services.financial_reconciliation import reconcile_receipts_with_bank_transactions
 
     settings = get_settings()
     bank_sync = await sync_all_banks(db)
+    receipt_reconciliation = await reconcile_receipts_with_bank_transactions(db)
     callback_url = str(settings.public_base_url).rstrip("/") + "/api/banking/payment-callback"
     payments = await auto_pay_eligible_bills(db, redirect_url=callback_url)
     refreshed = await refresh_all_payments(db)
     reconciled = await reconcile_action_queue(db)
     return {
         "bank_sync": bank_sync,
+        "receipt_reconciliation": receipt_reconciliation,
         "payments": payments,
         "payment_refresh": refreshed,
         "action_reconciliation": reconciled,
@@ -468,11 +471,13 @@ async def _connector_rules(db: AsyncSession, payload: dict[str, Any]) -> dict[st
 @job_handler("housekeeping.documents")
 async def _document_housekeeping(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     from app.services.action_reconciler import reconcile_action_queue
+    from app.services.financial_reconciliation import reclassify_existing_nonpayable_bills
     from app.services.operations_service import cleanup_low_value_documents
 
     result = await cleanup_low_value_documents(db)
+    financial = await reclassify_existing_nonpayable_bills(db)
     reconciled = await reconcile_action_queue(db)
-    return {"documents": result, "actions": reconciled}
+    return {"documents": result, "financial_reclassification": financial, "actions": reconciled}
 
 
 @job_handler("bill.lifecycle")
@@ -487,6 +492,8 @@ async def _bill_lifecycle(db: AsyncSession, payload: dict[str, Any]) -> dict[str
     bill = await db.get(Bill, bill_id)
     if bill is None:
         raise ValueError(f"bill not found: {bill_id}")
+    if bill.status == "reclassified_nonpayable":
+        return {"bill_id": bill.id, "state": "nonpayable"}
     if bill.status == "paid":
         return {"bill_id": bill.id, "state": "settled"}
 

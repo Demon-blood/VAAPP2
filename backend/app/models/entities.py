@@ -298,6 +298,29 @@ class SubscriptionRecord(Base):
     )
 
 
+class FinancialRecord(Base):
+    __tablename__ = "financial_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_message_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    record_type: Mapped[str] = mapped_column(String(40), index=True)
+    provider_name: Mapped[str] = mapped_column(String(255), default="", index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    order_number: Mapped[str] = mapped_column(String(160), default="", index=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="recorded", index=True)
+    account_scope: Mapped[str] = mapped_column(String(30), default="personal")
+    subscription_id: Mapped[int | None] = mapped_column(ForeignKey("subscriptions.id"), nullable=True, index=True)
+    matched_bank_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_accounts.id"), nullable=True, index=True)
+    matched_transaction_id: Mapped[str] = mapped_column(String(255), default="")
+    matched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class AIUsageDaily(Base):
     __tablename__ = "ai_usage_daily"
 

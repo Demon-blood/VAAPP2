@@ -14,6 +14,7 @@ from app.models.entities import (
     Bill,
     Creditor,
     EmailMessage,
+    FinancialRecord,
     OAuthConnection,
     OperationPreference,
     OrderRecord,
@@ -218,7 +219,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         (
             await db.execute(
                 select(Bill)
-                .where(Bill.status.not_in(["paid", "cancelled"]), Bill.due_at.is_not(None), Bill.due_at <= upcoming)
+                .where(Bill.status.not_in(["paid", "cancelled", "reclassified_nonpayable"]), Bill.due_at.is_not(None), Bill.due_at <= upcoming)
                 .order_by(Bill.due_at.asc())
                 .limit(30)
             )
@@ -234,6 +235,16 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
     support = list((await db.execute(select(SupportCase).where(SupportCase.status.not_in(["resolved", "closed"])).limit(20))).scalars())
     orders = list((await db.execute(select(OrderRecord).order_by(OrderRecord.updated_at.desc()).limit(10))).scalars())
     subscriptions = list((await db.execute(select(SubscriptionRecord).where(SubscriptionRecord.status == "active").limit(20))).scalars())
+    financial_records = list(
+        (
+            await db.execute(
+                select(FinancialRecord)
+                .where(FinancialRecord.created_at >= since)
+                .order_by(FinancialRecord.created_at.desc())
+                .limit(20)
+            )
+        ).scalars()
+    )
     activity = list(
         (
             await db.execute(select(AuditLog).where(AuditLog.created_at >= since).order_by(AuditLog.created_at.desc()).limit(50))
@@ -312,6 +323,20 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         "support_cases": [{"id": row.id, "subject": row.subject, "priority": row.priority, "status": row.status} for row in support],
         "orders": [{"id": row.id, "merchant": row.merchant, "order_number": row.order_number, "status": row.status, "expected_delivery_at": row.expected_delivery_at} for row in orders],
         "subscriptions": [{"id": row.id, "provider": row.provider_name, "description": row.description, "amount": row.amount, "currency": row.currency, "next_charge_at": row.next_charge_at} for row in subscriptions],
+        "financial_records": [
+            {
+                "id": row.id,
+                "type": row.record_type,
+                "provider": row.provider_name,
+                "description": row.description,
+                "order_number": row.order_number,
+                "amount": row.amount,
+                "currency": row.currency,
+                "status": row.status,
+                "occurred_at": row.occurred_at,
+            }
+            for row in financial_records
+        ],
         "activity": [
             {"id": row.id, "event_type": row.event_type, "entity_type": row.entity_type, "entity_id": row.entity_id, "result": row.result, "details": _decode(row.details_json, {}), "created_at": row.created_at}
             for row in activity
