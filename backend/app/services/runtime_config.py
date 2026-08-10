@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import decrypt_text, encrypt_text
@@ -21,6 +20,12 @@ CONFIG_SECTIONS: dict[str, dict[str, Any]] = {
             {"key": "auto_pay_enabled", "label": "Automatically initiate eligible bills", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
             {"key": "auto_pay_days_before_due", "label": "Pay this many days before due date", "type": "number", "required": True, "default": "3"},
             {"key": "connector_automation_enabled", "label": "Run scheduled service connector rules", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+            {"key": "autopilot_planner_enabled", "label": "Proactively plan routine work", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+            {"key": "autonomous_low_risk_replies", "label": "Send low-risk replies automatically", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+            {"key": "auto_recover_transient_failures", "label": "Automatically recover transient provider failures", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+            {"key": "daily_briefing_enabled", "label": "Send a daily VA briefing", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+            {"key": "daily_briefing_hour_local", "label": "Daily briefing hour (local 0-23)", "type": "number", "required": True, "default": "19"},
+            {"key": "daily_briefing_window_hours", "label": "Daily briefing lookback hours", "type": "number", "required": True, "default": "24"},
         ],
     },
     "google": {

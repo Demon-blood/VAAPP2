@@ -13,20 +13,13 @@ from app.models.entities import (
     BankAccount,
     Bill,
     Creditor,
-    EmailMessage,
-    FinancialRecord,
     OAuthConnection,
     OperationPreference,
-    OrderRecord,
-    Payment,
     SenderRule,
     ServiceConnector,
-    SubscriptionRecord,
-    SupportCase,
-    Task,
     WorkflowJob,
 )
-from app.services.workflow_engine import create_workflow, enqueue_job, failure_signature
+from app.services.workflow_engine import create_workflow, enqueue_job, failure_recovery_class
 
 
 def _decode(value: str, fallback: Any) -> Any:
@@ -98,6 +91,8 @@ async def provider_health_snapshot(db: AsyncSession) -> dict[str, Any]:
         "contacts": "google.contacts.sync",
         "connectors": "connectors.rules.run",
         "housekeeping": "housekeeping.documents",
+        "plan": "autopilot.plan",
+        "provider_health": "autopilot.provider_health",
     }
     for provider, job_type in mapping.items():
         latest = (
@@ -118,14 +113,53 @@ async def provider_health_snapshot(db: AsyncSession) -> dict[str, Any]:
                 }
             )
             if latest.status == "dead_letter":
-                entry["status"] = "degraded"
+                classification = failure_recovery_class(latest.job_type, latest.last_error)
+                recovery_count = int(
+                    (
+                        await db.execute(
+                            select(func.count(AuditLog.id)).where(
+                                AuditLog.event_type == "workflow_job_auto_recovered",
+                                AuditLog.entity_type == "workflow_job",
+                                AuditLog.entity_id == str(latest.id),
+                            )
+                        )
+                    ).scalar_one()
+                )
+                entry["recovery_class"] = classification
+                entry["automatic_recoveries"] = recovery_count
+                entry["status"] = (
+                    "recovering" if classification == "transient" and recovery_count < 2 else "degraded"
+                )
             elif latest.status in {"completed", "running", "pending", "retry"} and latest.created_at >= recent:
                 if entry.get("status") not in {"not_configured", "degraded"}:
                     entry["status"] = "healthy"
 
-    dead_letters = int(
-        (await db.execute(select(func.count(WorkflowJob.id)).where(WorkflowJob.status == "dead_letter"))).scalar_one()
+    dead_letter_rows = list(
+        (await db.execute(select(WorkflowJob).where(WorkflowJob.status == "dead_letter"))).scalars()
     )
+    actionable_dead_letters = 0
+    recovering_dead_letters = 0
+    for job in dead_letter_rows:
+        classification = failure_recovery_class(job.job_type, job.last_error)
+        if classification != "transient":
+            actionable_dead_letters += 1
+            continue
+        recovery_count = int(
+            (
+                await db.execute(
+                    select(func.count(AuditLog.id)).where(
+                        AuditLog.event_type == "workflow_job_auto_recovered",
+                        AuditLog.entity_type == "workflow_job",
+                        AuditLog.entity_id == str(job.id),
+                    )
+                )
+            ).scalar_one()
+        )
+        if recovery_count >= 2:
+            actionable_dead_letters += 1
+        else:
+            recovering_dead_letters += 1
+    dead_letters = actionable_dead_letters
     expired_leases = int(
         (
             await db.execute(
@@ -137,11 +171,24 @@ async def provider_health_snapshot(db: AsyncSession) -> dict[str, Any]:
             )
         ).scalar_one()
     )
+    core_setup_required = [
+        provider
+        for provider in ("google", "ai_primary", "banking")
+        if providers.get(provider, {}).get("status") == "not_configured"
+    ]
+    if dead_letters or expired_leases or any(v.get("status") == "degraded" for v in providers.values()):
+        overall_status = "degraded"
+    elif core_setup_required:
+        overall_status = "needs_setup"
+    else:
+        overall_status = "healthy"
     return {
-        "status": "degraded" if dead_letters or expired_leases or any(v.get("status") == "degraded" for v in providers.values()) else "healthy",
+        "status": overall_status,
         "providers": providers,
         "dead_letter_jobs": dead_letters,
+        "recovering_jobs": recovering_dead_letters,
         "expired_leases": expired_leases,
+        "setup_required": core_setup_required,
         "checked_at": now.isoformat() + "Z",
     }
 
@@ -194,175 +241,11 @@ async def operations_profile(db: AsyncSession) -> dict[str, Any]:
 
 
 async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
-    now = datetime.utcnow()
-    since = now - timedelta(hours=24)
-    upcoming = now + timedelta(days=7)
+    """Backward-compatible entry point for the v0.6+ Daily Intelligence service."""
 
-    action_emails = list(
-        (
-            await db.execute(
-                select(EmailMessage)
-                .where(EmailMessage.action_required.is_(True))
-                .order_by(EmailMessage.received_at.desc().nullslast())
-                .limit(20)
-            )
-        ).scalars()
-    )
-    open_tasks = list(
-        (
-            await db.execute(
-                select(Task).where(Task.status.in_(["open", "waiting"])).order_by(Task.due_at.asc().nullslast()).limit(30)
-            )
-        ).scalars()
-    )
-    upcoming_bills = list(
-        (
-            await db.execute(
-                select(Bill)
-                .where(Bill.status.not_in(["paid", "cancelled", "reclassified_nonpayable"]), Bill.due_at.is_not(None), Bill.due_at <= upcoming)
-                .order_by(Bill.due_at.asc())
-                .limit(30)
-            )
-        ).scalars()
-    )
-    payment_actions = list(
-        (
-            await db.execute(
-                select(Payment).where(Payment.requires_user_action.is_(True)).order_by(Payment.created_at.desc()).limit(20)
-            )
-        ).scalars()
-    )
-    support = list((await db.execute(select(SupportCase).where(SupportCase.status.not_in(["resolved", "closed"])).limit(20))).scalars())
-    orders = list((await db.execute(select(OrderRecord).order_by(OrderRecord.updated_at.desc()).limit(10))).scalars())
-    subscriptions = list((await db.execute(select(SubscriptionRecord).where(SubscriptionRecord.status == "active").limit(20))).scalars())
-    financial_records = list(
-        (
-            await db.execute(
-                select(FinancialRecord)
-                .where(FinancialRecord.created_at >= since)
-                .order_by(FinancialRecord.created_at.desc())
-                .limit(20)
-            )
-        ).scalars()
-    )
-    activity = list(
-        (
-            await db.execute(select(AuditLog).where(AuditLog.created_at >= since).order_by(AuditLog.created_at.desc()).limit(50))
-        ).scalars()
-    )
-    dead_letters = list(
-        (
-            await db.execute(
-                select(WorkflowJob)
-                .where(WorkflowJob.status == "dead_letter")
-                .order_by(WorkflowJob.updated_at.desc())
-                .limit(200)
-            )
-        ).scalars()
-    )
+    from app.services.briefing_service import daily_briefing as build_daily_briefing
 
-    appointments: list[dict[str, Any]] = []
-    calendar_error = ""
-    google_configured = int(
-        (await db.execute(select(func.count(OAuthConnection.id)).where(OAuthConnection.provider == "google", OAuthConnection.enabled.is_(True)))).scalar_one()
-    ) > 0
-    if google_configured:
-        try:
-            from app.integrations.google_api import list_upcoming_calendar_events
-
-            appointments = await list_upcoming_calendar_events(db, days=7, max_results=20)
-        except Exception as exc:
-            calendar_error = str(exc)[:1000]
-
-    needs_you: list[dict[str, Any]] = []
-    for payment in payment_actions:
-        needs_you.append(
-            {
-                "type": "payment_authorization",
-                "id": payment.id,
-                "title": "Bank authorization required",
-                "detail": f"{payment.amount} {payment.currency}",
-                "authorization_url": payment.authorization_url,
-            }
-        )
-    for task in open_tasks:
-        if task.requires_approval:
-            needs_you.append({"type": "task_approval", "id": task.id, "title": task.title, "detail": task.description})
-    grouped_failures: dict[str, dict[str, Any]] = {}
-    for job in dead_letters:
-        signature = failure_signature(job.job_type, job.last_error)
-        group = grouped_failures.setdefault(
-            signature,
-            {"job": job, "occurrences": 0},
-        )
-        group["occurrences"] += 1
-
-    for group in grouped_failures.values():
-        job = group["job"]
-        occurrences = int(group["occurrences"])
-        detail = job.last_error
-        if occurrences > 1:
-            detail = f"{detail}\nRepeated {occurrences} times; Autopilot grouped these into one exception."
-        needs_you.append(
-            {
-                "type": "autopilot_exception",
-                "id": job.id,
-                "title": f"Autopilot failed: {job.job_type}",
-                "detail": detail,
-                "occurrences": occurrences,
-            }
-        )
-
-    plan: list[dict[str, Any]] = []
-    for item in needs_you[:10]:
-        plan.append({"kind": item["type"], "title": item["title"], "owner": "user", "reason": "Human action is required"})
-    for task in open_tasks:
-        if not task.requires_approval and task.due_at is not None and task.due_at <= upcoming:
-            plan.append({"kind": "task", "title": task.title, "owner": "autopilot", "due_at": task.due_at, "reason": "Upcoming task"})
-    for bill in upcoming_bills:
-        if bill.status == "validated":
-            plan.append({"kind": "bill", "title": f"Handle {bill.creditor_name} bill", "owner": "autopilot", "due_at": bill.due_at, "reason": "Validated bill within seven days"})
-
-    return {
-        "generated_at": now.isoformat() + "Z",
-        "plan": plan,
-        "important_mail": [
-            {"id": row.id, "sender": row.sender, "subject": row.subject, "priority": row.priority, "category": row.category}
-            for row in action_emails
-        ],
-        "tasks": [
-            {"id": row.id, "title": row.title, "due_at": row.due_at, "priority": row.priority, "requires_approval": row.requires_approval}
-            for row in open_tasks
-        ],
-        "upcoming_bills": [
-            {"id": row.id, "creditor": row.creditor_name, "amount": row.amount, "currency": row.currency, "due_at": row.due_at, "status": row.status}
-            for row in upcoming_bills
-        ],
-        "appointments": appointments,
-        "calendar_error": calendar_error,
-        "support_cases": [{"id": row.id, "subject": row.subject, "priority": row.priority, "status": row.status} for row in support],
-        "orders": [{"id": row.id, "merchant": row.merchant, "order_number": row.order_number, "status": row.status, "expected_delivery_at": row.expected_delivery_at} for row in orders],
-        "subscriptions": [{"id": row.id, "provider": row.provider_name, "description": row.description, "amount": row.amount, "currency": row.currency, "next_charge_at": row.next_charge_at} for row in subscriptions],
-        "financial_records": [
-            {
-                "id": row.id,
-                "type": row.record_type,
-                "provider": row.provider_name,
-                "description": row.description,
-                "order_number": row.order_number,
-                "amount": row.amount,
-                "currency": row.currency,
-                "status": row.status,
-                "occurred_at": row.occurred_at,
-            }
-            for row in financial_records
-        ],
-        "activity": [
-            {"id": row.id, "event_type": row.event_type, "entity_type": row.entity_type, "entity_id": row.entity_id, "result": row.result, "details": _decode(row.details_json, {}), "created_at": row.created_at}
-            for row in activity
-        ],
-        "needs_you": needs_you,
-    }
+    return await build_daily_briefing(db)
 
 
 async def dispatch_intent(db: AsyncSession, intent: dict[str, Any]) -> dict[str, Any]:
@@ -376,6 +259,8 @@ async def dispatch_intent(db: AsyncSession, intent: dict[str, Any]) -> dict[str,
         "sync_contacts": "google.contacts.sync",
         "run_connectors": "connectors.rules.run",
         "housekeeping": "housekeeping.documents",
+        "plan": "autopilot.plan",
+        "provider_health": "autopilot.provider_health",
     }
     supported = set(simple_mapping) | {"run_va", "bill_lifecycle"}
     if kind not in supported:
@@ -419,6 +304,7 @@ async def dispatch_intent(db: AsyncSession, intent: dict[str, Any]) -> dict[str,
 
     if kind == "run_va":
         jobs = []
+        dependency_ids = []
         for index, job_type in enumerate(
             (
                 "gmail.sync",
@@ -436,6 +322,16 @@ async def dispatch_intent(db: AsyncSession, intent: dict[str, Any]) -> dict[str,
                 priority=20 + index * 10,
             )
             jobs.append(job.id)
+            dependency_ids.append(job.id)
+        planner, _ = await enqueue_job(
+            db,
+            workflow_run_id=run.id,
+            job_type="autopilot.plan",
+            idempotency_key=f"{correlation}:planner",
+            priority=75,
+            dependency_ids=dependency_ids,
+        )
+        jobs.append(planner.id)
         return {
             "workflow_id": run.id,
             "job_ids": jobs,

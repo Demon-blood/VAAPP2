@@ -47,6 +47,7 @@ from app.services.ai_policy import (
     urgent_hint,
 )
 from app.services.audit import write_audit
+from app.services.autonomy_policy import learn_successful_reply, reply_autonomy_decision, task_requires_human
 from app.services.financial_document_policy import (
     PAYABLE_INVOICE,
     assess_financial_document,
@@ -54,6 +55,7 @@ from app.services.financial_document_policy import (
     receipt_label,
 )
 from app.services.financial_reconciliation import upsert_financial_record
+from app.services.workflow_engine import failure_recovery_class
 from app.services.operations_service import (
     archive_email_attachments,
     upsert_order,
@@ -484,6 +486,18 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
         await cache_decision(db, fingerprint, message["id"], decision)
 
     protected = _is_protected(decision)
+    if decision.task:
+        task_requires_approval, task_gate_reason = task_requires_human(decision)
+        decision.task["requires_approval"] = task_requires_approval
+        if task_requires_approval and not decision.reasoning_summary:
+            decision.reasoning_summary = task_gate_reason.replace("_", " ")
+
+    if decision_source == "ai":
+        # Store the final policy-normalized decision before any external side effect.
+        # A retry must never resurrect the pre-autonomy approval state from the
+        # earlier cost-saving AI cache write.
+        await cache_decision(db, fingerprint, message["id"], decision)
+
     if not is_read:
         decision.trash = False
     if protected:
@@ -606,6 +620,11 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 received_at=record.received_at,
             )
         except Exception as exc:
+            recovery_class = failure_recovery_class("google.drive.archive", str(exc))
+            if recovery_class in {"transient", "user_required"}:
+                # Let the durable Gmail job own provider retries/auth exceptions. Reprocessing is
+                # idempotent and avoids converting provider outages into fake document approvals.
+                raise
             existing_archive_task = (
                 await db.execute(
                     select(Task).where(
@@ -618,12 +637,12 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
             if existing_archive_task is None:
                 db.add(
                     Task(
-                        title=f"Archive documents: {record.subject}",
-                        description=f"Google Drive archival failed: {exc}",
+                        title=f"Document filing decision needed: {record.subject}",
+                        description=f"Autopilot could not deterministically archive this attachment: {exc}",
                         source_type="email_archive",
                         source_id=message["id"],
                         priority="high" if protected else "normal",
-                        requires_approval=False,
+                        requires_approval=True,
                     )
                 )
             await write_audit(
@@ -631,8 +650,8 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 "document_archival_failed",
                 entity_type="email",
                 entity_id=message["id"],
-                result="failed",
-                details={"error": str(exc)},
+                result="needs_user",
+                details={"error": str(exc), "recovery_class": recovery_class},
             )
 
     if decision.calendar_event and not deferred_ai:
@@ -646,6 +665,9 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 details={"calendar_event_id": event_id},
             )
         except Exception as exc:
+            recovery_class = failure_recovery_class("google.calendar", str(exc))
+            if recovery_class in {"transient", "user_required"}:
+                raise
             existing_calendar_task = (
                 await db.execute(
                     select(Task).where(
@@ -656,8 +678,8 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
             if existing_calendar_task is None:
                 db.add(
                     Task(
-                        title=f"Review calendar item: {record.subject}",
-                        description=f"The VA could not create the event automatically: {exc}",
+                        title=f"Calendar decision needed: {record.subject}",
+                        description=f"Autopilot could not determine a safe calendar action: {exc}",
                         source_type="calendar_review",
                         source_id=message["id"],
                         priority="high",
@@ -667,40 +689,40 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
 
     if decision.reply and not deferred_ai:
         rule = await _matching_reply_rule(db, record.sender, decision.category)
-        if rule:
-            actions = json.loads(rule.actions_json)
-            if actions.get("send") is True:
-                await send_gmail_message(
-                    db,
-                    to=str(decision.reply.get("to") or record.sender),
-                    subject=str(decision.reply.get("subject") or f"Re: {record.subject}"),
-                    body=str(decision.reply.get("body") or ""),
-                    reply_to_id=headers.get("message-id"),
-                )
-                await write_audit(
-                    db,
-                    "email_reply_sent",
-                    entity_type="email",
-                    entity_id=message["id"],
-                    details={"rule_id": rule.id},
-                )
-            else:
-                existing_reply_task = (
-                    await db.execute(
-                        select(Task).where(Task.source_type == "email_reply", Task.source_id == message["id"])
-                    )
-                ).scalars().first()
-                if existing_reply_task is None:
-                    db.add(
-                        Task(
-                            title=f"Approve reply: {record.subject}",
-                            description=str(decision.reply.get("body") or ""),
-                            source_type="email_reply",
-                            source_id=message["id"],
-                            priority=decision.priority,
-                            requires_approval=True,
-                        )
-                    )
+        explicit_rule_send = False
+        if rule is not None:
+            try:
+                explicit_rule_send = json.loads(rule.actions_json).get("send") is True
+            except json.JSONDecodeError:
+                explicit_rule_send = False
+
+        policy_send, policy_reason = await reply_autonomy_decision(db, message=record, decision=decision)
+        should_send = explicit_rule_send or policy_send
+        if should_send:
+            sent_id = await send_gmail_message(
+                db,
+                to=str(decision.reply.get("to") or record.sender),
+                subject=str(decision.reply.get("subject") or f"Re: {record.subject}"),
+                body=str(decision.reply.get("body") or ""),
+                reply_to_id=headers.get("message-id"),
+            )
+            await learn_successful_reply(
+                db,
+                message=record,
+                mode="explicit_rule" if explicit_rule_send else "deterministic_autopilot",
+            )
+            await write_audit(
+                db,
+                "email_reply_sent",
+                entity_type="email",
+                entity_id=message["id"],
+                details={
+                    "gmail_message_id": sent_id,
+                    "rule_id": rule.id if explicit_rule_send and rule is not None else None,
+                    "autopilot": True,
+                    "policy": "explicit_rule" if explicit_rule_send else policy_reason,
+                },
+            )
         else:
             existing_reply_task = (
                 await db.execute(
@@ -710,8 +732,11 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
             if existing_reply_task is None:
                 db.add(
                     Task(
-                        title=f"Approve reply: {record.subject}",
-                        description=str(decision.reply.get("body") or ""),
+                        title=f"Reply decision needed: {record.subject}",
+                        description=(
+                            f"Autopilot kept this reply for you because {policy_reason.replace('_', ' ')}.\n\n"
+                            f"{str(decision.reply.get('body') or '')}"
+                        ),
                         source_type="email_reply",
                         source_id=message["id"],
                         priority=decision.priority,

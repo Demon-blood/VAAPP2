@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../theme/va_theme.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/daily_briefing_card.dart';
 import '../widgets/va_mascot.dart';
 
 class DashboardPage extends StatelessWidget {
@@ -59,60 +60,22 @@ class DashboardPage extends StatelessWidget {
           const SizedBox(height: 14),
           _AutopilotStatus(state: state),
           const SizedBox(height: 12),
-          _NeedsYouSection(state: state, onOpenTasks: onOpenTasks, onOpenPayments: onOpenPayments),
-          const SizedBox(height: 14),
-          if (data.actionEmails > 0) ...[
-          CountCard(
-            label: 'Emails needing action',
-            value: data.actionEmails,
-            icon: Icons.mail_rounded,
-            accent: VaTheme.primary,
-            subtitle: data.actionEmails == 0
-                ? 'Inbox automation is caught up'
-                : 'Open unresolved messages and suggested actions',
-            onTap: onOpenEmails,
-          ),
-          const SizedBox(height: 9),
-          ],
-          if (data.unpaidBills > 0) ...[
-          CountCard(
-            label: 'Unpaid bills',
-            value: data.unpaidBills,
-            icon: Icons.receipt_long_rounded,
-            accent: VaTheme.success,
-            subtitle: data.unpaidBills == 0
-                ? 'No outstanding bills detected'
-                : 'Review due bills or run eligible auto-pay',
-            onTap: onOpenBills,
-          ),
-          const SizedBox(height: 9),
-          ],
-          if (data.openTasks > 0) ...[
-          CountCard(
-            label: 'Open tasks',
-            value: data.openTasks,
-            icon: Icons.task_alt_rounded,
-            accent: VaTheme.secondary,
-            subtitle: data.openTasks == 0
-                ? 'You’re all caught up'
-                : 'Approvals, follow-ups and exceptions',
-            onTap: onOpenTasks,
-          ),
-          const SizedBox(height: 9),
-          ],
-          if (data.paymentActions > 0) ...[
-          CountCard(
-            label: 'Payment approvals',
-            value: data.paymentActions,
-            icon: Icons.verified_user_rounded,
-            accent: VaTheme.warning,
-            subtitle: data.paymentActions == 0
-                ? 'No bank authorization is waiting'
-                : 'Bank or SCA authorization is required',
-            onTap: onOpenPayments,
+          _NeedsYouSection(
+            state: state,
+            onOpenTasks: onOpenTasks,
+            onOpenPayments: onOpenPayments,
+            onOpenServices: onOpenServices,
           ),
           const SizedBox(height: 12),
-          ],
+          DailyBriefingCard(briefing: state.dailyBriefing),
+          const SizedBox(height: 14),
+          _WorkLibrary(
+            onOpenEmails: onOpenEmails,
+            onOpenBills: onOpenBills,
+            onOpenTasks: onOpenTasks,
+            onOpenPayments: onOpenPayments,
+          ),
+          const SizedBox(height: 12),
           _RunVaButton(state: state),
           const SizedBox(height: 22),
           Row(
@@ -168,8 +131,10 @@ class _AutopilotStatus extends StatelessWidget {
     final health = state.autopilotHealth;
     final status = '${health['status'] ?? 'unknown'}';
     final healthy = status == 'healthy';
+    final statusLabel = status == 'needs_setup' ? 'needs setup' : status == 'degraded' ? 'needs attention' : status;
     final jobs = Map<String, dynamic>.from(health['jobs'] as Map? ?? const {});
-    final dead = (jobs['dead_letter'] as num?)?.toInt() ?? 0;
+    final actionable = (health['actionable_dead_letters'] as num?)?.toInt() ?? 0;
+    final recovering = (health['recovering_jobs'] as num?)?.toInt() ?? 0;
     final retry = (jobs['retry'] as num?)?.toInt() ?? 0;
     final running = (jobs['running'] as num?)?.toInt() ?? 0;
     return VaSectionCard(
@@ -192,16 +157,20 @@ class _AutopilotStatus extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Autopilot ${healthy ? 'healthy' : status}', style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text('Autopilot ${healthy ? 'healthy' : statusLabel}', style: const TextStyle(fontWeight: FontWeight.w900)),
                 const SizedBox(height: 3),
                 Text(
-                  '$running running · $retry retrying · $dead needs recovery',
+                  actionable > 0
+                      ? '$running running · $retry retrying · $actionable exception${actionable == 1 ? '' : 's'} need recovery'
+                      : recovering > 0
+                          ? '$running running · $retry retrying · $recovering self-healing'
+                          : '$running running · $retry retrying · no recovery needed',
                   style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
                 ),
               ],
             ),
           ),
-          if (dead > 0)
+          if (actionable > 0)
             TextButton(
               onPressed: () async {
                 final result = await context.read<AppState>().recoverAutopilot();
@@ -230,11 +199,17 @@ class _AutopilotStatus extends StatelessWidget {
 }
 
 class _NeedsYouSection extends StatelessWidget {
-  const _NeedsYouSection({required this.state, required this.onOpenTasks, required this.onOpenPayments});
+  const _NeedsYouSection({
+    required this.state,
+    required this.onOpenTasks,
+    required this.onOpenPayments,
+    required this.onOpenServices,
+  });
 
   final AppState state;
   final VoidCallback onOpenTasks;
   final VoidCallback onOpenPayments;
+  final VoidCallback onOpenServices;
 
   @override
   Widget build(BuildContext context) {
@@ -272,7 +247,11 @@ class _NeedsYouSection extends StatelessWidget {
               title: Text('${item['title'] ?? item['type'] ?? 'Action required'}', maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('${item['detail'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: item['type'] == 'payment_authorization' ? onOpenPayments : onOpenTasks,
+              onTap: item['type'] == 'payment_authorization'
+                  ? onOpenPayments
+                  : item['type'] == 'provider_authorization'
+                      ? onOpenServices
+                      : onOpenTasks,
             ),
         ],
       ),
@@ -391,6 +370,64 @@ class _GreetingHero extends StatelessWidget {
       ),
     );
   }
+}
+
+class _WorkLibrary extends StatelessWidget {
+  const _WorkLibrary({
+    required this.onOpenEmails,
+    required this.onOpenBills,
+    required this.onOpenTasks,
+    required this.onOpenPayments,
+  });
+
+  final VoidCallback onOpenEmails;
+  final VoidCallback onOpenBills;
+  final VoidCallback onOpenTasks;
+  final VoidCallback onOpenPayments;
+
+  @override
+  Widget build(BuildContext context) => VaSectionCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Work library',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Routine work stays with Autopilot. Open a workspace only when you want the underlying record.',
+              style: TextStyle(color: VaTheme.textMuted, fontSize: 12, height: 1.35),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _WorkLink(icon: Icons.mail_outline_rounded, label: 'Mail', onTap: onOpenEmails),
+                _WorkLink(icon: Icons.receipt_long_outlined, label: 'Bills', onTap: onOpenBills),
+                _WorkLink(icon: Icons.task_alt_rounded, label: 'Tasks', onTap: onOpenTasks),
+                _WorkLink(icon: Icons.payments_outlined, label: 'Payments', onTap: onOpenPayments),
+              ],
+            ),
+          ],
+        ),
+      );
+}
+
+class _WorkLink extends StatelessWidget {
+  const _WorkLink({required this.icon, required this.label, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      );
 }
 
 class _RunVaButton extends StatelessWidget {

@@ -272,3 +272,59 @@ async def test_v052_gmail_409_backlog_repair_runs_only_once(workflow_db):
     assert second == {"superseded": 0, "already_repaired": 1}
     await workflow_db.refresh(new_retry)
     assert new_retry.status == "retry"
+
+
+def test_failure_recovery_class_distinguishes_transient_from_human_auth():
+    from app.services.workflow_engine import failure_recovery_class
+
+    assert failure_recovery_class("gmail.sync", "HttpError 429 Too Many Requests") == "transient"
+    assert failure_recovery_class("banking.autopilot", "503 Service Unavailable") == "transient"
+    assert failure_recovery_class("gmail.sync", "HttpError 401 Unauthorized") == "user_required"
+    assert failure_recovery_class("banking.autopilot", "Itsme SCA authorization required") == "user_required"
+    assert failure_recovery_class("connectors.rules.run", "Unexpected invalid mapping") == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_automatic_recovery_requeues_only_transient_dead_letters(workflow_db):
+    from app.services.workflow_engine import auto_recover_transient_failures
+
+    old = datetime.utcnow() - timedelta(minutes=30)
+    transient = WorkflowJob(
+        job_type="gmail.sync",
+        payload_json="{}",
+        idempotency_key="recover:transient",
+        status="dead_letter",
+        priority=20,
+        attempts=8,
+        max_attempts=8,
+        run_after=old,
+        result_json="{}",
+        last_error="HttpError 429 Too Many Requests",
+        finished_at=old,
+        updated_at=old,
+    )
+    auth = WorkflowJob(
+        job_type="banking.autopilot",
+        payload_json="{}",
+        idempotency_key="recover:auth",
+        status="dead_letter",
+        priority=20,
+        attempts=8,
+        max_attempts=8,
+        run_after=old,
+        result_json="{}",
+        last_error="HttpError 401 Unauthorized - bank authorization required",
+        finished_at=old,
+        updated_at=old,
+    )
+    workflow_db.add_all([transient, auth])
+    await workflow_db.commit()
+
+    outcome = await auto_recover_transient_failures(workflow_db, cooldown_minutes=15)
+    assert outcome["recovered"] == 1
+    assert outcome["skipped_user_required"] == 1
+    await workflow_db.refresh(transient)
+    await workflow_db.refresh(auth)
+    assert transient.status == "retry"
+    assert transient.attempts == 0
+    assert auth.status == "dead_letter"

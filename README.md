@@ -1,3 +1,56 @@
+# Full-Time VA v0.6.1 — Autopilot Completion
+
+v0.6.1 builds on v0.6.0 Daily Intelligence and completes the remaining unattended-operation hardening: durable proactive planning, bounded transient provider self-recovery, deterministic low-risk reply autonomy with learned preferences, a single durable payment-initiation path, exception-only provider/side-effect failures, an exception-first Today screen without routine counters, and a chronological VA activity timeline.
+
+See `docs/V0.6.1_AUTOPILOT_COMPLETION.md` for the detailed behavior and safety boundaries.
+
+---
+
+# Full-Time VA v0.6.0 — Daily Intelligence
+
+v0.6.0 builds on the current v0.5.2 Autopilot source and makes the VA's work understandable without turning the app back into a management dashboard.
+
+## Daily briefing
+
+The existing `/api/autopilot/briefing` endpoint is upgraded into a rolling 24-hour executive briefing. It now explains:
+
+- every recently received email (up to the safety limit), including sender, subject, a short saved decision summary, category, priority and what the VA did;
+- bills that were detected/changed and bills due in the next seven days;
+- payment activity joined back to the bill/creditor, invoice/reference and payment account, so the briefing says what a payment was for;
+- paid receipts and financial notices separately from payable bills;
+- calendar events created from incoming information plus the next seven days of appointments;
+- replies sent automatically and replies that are genuinely waiting for a human decision;
+- tasks/deadlines completed during the window and upcoming deadlines;
+- deliveries/orders/subscriptions already tracked by Autopilot;
+- important retained Drive documents created during the window;
+- unusual/security/legal/financial mail collected into a dedicated review section;
+- active provider/connector/automation problems, without turning routine healthy activity into an alert;
+- grouped VA activity and the final exception-only `Needs you` queue.
+
+Generating the briefing does not call Groq or Gemini again. It reuses the already stored email decision/reasoning and audit trail, so the briefing works during an AI outage and does not consume extra free-tier requests.
+
+## Android
+
+Today gets a compact Daily briefing card with a full detail sheet. Background WorkManager keeps checking priority exceptions, but unchanged exceptions are deduplicated instead of notifying every 15 minutes. A separate Daily briefing notification is emitted once per local day after the configured delivery hour (19:00 by default).
+
+Today keeps **Needs you** above the Daily briefing card, so routine reporting never outranks an unavoidable exception.
+
+## Configuration
+
+The Automation section gains:
+
+- `daily_briefing_enabled` — default `true`
+- `daily_briefing_hour_local` — default `19`
+- `daily_briefing_window_hours` — default `24`
+
+No new database table or migration is required.
+
+## Reliability hardening
+
+The durable `autopilot.daily_briefing` workflow handler and the HTTP briefing endpoint both use the same v0.6.0 Daily Intelligence service. The upgrade workflow validates backend tests with the repository's required settings environment and validates Android with the same pinned Flutter 3.38.7 release line used by the signed APK workflow. The installer is idempotent and can repair a partially applied v0.6.0 tree.
+
+---
+
 # Full-Time VA v0.5.2 — Gmail self-healing
 
 Built on v0.5.1. This release fixes the Gmail HTTP 409 retry storm visible on the Today screen and makes Autopilot provider failures self-compacting instead of flooding `Needs you`.

@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import html
 import json
-from datetime import datetime, timedelta
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +14,7 @@ from app.core.database import get_db
 from app.core.settings import get_settings
 from app.core.version import APP_VERSION, REQUIRED_ANDROID_VERSION
 from app.integrations.ai_client import AIConfigurationError, ai_usage_status, ensure_ai_configured
-from app.integrations.enable_banking import EnableBankingConfigurationError, ensure_enable_banking_configured
+from app.integrations.enable_banking import EnableBankingConfigurationError
 from app.integrations.cloudflare_api import (
     CloudflareConfigurationError,
     resource_summary as cloudflare_resource_summary,
@@ -85,6 +83,7 @@ from app.schemas.api import (
     TaskResponse,
 )
 from app.services.audit import write_audit
+from app.services.autonomy_policy import learn_successful_reply
 from app.services.certificate_service import generate_enable_banking_keypair
 from app.services.android_signing import install_repository_signing, repository_signing_status
 from app.services.banking_service import (
@@ -354,6 +353,7 @@ async def execute_task_action(
             body=str(decision.reply.get("body") or ""),
         )
         task.status = "completed"
+        await learn_successful_reply(db, message=email, mode="manual_approval")
         await write_audit(
             db,
             "email_reply_sent",

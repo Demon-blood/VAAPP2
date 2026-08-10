@@ -4,7 +4,7 @@ import asyncio
 import base64
 import io
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from typing import Any
 from urllib.parse import urlencode

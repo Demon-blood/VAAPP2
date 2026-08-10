@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +65,128 @@ def failure_signature(job_type: str, error: str) -> str:
     value = re.sub(r"\b\d{6,}\b", "<number>", value)
     value = re.sub(r"\s+", " ", value).lower()
     return f"{job_type}:{value[:240]}"
+
+
+def failure_recovery_class(job_type: str, error: str) -> str:
+    """Classify a terminal job failure for safe automatic recovery.
+
+    ``transient`` may be requeued automatically. ``user_required`` covers OAuth/SCA/security or
+    configuration states where retries cannot succeed without a person. Unknown failures stay
+    exception-only instead of being retried forever.
+    """
+
+    value = (error or "").lower()
+    http_match = re.search(r"(?:httperror|status(?: code)?|http)\s*[:= ]?\s*(\d{3})", value)
+    status = int(http_match.group(1)) if http_match else None
+    if status in {408, 409, 425, 429} or (status is not None and 500 <= status <= 599):
+        return "transient"
+    if status == 403 and any(term in value for term in ("rate limit", "ratelimit", "quota", "resource exhausted")):
+        return "transient"
+    if status in {401, 403}:
+        return "user_required"
+
+    user_terms = (
+        "authorization required", "authorisation required", "oauth consent", "reauthor",
+        "invalid credential", "invalid api key", "missing api key", "not configured",
+        "permission denied", "access denied", "forbidden", "unauthorized", "unauthorised",
+        "sca", "strong customer authentication", "itsme", "bank authorization",
+        "bank authorisation", "user action required", "security challenge", "invalid_grant",
+        "oauth connection", "google connection", "connection is missing", "credentials are missing",
+    )
+    if any(term in value for term in user_terms):
+        return "user_required"
+
+    transient_terms = (
+        "timeout", "timed out", "temporarily unavailable", "temporary failure", "try again",
+        "rate limit", "too many requests", "connection reset", "connection aborted",
+        "connection refused", "service unavailable", "bad gateway", "gateway timeout",
+        "dns", "name resolution", "worker lease expired", "conflict", "concurrent",
+    )
+    if any(term in value for term in transient_terms):
+        return "transient"
+    return "unknown"
+
+
+async def auto_recover_transient_failures(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+    cooldown_minutes: int = 15,
+    max_automatic_recoveries: int = 2,
+) -> dict[str, int]:
+    """Requeue only dead letters that are demonstrably transient."""
+
+    compacted = await compact_duplicate_dead_letters(db)
+    now = utcnow()
+    cutoff = now - timedelta(minutes=max(1, cooldown_minutes))
+    rows = list(
+        (
+            await db.execute(
+                select(WorkflowJob)
+                .where(WorkflowJob.status == "dead_letter", WorkflowJob.updated_at <= cutoff)
+                .order_by(WorkflowJob.updated_at.asc(), WorkflowJob.id.asc())
+                .limit(max(1, min(limit, 100)))
+            )
+        ).scalars()
+    )
+    recovered = 0
+    skipped_user = 0
+    skipped_unknown = 0
+    exhausted = 0
+    for job in rows:
+        classification = failure_recovery_class(job.job_type, job.last_error)
+        if classification == "user_required":
+            skipped_user += 1
+            continue
+        if classification != "transient":
+            skipped_unknown += 1
+            continue
+        recovery_count = int(
+            (
+                await db.execute(
+                    select(func.count(AuditLog.id)).where(
+                        AuditLog.event_type == "workflow_job_auto_recovered",
+                        AuditLog.entity_type == "workflow_job",
+                        AuditLog.entity_id == str(job.id),
+                    )
+                )
+            ).scalar_one()
+        )
+        if recovery_count >= max_automatic_recoveries:
+            exhausted += 1
+            continue
+        job.status = "retry"
+        job.attempts = 0
+        job.run_after = now
+        job.finished_at = None
+        job.lease_owner = ""
+        job.lease_expires_at = None
+        if job.workflow_run_id is not None:
+            run = await db.get(WorkflowRun, job.workflow_run_id)
+            if run is not None:
+                run.status = "running"
+                run.finished_at = None
+        await write_audit(
+            db,
+            "workflow_job_auto_recovered",
+            entity_type="workflow_job",
+            entity_id=str(job.id),
+            details={
+                "job_type": job.job_type,
+                "failure_signature": failure_signature(job.job_type, job.last_error),
+                "automatic_recovery_number": recovery_count + 1,
+            },
+        )
+        recovered += 1
+    if recovered:
+        await db.commit()
+    return {
+        "recovered": recovered,
+        "skipped_user_required": skipped_user,
+        "skipped_unknown": skipped_unknown,
+        "exhausted": exhausted,
+        "superseded_duplicates": compacted["superseded"],
+    }
 
 
 async def compact_duplicate_dead_letters(db: AsyncSession) -> dict[str, int]:
@@ -607,22 +729,18 @@ async def _gmail_sync(db: AsyncSession, payload: dict[str, Any]) -> dict[str, An
 
 @job_handler("banking.autopilot")
 async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
-    from app.core.settings import get_settings
     from app.services.action_reconciler import reconcile_action_queue
-    from app.services.banking_service import auto_pay_eligible_bills, refresh_all_payments, sync_all_banks
+    from app.services.banking_service import refresh_all_payments, sync_all_banks
     from app.services.financial_reconciliation import reconcile_receipts_with_bank_transactions
 
-    settings = get_settings()
     bank_sync = await sync_all_banks(db)
     receipt_reconciliation = await reconcile_receipts_with_bank_transactions(db)
-    callback_url = str(settings.public_base_url).rstrip("/") + "/api/banking/payment-callback"
-    payments = await auto_pay_eligible_bills(db, redirect_url=callback_url)
     refreshed = await refresh_all_payments(db)
     reconciled = await reconcile_action_queue(db)
     return {
         "bank_sync": bank_sync,
         "receipt_reconciliation": receipt_reconciliation,
-        "payments": payments,
+        "payment_initiation": "delegated_to_durable_bill_lifecycle",
         "payment_refresh": refreshed,
         "action_reconciliation": reconciled,
     }
@@ -802,12 +920,35 @@ async def _bill_lifecycle(db: AsyncSession, payload: dict[str, Any]) -> dict[str
 @job_handler("autopilot.provider_health")
 async def _provider_health(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     from app.services.autopilot_service import provider_health_snapshot
+    from app.services.runtime_config import get_runtime_value
 
-    return await provider_health_snapshot(db)
+    enabled = (await get_runtime_value(db, "auto_recover_transient_failures", "true")).lower() == "true"
+    recovery = (
+        await auto_recover_transient_failures(db)
+        if enabled
+        else {
+            "recovered": 0,
+            "skipped_user_required": 0,
+            "skipped_unknown": 0,
+            "exhausted": 0,
+            "superseded_duplicates": 0,
+            "disabled": True,
+        }
+    )
+    health = await provider_health_snapshot(db)
+    health["automatic_recovery"] = recovery
+    return health
+
+
+@job_handler("autopilot.plan")
+async def _autopilot_plan(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.autopilot_planner import proactive_plan
+
+    return await proactive_plan(db)
 
 
 @job_handler("autopilot.daily_briefing")
 async def _daily_briefing(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
-    from app.services.autopilot_service import daily_briefing
+    from app.services.briefing_service import daily_briefing
 
     return await daily_briefing(db)

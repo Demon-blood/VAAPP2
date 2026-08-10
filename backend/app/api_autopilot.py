@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import require_device
 from app.core.database import get_db
 from app.models.entities import Device, OperationPreference, WorkflowJob, WorkflowRun
-from app.services.autopilot_service import daily_briefing, dispatch_intent, operations_profile, provider_health_snapshot
+from app.services.autopilot_service import dispatch_intent, operations_profile, provider_health_snapshot
+from app.services.briefing_service import daily_briefing
 from app.services.workflow_engine import recover_autopilot_exceptions, requeue_dead_letter
 
 router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
@@ -56,10 +57,13 @@ async def autopilot_health(
     )
     providers = await provider_health_snapshot(db)
     return {
-        "status": "degraded" if stalled or counts.get("dead_letter", 0) or providers["status"] == "degraded" else "healthy",
+        "status": "degraded" if stalled else providers["status"],
         "jobs": counts,
         "expired_leases": stalled,
         "overdue_jobs": overdue,
+        "recovering_jobs": providers.get("recovering_jobs", 0),
+        "actionable_dead_letters": providers.get("dead_letter_jobs", 0),
+        "setup_required": providers.get("setup_required", []),
         "providers": providers["providers"],
         "checked_at": now.isoformat() + "Z",
     }

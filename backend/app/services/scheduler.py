@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -124,16 +125,45 @@ async def provider_health_enqueue_job() -> None:
             logger.exception("Failed to enqueue provider-health Autopilot job")
 
 
-async def daily_briefing_enqueue_job() -> None:
+async def proactive_planner_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
     async with SessionLocal() as db:
         try:
             await enqueue_job(
                 db,
-                job_type="autopilot.daily_briefing",
+                job_type="autopilot.plan",
                 payload={},
-                idempotency_key=_bucket_key("autopilot.daily_briefing", 1440),
+                idempotency_key=_bucket_key("autopilot.plan", 15),
+                priority=15,
+                max_attempts=5,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue proactive Autopilot planner job")
+
+
+async def daily_briefing_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            from app.services.runtime_config import get_runtime_value
+
+            enabled = (await get_runtime_value(db, "daily_briefing_enabled", "true")).lower() == "true"
+            if not enabled:
+                return
+            try:
+                delivery_hour = max(0, min(int(await get_runtime_value(db, "daily_briefing_hour_local", "19")), 23))
+            except ValueError:
+                delivery_hour = 19
+            local_now = datetime.now(ZoneInfo(settings.default_timezone))
+            if local_now.hour != delivery_hour:
+                return
+            await enqueue_job(
+                db,
+                job_type="autopilot.daily_briefing",
+                payload={"local_date": local_now.date().isoformat(), "delivery_hour": delivery_hour},
+                idempotency_key=f"autopilot.daily_briefing:{local_now.date().isoformat()}",
                 priority=70,
                 max_attempts=3,
             )
@@ -228,9 +258,21 @@ def start_scheduler() -> None:
         next_run_time=now,
     )
     scheduler.add_job(
+        proactive_planner_enqueue_job,
+        "interval",
+        minutes=15,
+        id="autopilot_planner_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    # Poll hourly so the runtime-configured local delivery hour can change without a process restart.
+    # The daily idempotency key guarantees exactly one durable briefing job per local calendar day.
+    scheduler.add_job(
         daily_briefing_enqueue_job,
         "interval",
-        hours=24,
+        hours=1,
         id="autopilot_daily_briefing_enqueue",
         replace_existing=True,
         max_instances=1,
