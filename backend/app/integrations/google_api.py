@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -241,26 +242,136 @@ def headers_to_dict(payload: dict[str, Any]) -> dict[str, str]:
     return {item.get("name", "").lower(): item.get("value", "") for item in payload.get("headers", [])}
 
 
-async def ensure_gmail_label(db: AsyncSession, label_name: str) -> str:
-    service = await gmail_service(db)
-    labels = service.users().labels().list(userId="me").execute().get("labels", [])
-    for label in labels:
-        if label.get("name") == label_name:
-            return label["id"]
-    created = (
-        service.users()
-        .labels()
-        .create(
-            userId="me",
-            body={
-                "name": label_name,
-                "labelListVisibility": "labelShow",
-                "messageListVisibility": "show",
-            },
-        )
-        .execute()
+def _google_http_status(exc: HttpError) -> int:
+    try:
+        return int(getattr(exc.resp, "status", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _google_http_reason(exc: HttpError) -> str:
+    try:
+        payload = json.loads(exc.content.decode("utf-8", errors="replace"))
+    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
+        return ""
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return ""
+    errors = error.get("errors")
+    if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+        return str(errors[0].get("reason") or "")
+    return str(error.get("status") or "")
+
+
+async def _execute_google_request(
+    request_factory,
+    *,
+    attempts: int = 4,
+    retry_statuses: set[int] | None = None,
+):
+    """Execute a synchronous Google API request without blocking the event loop.
+
+    Gmail can return HTTP 409 for an aborted/concurrent mutation. 409, rate limits,
+    and provider 5xx responses are retried at the smallest possible API-operation
+    boundary so a harmless label/message race never restarts the entire mailbox sync.
+    """
+
+    statuses = retry_statuses if retry_statuses is not None else {409, 429, 500, 502, 503, 504}
+    total_attempts = max(1, attempts)
+    for attempt in range(total_attempts):
+        try:
+            return await asyncio.to_thread(lambda: request_factory().execute())
+        except HttpError as exc:
+            status = _google_http_status(exc)
+            if status not in statuses or attempt + 1 >= total_attempts:
+                raise
+            await asyncio.sleep(min(2.0, 0.25 * (2**attempt)))
+
+
+async def _list_gmail_labels(service) -> list[dict[str, Any]]:
+    response = await _execute_google_request(
+        lambda: service.users().labels().list(userId="me"),
+        attempts=4,
     )
-    return created["id"]
+    return list(response.get("labels", []) or [])
+
+
+async def ensure_gmail_labels(
+    db: AsyncSession,
+    label_names: list[str],
+    *,
+    service=None,
+) -> dict[str, str]:
+    """Resolve/create Gmail labels with one initial list call and conflict recovery."""
+
+    service = service or await gmail_service(db)
+    requested = [name.strip() for name in dict.fromkeys(label_names) if name.strip()]
+    if not requested:
+        return {}
+
+    labels = await _list_gmail_labels(service)
+    resolved = {
+        str(label.get("name")): str(label["id"])
+        for label in labels
+        if label.get("name") and label.get("id")
+    }
+
+    for normalized_name in requested:
+        if normalized_name in resolved:
+            continue
+        for attempt in range(4):
+            try:
+                created = await _execute_google_request(
+                    lambda normalized_name=normalized_name: service.users()
+                    .labels()
+                    .create(
+                        userId="me",
+                        body={
+                            "name": normalized_name,
+                            "labelListVisibility": "labelShow",
+                            "messageListVisibility": "show",
+                        },
+                    ),
+                    attempts=1,
+                    retry_statuses=set(),
+                )
+                resolved[normalized_name] = str(created["id"])
+                break
+            except HttpError as exc:
+                if _google_http_status(exc) != 409:
+                    raise
+
+                # Another worker may have created the label after our list call.
+                labels = await _list_gmail_labels(service)
+                winner = next(
+                    (
+                        label
+                        for label in labels
+                        if label.get("name") == normalized_name and label.get("id")
+                    ),
+                    None,
+                )
+                if winner is not None:
+                    resolved[normalized_name] = str(winner["id"])
+                    break
+                if attempt + 1 >= 4:
+                    raise
+                await asyncio.sleep(min(1.0, 0.2 * (2**attempt)))
+
+    return {name: resolved[name] for name in requested}
+
+
+async def ensure_gmail_label(
+    db: AsyncSession,
+    label_name: str,
+    *,
+    service=None,
+) -> str:
+    normalized_name = label_name.strip()
+    if not normalized_name:
+        raise ValueError("Gmail label name cannot be empty")
+    resolved = await ensure_gmail_labels(db, [normalized_name], service=service)
+    return resolved[normalized_name]
 
 
 async def modify_gmail_message(
@@ -271,12 +382,20 @@ async def modify_gmail_message(
     remove_labels: list[str] | None = None,
 ) -> None:
     service = await gmail_service(db)
-    add_ids = [await ensure_gmail_label(db, name) for name in add_labels or []]
-    service.users().messages().modify(
-        userId="me",
-        id=message_id,
-        body={"addLabelIds": add_ids, "removeLabelIds": remove_labels or []},
-    ).execute()
+    requested_labels = [name for name in dict.fromkeys(add_labels or []) if name.strip()]
+    label_ids = await ensure_gmail_labels(db, requested_labels, service=service)
+    add_ids = [label_ids[name.strip()] for name in requested_labels]
+
+    # Retry a conflicting message mutation in place. This is deliberately narrower
+    # than retrying sync_gmail(), which may have already processed many messages.
+    await _execute_google_request(
+        lambda: service.users().messages().modify(
+            userId="me",
+            id=message_id,
+            body={"addLabelIds": add_ids, "removeLabelIds": remove_labels or []},
+        ),
+        attempts=4,
+    )
 
 
 async def send_gmail_message(db: AsyncSession, to: str, subject: str, body: str, reply_to_id: str | None = None) -> str:

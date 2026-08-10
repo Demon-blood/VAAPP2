@@ -3,17 +3,22 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models.entities import AuditLog, WorkflowJob, WorkflowJobDependency, WorkflowRun
 from app.services.workflow_engine import (
     _backoff_seconds,
+    compact_duplicate_dead_letters,
     complete_job,
     create_workflow,
     enqueue_job,
     fail_job,
+    failure_signature,
     lease_due_jobs,
+    recover_autopilot_exceptions,
     recover_expired_leases,
+    repair_v052_gmail_conflict_backlog,
     requeue_dead_letter,
 )
 
@@ -125,3 +130,145 @@ async def test_retry_dead_letter_requeue_and_watchdog(workflow_db):
     recovered = await workflow_db.get(WorkflowJob, job.id)
     assert recovered.status == "retry"
     assert recovered.lease_owner == ""
+
+
+def test_failure_signature_collapses_http_conflicts():
+    first = failure_signature(
+        "gmail.sync",
+        '<HttpError 409 when requesting https://gmail.googleapis.com/gmail/v1/users/me/labels returned "Conflict">',
+    )
+    second = failure_signature(
+        "gmail.sync",
+        '<HttpError 409 when requesting https://gmail.googleapis.com/gmail/v1/users/me/messages/abc returned "Aborted">',
+    )
+    assert first == "gmail.sync:http:409"
+    assert second == first
+    assert failure_signature("gmail.sync", "HttpError 401") == "gmail.sync:http:401"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_dead_letters_are_compacted_and_bulk_recovery_requeues_one(workflow_db):
+    now = datetime.utcnow()
+    first = WorkflowJob(
+        job_type="gmail.sync",
+        payload_json="{}",
+        idempotency_key="gmail:dead:1",
+        status="dead_letter",
+        priority=20,
+        attempts=8,
+        max_attempts=8,
+        run_after=now,
+        lease_owner="",
+        result_json="{}",
+        last_error='<HttpError 409 when requesting https://gmail.googleapis.com/a returned "Conflict">',
+        finished_at=now,
+    )
+    second = WorkflowJob(
+        job_type="gmail.sync",
+        payload_json="{}",
+        idempotency_key="gmail:dead:2",
+        status="dead_letter",
+        priority=20,
+        attempts=8,
+        max_attempts=8,
+        run_after=now,
+        lease_owner="",
+        result_json="{}",
+        last_error='<HttpError 409 when requesting https://gmail.googleapis.com/b returned "Conflict">',
+        finished_at=now,
+    )
+    workflow_db.add_all([first, second])
+    await workflow_db.commit()
+
+    compacted = await compact_duplicate_dead_letters(workflow_db)
+    assert compacted["superseded"] == 1
+
+    statuses = sorted(
+        list(
+            (
+                await workflow_db.execute(
+                    select(WorkflowJob.status).where(
+                        WorkflowJob.id.in_([first.id, second.id])
+                    )
+                )
+            ).scalars()
+        )
+    )
+    assert statuses == ["dead_letter", "superseded"]
+
+    recovered = await recover_autopilot_exceptions(workflow_db)
+    assert recovered["requeued"] == 1
+    statuses = sorted(
+        list(
+            (
+                await workflow_db.execute(
+                    select(WorkflowJob.status).where(
+                        WorkflowJob.id.in_([first.id, second.id])
+                    )
+                )
+            ).scalars()
+        )
+    )
+    assert statuses == ["retry", "superseded"]
+
+
+@pytest.mark.asyncio
+async def test_v052_gmail_409_backlog_repair_runs_only_once(workflow_db):
+    now = datetime.utcnow()
+    old_retry = WorkflowJob(
+        job_type="gmail.sync",
+        payload_json="{}",
+        idempotency_key="gmail:legacy:retry",
+        status="retry",
+        priority=20,
+        attempts=2,
+        max_attempts=8,
+        run_after=now,
+        lease_owner="",
+        result_json="{}",
+        last_error="<HttpError 409 old conflict>",
+    )
+    old_dead = WorkflowJob(
+        job_type="gmail.sync",
+        payload_json="{}",
+        idempotency_key="gmail:legacy:dead",
+        status="dead_letter",
+        priority=20,
+        attempts=8,
+        max_attempts=8,
+        run_after=now,
+        lease_owner="",
+        result_json="{}",
+        last_error="<HttpError 409 old conflict>",
+        finished_at=now,
+    )
+    workflow_db.add_all([old_retry, old_dead])
+    await workflow_db.commit()
+
+    outcome = await repair_v052_gmail_conflict_backlog(workflow_db)
+    assert outcome == {"superseded": 2, "already_repaired": 0}
+    await workflow_db.refresh(old_retry)
+    await workflow_db.refresh(old_dead)
+    assert old_retry.status == "superseded"
+    assert old_dead.status == "superseded"
+
+    new_retry = WorkflowJob(
+        job_type="gmail.sync",
+        payload_json="{}",
+        idempotency_key="gmail:new:retry",
+        status="retry",
+        priority=20,
+        attempts=1,
+        max_attempts=8,
+        run_after=now,
+        lease_owner="",
+        result_json="{}",
+        last_error="<HttpError 409 new conflict>",
+    )
+    workflow_db.add(new_retry)
+    await workflow_db.commit()
+
+    second = await repair_v052_gmail_conflict_backlog(workflow_db)
+    assert second == {"superseded": 0, "already_repaired": 1}
+    await workflow_db.refresh(new_retry)
+    assert new_retry.status == "retry"

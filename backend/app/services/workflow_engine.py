@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import socket
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
@@ -14,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import SessionLocal
-from app.models.entities import WorkflowJob, WorkflowJobDependency, WorkflowRun
+from app.models.entities import AuditLog, WorkflowJob, WorkflowJobDependency, WorkflowRun
 from app.services.audit import write_audit
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,179 @@ def _backoff_seconds(attempt: int, *, base: int = 15, ceiling: int = 3600) -> in
     return min(ceiling, base * (2 ** max(0, attempt - 1)))
 
 
+def failure_signature(job_type: str, error: str) -> str:
+    """Collapse repeated provider failures without hiding materially different errors."""
+
+    value = (error or "").strip()
+    http_match = re.search(r"HttpError\s+(\d{3})", value, flags=re.IGNORECASE)
+    if http_match:
+        return f"{job_type}:http:{http_match.group(1)}"
+    value = re.sub(r"https?://\S+", "<url>", value)
+    value = re.sub(r"\b[0-9a-f]{12,}\b", "<id>", value, flags=re.IGNORECASE)
+    value = re.sub(r"\b\d{6,}\b", "<number>", value)
+    value = re.sub(r"\s+", " ", value).lower()
+    return f"{job_type}:{value[:240]}"
+
+
+async def compact_duplicate_dead_letters(db: AsyncSession) -> dict[str, int]:
+    """Keep one actionable dead-letter per job/error signature.
+
+    Historical attempts remain in PostgreSQL as ``superseded`` rows for auditability,
+    but they no longer flood health counts or the user-facing Needs you queue.
+    """
+
+    rows = list(
+        (
+            await db.execute(
+                select(WorkflowJob)
+                .where(WorkflowJob.status == "dead_letter")
+                .order_by(WorkflowJob.updated_at.desc(), WorkflowJob.id.desc())
+            )
+        ).scalars()
+    )
+    keepers: dict[str, WorkflowJob] = {}
+    superseded = 0
+    affected_runs: set[int] = set()
+    for job in rows:
+        signature = failure_signature(job.job_type, job.last_error)
+        keeper = keepers.get(signature)
+        if keeper is None:
+            keepers[signature] = job
+            continue
+        job.status = "superseded"
+        job.result_json = json.dumps(
+            {
+                "superseded_by_job_id": keeper.id,
+                "failure_signature": signature,
+                "reason": "duplicate_dead_letter",
+            },
+            ensure_ascii=False,
+        )
+        job.lease_owner = ""
+        job.lease_expires_at = None
+        superseded += 1
+        if job.workflow_run_id is not None:
+            affected_runs.add(job.workflow_run_id)
+
+    for run_id in affected_runs:
+        await refresh_workflow_status(db, run_id)
+
+    if superseded:
+        await write_audit(
+            db,
+            "workflow_dead_letters_compacted",
+            entity_type="workflow",
+            entity_id="autopilot",
+            details={
+                "superseded": superseded,
+                "active_signatures": len(keepers),
+            },
+        )
+        await db.commit()
+    return {"superseded": superseded, "active_signatures": len(keepers)}
+
+
+async def repair_v052_gmail_conflict_backlog(db: AsyncSession) -> dict[str, int]:
+    """One-time migration for the pre-v0.5.2 Gmail HTTP-409 retry storm."""
+
+    marker = (
+        await db.execute(
+            select(AuditLog.id)
+            .where(AuditLog.event_type == "v052_gmail_conflict_backlog_repaired")
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if marker is not None:
+        return {"superseded": 0, "already_repaired": 1}
+
+    rows = list(
+        (
+            await db.execute(
+                select(WorkflowJob).where(
+                    WorkflowJob.job_type == "gmail.sync",
+                    WorkflowJob.status.in_(["retry", "dead_letter"]),
+                    WorkflowJob.last_error.contains("HttpError 409"),
+                )
+            )
+        ).scalars()
+    )
+    now = utcnow()
+    run_ids: set[int] = set()
+    for job in rows:
+        job.status = "superseded"
+        job.result_json = json.dumps(
+            {
+                "reason": "v0.5.2_gmail_409_backlog_repair",
+                "previous_error": job.last_error,
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+        job.lease_owner = ""
+        job.lease_expires_at = None
+        job.finished_at = job.finished_at or now
+        if job.workflow_run_id is not None:
+            run_ids.add(job.workflow_run_id)
+
+    for run_id in run_ids:
+        await refresh_workflow_status(db, run_id)
+
+    await write_audit(
+        db,
+        "v052_gmail_conflict_backlog_repaired",
+        entity_type="workflow",
+        entity_id="gmail.sync",
+        details={"superseded": len(rows)},
+    )
+    await db.commit()
+    return {"superseded": len(rows), "already_repaired": 0}
+
+
+async def recover_autopilot_exceptions(db: AsyncSession, *, limit: int = 50) -> dict[str, int]:
+    """Compact duplicate failures and retry one representative of each active exception."""
+
+    compacted = await compact_duplicate_dead_letters(db)
+    rows = list(
+        (
+            await db.execute(
+                select(WorkflowJob)
+                .where(WorkflowJob.status == "dead_letter")
+                .order_by(WorkflowJob.updated_at.desc(), WorkflowJob.id.desc())
+                .limit(max(1, min(limit, 100)))
+            )
+        ).scalars()
+    )
+    now = utcnow()
+    run_ids: set[int] = set()
+    for job in rows:
+        job.status = "retry"
+        job.attempts = 0
+        job.run_after = now
+        job.finished_at = None
+        job.lease_owner = ""
+        job.lease_expires_at = None
+        if job.workflow_run_id is not None:
+            run_ids.add(job.workflow_run_id)
+
+    for run_id in run_ids:
+        run = await db.get(WorkflowRun, run_id)
+        if run is not None:
+            run.status = "running"
+            run.finished_at = None
+
+    if rows:
+        await write_audit(
+            db,
+            "workflow_exceptions_requeued",
+            entity_type="workflow",
+            entity_id="autopilot",
+            details={"requeued": len(rows)},
+        )
+        await db.commit()
+    return {
+        "requeued": len(rows),
+        "superseded_duplicates": compacted["superseded"],
+    }
 
 
 async def create_workflow(
@@ -105,8 +279,8 @@ async def refresh_workflow_status(db: AsyncSession, workflow_run_id: int) -> str
     if any(status == "dead_letter" for status in statuses):
         run.status = "failed"
         run.finished_at = now
-    elif all(status == "completed" for status in statuses):
-        run.status = "completed"
+    elif all(status in {"completed", "superseded"} for status in statuses):
+        run.status = "completed" if all(status == "completed" for status in statuses) else "superseded"
         run.finished_at = now
     else:
         run.status = "running"

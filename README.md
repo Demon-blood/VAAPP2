@@ -1,3 +1,32 @@
+# Full-Time VA v0.5.2 — Gmail self-healing
+
+Built on v0.5.1. This release fixes the Gmail HTTP 409 retry storm visible on the Today screen and makes Autopilot provider failures self-compacting instead of flooding `Needs you`.
+
+## v0.5.2 highlights
+
+- Gmail label creation is race-safe across workers. If another worker creates the same label between the list and create calls, the VA re-lists and uses the winning label instead of failing the whole Gmail sync.
+- Gmail message mutations retry HTTP 409, 429 and transient 5xx failures at the individual API-operation boundary with bounded exponential backoff.
+- Synchronous Google API `.execute()` calls used by the new recovery path run in a worker thread so the FastAPI event loop is not blocked while waiting for Gmail.
+- Label resolution uses one initial list operation per message-label batch rather than re-listing the entire mailbox label catalog for every individual label.
+- A one-time startup repair marks the pre-v0.5.2 Gmail 409 `retry`/`dead_letter` backlog as `superseded`, preserving every database row and audit trail while removing the obsolete failures from active health counts.
+- Duplicate dead-letter failures are compacted by job type and error signature. One actionable failure remains; older duplicates become `superseded` instead of producing dozens or hundreds of identical `Needs you` entries.
+- The watchdog continuously compacts duplicate dead letters while retaining distinct provider/error classes.
+- New authenticated `POST /api/autopilot/recover` retries one representative of every active exception after compaction.
+- Android's Autopilot status button is now **Recover** and uses the bulk recovery endpoint rather than retrying only the first failed job loaded on the phone.
+- Backend version is `0.5.2`; Android version is `0.5.2+24`.
+
+## Upgrade behavior
+
+On the first v0.5.2 backend startup, existing Gmail HTTP 409 retries/dead letters are repaired once. A marker is recorded in `audit_logs`, so future genuine 409 failures are not silently discarded on later restarts. The normal scheduler then enqueues a fresh Gmail sync using the corrected conflict handling.
+
+No OAuth tokens, emails, bills, payments, receipts, tasks, documents, bank data or connector configuration are deleted by this repair.
+
+## Validation
+
+The included regression tests cover Gmail operation-level 409 retry, label-create race recovery, dead-letter compaction, bulk exception recovery, and the one-time legacy Gmail backlog repair. The complete GitHub Actions workflow remains the authoritative full backend + Flutter + signed APK release gate.
+
+---
+
 # Full-Time VA v0.5.1 — Financial document correctness
 
 Built on the supplied v0.4.17 source and the v0.5.0 Autopilot implementation. v0.5.1 fixes the critical distinction between **money that was already paid** and **money that is still owed**.

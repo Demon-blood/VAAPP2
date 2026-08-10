@@ -204,11 +204,24 @@ class _AutopilotStatus extends StatelessWidget {
           if (dead > 0)
             TextButton(
               onPressed: () async {
-                final failed = state.autopilotJobs.where((job) => job['status'] == 'dead_letter').toList();
-                if (failed.isEmpty) return;
-                await context.read<AppState>().requeueAutopilotJob((failed.first['id'] as num).toInt());
+                final result = await context.read<AppState>().recoverAutopilot();
+                if (!context.mounted) return;
+                final requeued = (result['requeued'] as num?)?.toInt() ?? 0;
+                final compacted =
+                    (result['superseded_duplicates'] as num?)?.toInt() ?? 0;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      requeued > 0
+                          ? 'Autopilot retrying $requeued active exception${requeued == 1 ? '' : 's'}.'
+                          : compacted > 0
+                              ? 'Cleaned up $compacted duplicate failure${compacted == 1 ? '' : 's'}.'
+                              : 'No active Autopilot exceptions need retrying.',
+                    ),
+                  ),
+                );
               },
-              child: const Text('Retry'),
+              child: const Text('Recover'),
             ),
         ],
       ),

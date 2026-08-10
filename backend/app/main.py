@@ -13,7 +13,11 @@ from app.services.action_reconciler import reconcile_action_queue
 from app.services.financial_reconciliation import reclassify_existing_nonpayable_bills
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.services.operations_service import cleanup_low_value_documents
-from app.services.workflow_engine import recover_expired_leases
+from app.services.workflow_engine import (
+    compact_duplicate_dead_letters,
+    recover_expired_leases,
+    repair_v052_gmail_conflict_backlog,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -26,6 +30,14 @@ async def lifespan(_: FastAPI):
     try:
         async with SessionLocal() as db:
             await recover_expired_leases(db)
+            backlog = await repair_v052_gmail_conflict_backlog(db)
+            compacted = await compact_duplicate_dead_letters(db)
+            if backlog["superseded"] or compacted["superseded"]:
+                logger.warning(
+                    "Initial Autopilot exception repair: gmail_409=%s duplicates=%s",
+                    backlog,
+                    compacted,
+                )
     except Exception:
         logger.exception("Initial Autopilot workflow recovery failed")
     # Correct historical receipts/paid confirmations that older classifiers may have

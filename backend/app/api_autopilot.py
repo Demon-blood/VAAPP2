@@ -11,7 +11,7 @@ from app.core.auth import require_device
 from app.core.database import get_db
 from app.models.entities import Device, OperationPreference, WorkflowJob, WorkflowRun
 from app.services.autopilot_service import daily_briefing, dispatch_intent, operations_profile, provider_health_snapshot
-from app.services.workflow_engine import requeue_dead_letter
+from app.services.workflow_engine import recover_autopilot_exceptions, requeue_dead_letter
 
 router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
 
@@ -192,3 +192,12 @@ async def requeue_autopilot_job(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"id": job.id, "status": job.status, "run_after": job.run_after}
+
+
+@router.post("/recover")
+async def recover_autopilot(
+    db: AsyncSession = Depends(get_db),
+    _: Device = Depends(require_device),
+) -> dict:
+    """Retry one representative of each active Autopilot failure."""
+    return await recover_autopilot_exceptions(db)

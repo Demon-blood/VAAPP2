@@ -121,11 +121,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.5.1')) {
+        if (!_versionAtLeast(backendVersion, '0.5.2')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.5.1 requires backend 0.5.1 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.5.2 requires backend 0.5.2 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -636,6 +636,14 @@ class AppState extends ChangeNotifier {
   Future<void> requeueAutopilotJob(int jobId) async {
     await api.postJson('/api/autopilot/jobs/$jobId/requeue');
     await refreshAll(showBusy: false);
+  }
+
+  Future<Map<String, dynamic>> recoverAutopilot() async {
+    final result = Map<String, dynamic>.from(
+      await api.postJson('/api/autopilot/recover') as Map,
+    );
+    await refreshAll(showBusy: false);
+    return result;
   }
 
   Future<void> _run(Future<void> Function() action, {bool showBusy = true}) async {

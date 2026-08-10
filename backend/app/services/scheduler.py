@@ -7,7 +7,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.database import SessionLocal
 from app.core.settings import get_settings
-from app.services.workflow_engine import enqueue_job, recover_expired_leases, worker_tick
+from app.services.workflow_engine import (
+    compact_duplicate_dead_letters,
+    enqueue_job,
+    recover_expired_leases,
+    worker_tick,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -149,8 +154,13 @@ async def workflow_watchdog_job() -> None:
     async with SessionLocal() as db:
         try:
             outcome = await recover_expired_leases(db)
-            if outcome["recovered"] or outcome["dead_lettered"]:
-                logger.warning("Autopilot watchdog recovery: %s", outcome)
+            compacted = await compact_duplicate_dead_letters(db)
+            if outcome["recovered"] or outcome["dead_lettered"] or compacted["superseded"]:
+                logger.warning(
+                    "Autopilot watchdog recovery: leases=%s duplicate_failures=%s",
+                    outcome,
+                    compacted,
+                )
         except Exception:
             logger.exception("Autopilot workflow watchdog failed")
 

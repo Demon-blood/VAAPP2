@@ -26,7 +26,7 @@ from app.models.entities import (
     Task,
     WorkflowJob,
 )
-from app.services.workflow_engine import create_workflow, enqueue_job
+from app.services.workflow_engine import create_workflow, enqueue_job, failure_signature
 
 
 def _decode(value: str, fallback: Any) -> Any:
@@ -252,7 +252,12 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
     )
     dead_letters = list(
         (
-            await db.execute(select(WorkflowJob).where(WorkflowJob.status == "dead_letter").order_by(WorkflowJob.updated_at.desc()).limit(20))
+            await db.execute(
+                select(WorkflowJob)
+                .where(WorkflowJob.status == "dead_letter")
+                .order_by(WorkflowJob.updated_at.desc())
+                .limit(200)
+            )
         ).scalars()
     )
 
@@ -283,13 +288,28 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
     for task in open_tasks:
         if task.requires_approval:
             needs_you.append({"type": "task_approval", "id": task.id, "title": task.title, "detail": task.description})
+    grouped_failures: dict[str, dict[str, Any]] = {}
     for job in dead_letters:
+        signature = failure_signature(job.job_type, job.last_error)
+        group = grouped_failures.setdefault(
+            signature,
+            {"job": job, "occurrences": 0},
+        )
+        group["occurrences"] += 1
+
+    for group in grouped_failures.values():
+        job = group["job"]
+        occurrences = int(group["occurrences"])
+        detail = job.last_error
+        if occurrences > 1:
+            detail = f"{detail}\nRepeated {occurrences} times; Autopilot grouped these into one exception."
         needs_you.append(
             {
                 "type": "autopilot_exception",
                 "id": job.id,
                 "title": f"Autopilot failed: {job.job_type}",
-                "detail": job.last_error,
+                "detail": detail,
+                "occurrences": occurrences,
             }
         )
 
