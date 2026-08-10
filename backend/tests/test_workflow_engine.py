@@ -19,6 +19,7 @@ from app.services.workflow_engine import (
     recover_autopilot_exceptions,
     recover_expired_leases,
     repair_v052_gmail_conflict_backlog,
+    repair_v062_gmail_label_conflict_backlog,
     requeue_dead_letter,
 )
 
@@ -273,6 +274,50 @@ async def test_v052_gmail_409_backlog_repair_runs_only_once(workflow_db):
     await workflow_db.refresh(new_retry)
     assert new_retry.status == "retry"
 
+
+
+
+@pytest.mark.asyncio
+async def test_v062_gmail_label_conflict_backlog_repair_runs_only_once(workflow_db):
+    now = datetime.utcnow()
+    retry = WorkflowJob(
+        job_type="gmail.sync",
+        payload_json="{}",
+        idempotency_key="gmail:v061:label-conflict:retry",
+        status="retry",
+        priority=20,
+        attempts=3,
+        max_attempts=8,
+        run_after=now,
+        lease_owner="",
+        result_json="{}",
+        last_error='<HttpError 409 returned "Label name exists or conflicts">',
+    )
+    unrelated = WorkflowJob(
+        job_type="gmail.sync",
+        payload_json="{}",
+        idempotency_key="gmail:v061:other-409",
+        status="retry",
+        priority=20,
+        attempts=1,
+        max_attempts=8,
+        run_after=now,
+        lease_owner="",
+        result_json="{}",
+        last_error='<HttpError 409 returned "Concurrent message mutation">',
+    )
+    workflow_db.add_all([retry, unrelated])
+    await workflow_db.commit()
+
+    first = await repair_v062_gmail_label_conflict_backlog(workflow_db)
+    assert first == {"superseded": 1, "already_repaired": 0}
+    await workflow_db.refresh(retry)
+    await workflow_db.refresh(unrelated)
+    assert retry.status == "superseded"
+    assert unrelated.status == "retry"
+
+    second = await repair_v062_gmail_label_conflict_backlog(workflow_db)
+    assert second == {"superseded": 0, "already_repaired": 1}
 
 def test_failure_recovery_class_distinguishes_transient_from_human_auth():
     from app.services.workflow_engine import failure_recovery_class

@@ -1,8 +1,9 @@
-# Full-Time VA v0.6.1 — Autopilot Completion
+# Full-Time VA v0.6.2 — Gmail Conflict Hardening
 
-v0.6.1 builds on v0.6.0 Daily Intelligence and completes the remaining unattended-operation hardening: durable proactive planning, bounded transient provider self-recovery, deterministic low-risk reply autonomy with learned preferences, a single durable payment-initiation path, exception-only provider/side-effect failures, an exception-first Today screen without routine counters, and a chronological VA activity timeline.
+v0.6.2 is a production hotfix on top of v0.6.1 Autopilot Completion. It closes the live Gmail label-creation race observed on Render: HTTP 409 `Label name exists or conflicts` can no longer abort a durable `gmail.sync` job when Gmail has not yet exposed the winning label ID.
 
-See `docs/V0.6.1_AUTOPILOT_COMPLETION.md` for the detailed behavior and safety boundaries.
+The hotfix preserves all v0.6.1 autonomy, financial safety, Daily Intelligence, provider recovery, proactive planning, and exception-only interaction behavior. See `docs/V0.6.2_GMAIL_CONFLICT_HOTFIX.md` for the exact failure mode and recovery contract.
+
 
 ---
 

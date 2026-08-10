@@ -196,7 +196,10 @@ async def workflow_watchdog_job() -> None:
 
 
 def start_scheduler() -> None:
-    now = datetime.now()
+    # APScheduler is configured for the user's local timezone. Passing a naive
+    # system-UTC datetime on Render makes an immediate job look two hours late
+    # during CEST, so always hand APScheduler an aware local timestamp.
+    now = datetime.now(ZoneInfo(settings.default_timezone))
     scheduler.add_job(
         gmail_enqueue_job,
         "interval",

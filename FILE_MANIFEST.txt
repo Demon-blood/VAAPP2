@@ -1,7 +1,5 @@
 .github/workflows/android-release.yml
-FILE_MANIFEST.txt
 README.md
-SHA256SUMS.txt
 android/analysis_options.yaml
 android/android/app/src/main/AndroidManifest.xml
 android/assets/app_icon.png
@@ -104,7 +102,7 @@ backend/tests/test_github_notifications.py
 backend/tests/test_github_notifications_optional.py
 backend/tests/test_gmail_conflict_recovery.py
 backend/tests/test_v061_autonomy_policy.py
-backend/tests/test_v061_autopilot_contract.py
+backend/tests/test_v062_autopilot_contract.py
 backend/tests/test_version_and_routes.py
 backend/tests/test_workflow_engine.py
 build_android.ps1
@@ -118,6 +116,9 @@ docs/V0.5.2_VALIDATION.md
 docs/V0.6.0_DAILY_INTELLIGENCE.md
 docs/V0.6.1_AUTOPILOT_COMPLETION.md
 docs/V0.6.1_VALIDATION.md
+docs/V0.6.2_GMAIL_CONFLICT_HOTFIX.md
+docs/V0.6.2_RENDER_LOG_DIAGNOSIS.md
+docs/V0.6.2_VALIDATION.md
 generate_enable_banking_keys.ps1
 render.yaml
 start_backend.ps1

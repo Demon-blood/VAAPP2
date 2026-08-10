@@ -10,8 +10,8 @@ From the phone:
 2. Upload the project while preserving `.github/workflows/android-release.yml`, `android/`, and `backend/`.
 3. Open the repository's **Actions** tab.
 4. Open **Build Android APK** and select **Run workflow**.
-5. After the run succeeds, open **Releases** and download `Full-Time-VA-Android-v0.6.1.apk`.
-6. Install the downloaded `Full-Time-VA-Android-v0.6.1.apk`.
+5. After the run succeeds, open **Releases** and download `Full-Time-VA-Android-v0.6.2.apk`.
+6. Install the downloaded `Full-Time-VA-Android-v0.6.2.apk`.
 7. Allow installation from the browser or file manager when Android requests it.
 
 The workflow performs dependency resolution, static analysis, tests, and the release APK build. A failed workflow does not publish an APK as a successful VA update.

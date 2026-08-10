@@ -303,6 +303,68 @@ async def repair_v052_gmail_conflict_backlog(db: AsyncSession) -> dict[str, int]
     return {"superseded": len(rows), "already_repaired": 0}
 
 
+async def repair_v062_gmail_label_conflict_backlog(db: AsyncSession) -> dict[str, int]:
+    """Retire pre-v0.6.2 Gmail label-conflict retries before scheduling a fresh sync.
+
+    v0.6.2 changes the label resolver itself, so replaying a pile of historical
+    full-mailbox jobs is unnecessary. Supersede only the exact live failure shape
+    observed from Gmail label creation; the scheduler enqueues a fresh gmail.sync
+    immediately after startup.
+    """
+
+    marker = (
+        await db.execute(
+            select(AuditLog.id)
+            .where(AuditLog.event_type == "v062_gmail_label_conflict_backlog_repaired")
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if marker is not None:
+        return {"superseded": 0, "already_repaired": 1}
+
+    rows = list(
+        (
+            await db.execute(
+                select(WorkflowJob).where(
+                    WorkflowJob.job_type == "gmail.sync",
+                    WorkflowJob.status.in_(["retry", "dead_letter"]),
+                    WorkflowJob.last_error.contains("Label name exists or conflicts"),
+                )
+            )
+        ).scalars()
+    )
+    now = utcnow()
+    run_ids: set[int] = set()
+    for job in rows:
+        job.status = "superseded"
+        job.result_json = json.dumps(
+            {
+                "reason": "v0.6.2_gmail_label_conflict_backlog_repair",
+                "previous_error": job.last_error,
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+        job.lease_owner = ""
+        job.lease_expires_at = None
+        job.finished_at = job.finished_at or now
+        if job.workflow_run_id is not None:
+            run_ids.add(job.workflow_run_id)
+
+    for run_id in run_ids:
+        await refresh_workflow_status(db, run_id)
+
+    await write_audit(
+        db,
+        "v062_gmail_label_conflict_backlog_repaired",
+        entity_type="workflow",
+        entity_id="gmail.sync",
+        details={"superseded": len(rows)},
+    )
+    await db.commit()
+    return {"superseded": len(rows), "already_repaired": 0}
+
+
 async def recover_autopilot_exceptions(db: AsyncSession, *, limit: int = 50) -> dict[str, int]:
     """Compact duplicate failures and retry one representative of each active exception."""
 

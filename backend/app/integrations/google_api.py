@@ -4,6 +4,8 @@ import asyncio
 import base64
 import io
 import json
+import logging
+import unicodedata
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 from typing import Any
@@ -23,6 +25,7 @@ from app.models.entities import OAuthConnection, OAuthState
 from app.services.runtime_config import get_runtime_value
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 GOOGLE_SCOPES = [
     "openid",
     "email",
@@ -296,13 +299,54 @@ async def _list_gmail_labels(service) -> list[dict[str, Any]]:
     return list(response.get("labels", []) or [])
 
 
+def _gmail_label_key(value: str) -> str:
+    """Return a stable comparison key for Gmail display names.
+
+    Gmail may reject a create because an equivalent label already exists while
+    labels.list() returns a display name with different Unicode composition,
+    case, or surrounding whitespace. The immutable label ID is what matters for
+    message mutations, so conflict reconciliation compares a conservative
+    normalized representation while preserving the original display name.
+    """
+
+    return unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+
+
+def _find_gmail_label(labels: list[dict[str, Any]], requested_name: str) -> dict[str, Any] | None:
+    exact = next(
+        (label for label in labels if label.get("name") == requested_name and label.get("id")),
+        None,
+    )
+    if exact is not None:
+        return exact
+    requested_key = _gmail_label_key(requested_name)
+    if not requested_key:
+        return None
+    return next(
+        (
+            label
+            for label in labels
+            if label.get("id") and _gmail_label_key(str(label.get("name") or "")) == requested_key
+        ),
+        None,
+    )
+
+
 async def ensure_gmail_labels(
     db: AsyncSession,
     label_names: list[str],
     *,
     service=None,
 ) -> dict[str, str]:
-    """Resolve/create Gmail labels with one initial list call and conflict recovery."""
+    """Resolve/create Gmail labels without letting a cosmetic conflict abort sync.
+
+    Gmail can answer label creation with HTTP 409 when another actor already owns
+    the name while labels.list() has not exposed that label to this request yet.
+    After one create attempt, reconcile by re-listing only; repeating the POST is
+    unnecessary and can amplify the conflict. If no immutable label ID becomes
+    visible after bounded reconciliation, skip that one cosmetic label and let the
+    mailbox sync continue.
+    """
 
     service = service or await gmail_service(db)
     requested = [name.strip() for name in dict.fromkeys(label_names) if name.strip()]
@@ -310,55 +354,55 @@ async def ensure_gmail_labels(
         return {}
 
     labels = await _list_gmail_labels(service)
-    resolved = {
-        str(label.get("name")): str(label["id"])
-        for label in labels
-        if label.get("name") and label.get("id")
-    }
+    resolved: dict[str, str] = {}
+    for name in requested:
+        winner = _find_gmail_label(labels, name)
+        if winner is not None:
+            resolved[name] = str(winner["id"])
 
     for normalized_name in requested:
         if normalized_name in resolved:
             continue
-        for attempt in range(4):
-            try:
-                created = await _execute_google_request(
-                    lambda normalized_name=normalized_name: service.users()
-                    .labels()
-                    .create(
-                        userId="me",
-                        body={
-                            "name": normalized_name,
-                            "labelListVisibility": "labelShow",
-                            "messageListVisibility": "show",
-                        },
-                    ),
-                    attempts=1,
-                    retry_statuses=set(),
-                )
-                resolved[normalized_name] = str(created["id"])
+
+        try:
+            created = await _execute_google_request(
+                lambda normalized_name=normalized_name: service.users()
+                .labels()
+                .create(
+                    userId="me",
+                    body={
+                        "name": normalized_name,
+                        "labelListVisibility": "labelShow",
+                        "messageListVisibility": "show",
+                    },
+                ),
+                attempts=1,
+                retry_statuses=set(),
+            )
+            resolved[normalized_name] = str(created["id"])
+            continue
+        except HttpError as exc:
+            if _google_http_status(exc) != 409:
+                raise
+
+        # Do not repeat the create POST. Gmail already told us that the name
+        # exists/conflicts; wait for labels.list() to expose the winning ID.
+        for attempt in range(6):
+            labels = await _list_gmail_labels(service)
+            winner = _find_gmail_label(labels, normalized_name)
+            if winner is not None:
+                resolved[normalized_name] = str(winner["id"])
                 break
-            except HttpError as exc:
-                if _google_http_status(exc) != 409:
-                    raise
+            if attempt + 1 < 6:
+                await asyncio.sleep(min(3.0, 0.25 * (2**attempt)))
 
-                # Another worker may have created the label after our list call.
-                labels = await _list_gmail_labels(service)
-                winner = next(
-                    (
-                        label
-                        for label in labels
-                        if label.get("name") == normalized_name and label.get("id")
-                    ),
-                    None,
-                )
-                if winner is not None:
-                    resolved[normalized_name] = str(winner["id"])
-                    break
-                if attempt + 1 >= 4:
-                    raise
-                await asyncio.sleep(min(1.0, 0.2 * (2**attempt)))
+        if normalized_name not in resolved:
+            logger.warning(
+                "Skipping unresolved Gmail label conflict after reconciliation: %r",
+                normalized_name,
+            )
 
-    return {name: resolved[name] for name in requested}
+    return resolved
 
 
 async def ensure_gmail_label(
@@ -371,6 +415,8 @@ async def ensure_gmail_label(
     if not normalized_name:
         raise ValueError("Gmail label name cannot be empty")
     resolved = await ensure_gmail_labels(db, [normalized_name], service=service)
+    if normalized_name not in resolved:
+        raise RuntimeError(f"Gmail label conflict could not be resolved: {normalized_name}")
     return resolved[normalized_name]
 
 
@@ -382,9 +428,15 @@ async def modify_gmail_message(
     remove_labels: list[str] | None = None,
 ) -> None:
     service = await gmail_service(db)
-    requested_labels = [name for name in dict.fromkeys(add_labels or []) if name.strip()]
+    requested_labels = [name.strip() for name in dict.fromkeys(add_labels or []) if name.strip()]
     label_ids = await ensure_gmail_labels(db, requested_labels, service=service)
-    add_ids = [label_ids[name.strip()] for name in requested_labels]
+    # A persistent Gmail 409 for one cosmetic label must not abort processing of
+    # the message or the entire durable gmail.sync job. Apply every label whose
+    # immutable ID was resolved and continue with the business action.
+    add_ids = [label_ids[name] for name in requested_labels if name in label_ids]
+    remove_ids = remove_labels or []
+    if not add_ids and not remove_ids:
+        return
 
     # Retry a conflicting message mutation in place. This is deliberately narrower
     # than retrying sync_gmail(), which may have already processed many messages.
@@ -392,7 +444,7 @@ async def modify_gmail_message(
         lambda: service.users().messages().modify(
             userId="me",
             id=message_id,
-            body={"addLabelIds": add_ids, "removeLabelIds": remove_labels or []},
+            body={"addLabelIds": add_ids, "removeLabelIds": remove_ids},
         ),
         attempts=4,
     )

@@ -10,6 +10,8 @@ from app.integrations.google_api import (
     _execute_google_request,
     _google_http_status,
     ensure_gmail_label,
+    ensure_gmail_labels,
+    modify_gmail_message,
 )
 
 
@@ -133,3 +135,118 @@ async def test_ensure_gmail_label_recovers_when_other_worker_creates_label(monke
 
     assert label_id == "Label_42"
     assert service.fake_labels.create_attempts == 1
+
+
+class _EventuallyVisibleConflictLabels:
+    def __init__(self):
+        self.list_calls = 0
+        self.create_attempts = 0
+
+    def list(self, *, userId: str):
+        assert userId == "me"
+
+        def execute():
+            self.list_calls += 1
+            # Simulate Gmail returning 409 before labels.list exposes the winner.
+            if self.list_calls < 4:
+                return {"labels": []}
+            return {"labels": [{"id": "Label_99", "name": "MAIL/00 STATUS/ACTIE NODIG"}]}
+
+        return _Request(execute)
+
+    def create(self, *, userId: str, body: dict):
+        assert userId == "me"
+
+        def execute():
+            self.create_attempts += 1
+            raise _http_error(409, "aborted")
+
+        return _Request(execute)
+
+
+@pytest.mark.asyncio
+async def test_ensure_gmail_labels_waits_for_eventually_visible_normalized_conflict(monkeypatch):
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("app.integrations.google_api.asyncio.sleep", no_sleep)
+    labels = _EventuallyVisibleConflictLabels()
+    service = type("Service", (), {"users": lambda self: _FakeUsers(labels)})()
+
+    resolved = await ensure_gmail_labels(None, ["Mail/00 Status/Actie nodig"], service=service)
+
+    assert resolved == {"Mail/00 Status/Actie nodig": "Label_99"}
+    assert labels.create_attempts == 1
+    assert labels.list_calls >= 4
+
+
+class _PermanentConflictLabels:
+    def __init__(self):
+        self.create_attempts = 0
+
+    def list(self, *, userId: str):
+        assert userId == "me"
+        return _Request(lambda: {"labels": []})
+
+    def create(self, *, userId: str, body: dict):
+        assert userId == "me"
+
+        def execute():
+            self.create_attempts += 1
+            raise _http_error(409, "aborted")
+
+        return _Request(execute)
+
+
+class _FakeMessages:
+    def __init__(self):
+        self.modified = []
+
+    def modify(self, *, userId: str, id: str, body: dict):
+        assert userId == "me"
+
+        def execute():
+            self.modified.append({"id": id, "body": body})
+            return {"id": id}
+
+        return _Request(execute)
+
+
+class _ConflictUsers:
+    def __init__(self, labels, messages):
+        self._labels = labels
+        self._messages = messages
+
+    def labels(self):
+        return self._labels
+
+    def messages(self):
+        return self._messages
+
+
+class _ConflictService:
+    def __init__(self):
+        self.labels_api = _PermanentConflictLabels()
+        self.messages_api = _FakeMessages()
+        self._users = _ConflictUsers(self.labels_api, self.messages_api)
+
+    def users(self):
+        return self._users
+
+
+@pytest.mark.asyncio
+async def test_modify_message_does_not_fail_sync_for_permanent_label_409(monkeypatch):
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("app.integrations.google_api.asyncio.sleep", no_sleep)
+    service = _ConflictService()
+
+    async def fake_gmail_service(_db):
+        return service
+
+    monkeypatch.setattr("app.integrations.google_api.gmail_service", fake_gmail_service)
+    await modify_gmail_message(None, "msg-1", add_labels=["Mail/00 Status/Actie nodig"])
+
+    assert service.labels_api.create_attempts == 1
+    assert service.messages_api.modified == []
