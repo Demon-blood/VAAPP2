@@ -279,7 +279,7 @@ class _BriefingSheet extends StatelessWidget {
                 icon: item['status'] == 'sent' ? Icons.send_outlined : Icons.pending_actions_outlined,
                 title: '${item['subject'] ?? 'Email reply'}',
                 detail: [
-                  '${item['status'] == 'sent' ? 'Sent automatically' : 'Awaiting an unavoidable decision'}',
+                  item['status'] == 'sent' ? 'Sent automatically' : 'Awaiting an unavoidable decision',
                   if ('${item['recipient'] ?? ''}'.isNotEmpty) '${item['recipient']}',
                   if ('${item['detail'] ?? ''}'.isNotEmpty) '${item['detail']}',
                 ].where((value) => value.isNotEmpty).join(' · '),
