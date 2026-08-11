@@ -1,6 +1,7 @@
 .gitattributes
 .github/workflows/android-release.yml
 DEPLOYMENT.md
+FILE_MANIFEST.txt
 MANIFEST.json
 README.md
 android/analysis_options.yaml
@@ -119,6 +120,8 @@ backend/tests/test_github_notifications.py
 backend/tests/test_github_notifications_optional.py
 backend/tests/test_gmail_conflict_recovery.py
 backend/tests/test_v061_autonomy_policy.py
+backend/tests/test_v061_autopilot_contract.py
+backend/tests/test_v062_autopilot_contract.py
 backend/tests/test_v070_android_communications_contract.py
 backend/tests/test_v070_autopilot_contract.py
 backend/tests/test_v070_communications.py
@@ -142,6 +145,7 @@ docs/V0.6.2_CI_GATE_HOTFIX.md
 docs/V0.6.2_GMAIL_CONFLICT_HOTFIX.md
 docs/V0.6.2_RENDER_LOG_DIAGNOSIS.md
 docs/V0.6.2_VALIDATION.md
+docs/V0.7.0_BACKEND_CI_HOTFIX.md
 docs/V0.7.0_COMMUNICATIONS_FINANCIAL_AUTOPILOT.md
 docs/V0.7.0_VALIDATION.md
 generate_enable_banking_keys.ps1

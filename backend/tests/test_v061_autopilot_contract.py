@@ -16,7 +16,9 @@ def test_scheduler_runs_proactive_planner_and_local_daily_gate() -> None:
 
 def test_payment_initiation_has_one_durable_autopilot_path() -> None:
     workflow = (_root() / "backend" / "app" / "services" / "workflow_engine.py").read_text()
-    banking_handler = workflow.split('@job_handler("banking.autopilot")', 1)[1].split('@job_handler("google.contacts.sync")', 1)[0]
+    banking_handler = workflow.split('@job_handler("banking.autopilot")', 1)[1].split(
+        '@job_handler("google.contacts.sync")', 1
+    )[0]
     assert "auto_pay_eligible_bills" not in banking_handler
     assert 'payment_initiation": "delegated_to_durable_bill_lifecycle"' in banking_handler
     assert '@job_handler("bill.lifecycle")' in workflow
@@ -39,12 +41,3 @@ def test_daily_briefing_exposes_activity_timeline_and_provider_auth_exceptions()
     assert '"activity": [_activity_item(row)' in briefing
     assert '"provider_authorization"' in briefing
     assert "VA activity timeline" in widget
-
-
-def test_release_is_v062() -> None:
-    root = _root()
-    assert 'APP_VERSION = "0.6.2"' in (root / "backend" / "app" / "core" / "version.py").read_text()
-    assert 'version = "0.6.2"' in (root / "backend" / "pyproject.toml").read_text()
-    assert "version: 0.6.2+27" in (root / "android" / "pubspec.yaml").read_text()
-    workflow = (root / ".github" / "workflows" / "android-release.yml").read_text()
-    assert "Full-Time-VA-Android-v0.6.2.apk" in workflow
