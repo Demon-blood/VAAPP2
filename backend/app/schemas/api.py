@@ -191,3 +191,142 @@ class GitHubIssueRequest(BaseModel):
     title: str = Field(min_length=1, max_length=256)
     body: str = ""
     labels: list[str] = []
+
+
+class CommunicationIngestRequest(BaseModel):
+    external_id: str = Field(min_length=1, max_length=255)
+    channel: Literal["sms", "whatsapp", "signal", "telegram", "messenger", "call", "notification"]
+    provider: str = Field(default="device", max_length=80)
+    package_name: str = Field(default="", max_length=255)
+    thread_key: str = Field(default="", max_length=255)
+    sender: str = ""
+    recipient: str = ""
+    body: str = Field(default="", max_length=16000)
+    direction: Literal["incoming", "outgoing"] = "incoming"
+    event_type: str = Field(default="message", max_length=40)
+    occurred_at: datetime | None = None
+    supports_direct_reply: bool = False
+    allow_action: bool = True
+
+
+class CommunicationBatchRequest(BaseModel):
+    events: list[CommunicationIngestRequest] = Field(default_factory=list, max_length=500)
+
+
+class CommunicationActionResultRequest(BaseModel):
+    status: Literal["completed", "failed", "cancelled"]
+    failure_reason: str = Field(default="", max_length=2000)
+
+
+class CommunicationEventResponse(BaseModel):
+    id: int
+    external_id: str
+    channel: str
+    provider: str
+    package_name: str
+    thread_key: str
+    sender: str
+    recipient: str
+    body: str
+    direction: str
+    event_type: str
+    occurred_at: datetime | None
+    category: str
+    priority: str
+    action_required: bool
+    protected: bool
+    status: str
+    decision_json: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CommunicationRuleRequest(BaseModel):
+    channel: Literal["call"] = "call"
+    contact_key: str = Field(min_length=1, max_length=255)
+    disposition: Literal["allow", "silence", "block"] = "allow"
+    auto_reply_enabled: bool = False
+    source: str = Field(default="manual", max_length=40)
+
+
+class CommunicationRuleResponse(BaseModel):
+    id: int
+    channel: str
+    contact_key: str
+    disposition: str
+    auto_reply_enabled: bool
+    source: str
+    confidence: Decimal
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class BankAutopilotPolicyRequest(BaseModel):
+    role: Literal["operating", "savings", "reserve", "tax", "income", "disabled"] = "operating"
+    internal_transfers_enabled: bool = False
+    target_floor: Decimal = Decimal("0.00")
+    target_ceiling: Decimal = Decimal("0.00")
+    accept_surplus: bool = False
+    monthly_outbound_limit: Decimal = Decimal("5000.00")
+    min_transfer_amount: Decimal = Decimal("50.00")
+
+
+class BankAutopilotPolicyResponse(BaseModel):
+    id: int
+    bank_account_id: int
+    role: str
+    internal_transfers_enabled: bool
+    target_floor: Decimal
+    target_ceiling: Decimal
+    accept_surplus: bool
+    monthly_outbound_limit: Decimal
+    min_transfer_amount: Decimal
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class BudgetEnvelopeRequest(BaseModel):
+    account_scope: str = Field(default="personal", max_length=30)
+    category: str = Field(min_length=1, max_length=80)
+    monthly_limit: Decimal = Decimal("0.00")
+    reserve_target: Decimal = Decimal("0.00")
+    income_allocation_percent: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
+    priority: int = Field(default=50, ge=0, le=100)
+    enabled: bool = True
+
+
+class BudgetEnvelopeResponse(BaseModel):
+    id: int
+    account_scope: str
+    category: str
+    monthly_limit: Decimal
+    reserve_target: Decimal
+    income_allocation_percent: Decimal
+    priority: int
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class OwnAccountTransferResponse(BaseModel):
+    id: int
+    source_account_id: int
+    destination_account_id: int
+    amount: Decimal
+    currency: str
+    reason: str
+    status: str
+    authorization_url: str | None
+    requires_user_action: bool
+    failure_reason: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

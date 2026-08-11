@@ -207,6 +207,8 @@ class _BriefingSheet extends StatelessWidget {
     final providerProblems = _maps('provider_problems');
     final activity = _maps('activity_summary');
     final activityTimeline = _maps('activity');
+    final communications = _maps('communications');
+    final internalTransfers = _maps('internal_transfers');
     final needsYou = _maps('needs_you');
 
     return ListView(
@@ -482,6 +484,44 @@ class _BriefingSheet extends StatelessWidget {
                 title: '${item['label'] ?? 'VA action'}',
                 detail: '${item['count'] ?? 1} time${('${item['count'] ?? 1}' == '1') ? '' : 's'}',
                 accent: VaTheme.success,
+              ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        _BriefingSection(
+          icon: Icons.forum_outlined,
+          title: 'Calls & messages',
+          empty: communications.isEmpty ? 'No phone or messaging activity was synced in this briefing window.' : '',
+          children: [
+            for (final item in communications.take(20))
+              _BriefingRow(
+                icon: item['channel'] == 'call' ? Icons.phone_outlined : Icons.chat_bubble_outline_rounded,
+                title: '${item['sender'] ?? item['channel'] ?? 'Communication'}',
+                detail: [
+                  '${item['body'] ?? ''}',
+                  '${item['channel'] ?? ''}',
+                  if (item['action_required'] == true) 'Needs attention',
+                ].where((value) => value.isNotEmpty).join(' · '),
+                accent: item['action_required'] == true ? VaTheme.warning : VaTheme.secondary,
+              ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        _BriefingSection(
+          icon: Icons.swap_horiz_rounded,
+          title: 'Own-account transfers',
+          empty: internalTransfers.isEmpty ? 'No budget rebalancing transfers changed in this briefing window.' : '',
+          children: [
+            for (final item in internalTransfers.take(12))
+              _BriefingRow(
+                icon: Icons.account_balance_wallet_outlined,
+                title: '${item['amount_text'] ?? 'Transfer'}',
+                detail: [
+                  '${item['status'] ?? ''}',
+                  '${item['reason'] ?? ''}',
+                  if (item['requires_user_action'] == true) 'Bank authorization required',
+                ].where((value) => value.isNotEmpty).join(' · '),
+                accent: item['requires_user_action'] == true ? VaTheme.warning : VaTheme.secondary,
               ),
           ],
         ),

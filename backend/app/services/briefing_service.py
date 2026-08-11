@@ -15,11 +15,14 @@ from app.models.entities import (
     AuditLog,
     BankAccount,
     Bill,
+    CommunicationAction,
+    CommunicationEvent,
     DocumentRecord,
     EmailMessage,
     FinancialRecord,
     OAuthConnection,
     OrderRecord,
+    OwnAccountTransfer,
     Payment,
     ServiceConnector,
     SubscriptionRecord,
@@ -73,6 +76,11 @@ def _event_label(event_type: str) -> str:
         "support_case_upserted": "Support case updated",
         "financial_record_created": "Receipt/financial record filed",
         "financial_document_recorded": "Receipt/financial record filed",
+        "communication_ingested": "Message/call handled",
+        "communication_action_result": "Message reply handled",
+        "own_account_transfer_initiated": "Own-account transfer initiated",
+        "own_account_transfer_creation_failed": "Own-account transfer failed",
+        "own_account_transfer_creation_uncertain": "Own-account transfer needs reconciliation",
     }
     if event_type in labels:
         return labels[event_type]
@@ -456,6 +464,37 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
             )
         ).scalars()
     )
+    communication_rows = list(
+        (
+            await db.execute(
+                select(CommunicationEvent)
+                .where(CommunicationEvent.occurred_at.is_not(None), CommunicationEvent.occurred_at >= since)
+                .order_by(CommunicationEvent.occurred_at.desc(), CommunicationEvent.id.desc())
+                .limit(100)
+            )
+        ).scalars()
+    )
+    communication_reply_count = int(
+        (
+            await db.execute(
+                select(func.count(CommunicationAction.id)).where(
+                    CommunicationAction.action_type == "reply",
+                    CommunicationAction.status == "completed",
+                    CommunicationAction.updated_at >= since,
+                )
+            )
+        ).scalar_one()
+    )
+    own_transfer_rows = list(
+        (
+            await db.execute(
+                select(OwnAccountTransfer)
+                .where(or_(OwnAccountTransfer.created_at >= since, OwnAccountTransfer.updated_at >= since, OwnAccountTransfer.requires_user_action.is_(True)))
+                .order_by(OwnAccountTransfer.updated_at.desc(), OwnAccountTransfer.id.desc())
+                .limit(50)
+            )
+        ).scalars()
+    )
 
     # Associate recorded email side effects with their originating message so the user
     # sees what the VA actually did, not just what the AI suggested.
@@ -556,15 +595,32 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
 
     needs_you: list[dict[str, Any]] = []
     for item in payment_actions:
+        uncertain = str(item.get("status") or "").lower() == "creation_uncertain" or not item.get("authorization_url")
         needs_you.append(
             {
-                "type": "payment_authorization",
+                "type": "payment_reconciliation" if uncertain else "payment_authorization",
                 "id": item["id"],
-                "title": f"Authorize payment: {item['purpose']}",
-                "detail": item["amount_text"],
+                "title": (
+                    f"Check bank before retrying: {item['purpose']}"
+                    if uncertain
+                    else f"Authorize payment: {item['purpose']}"
+                ),
+                "detail": item.get("failure_reason") or item["amount_text"],
                 "authorization_url": item["authorization_url"],
             }
         )
+    for transfer in own_transfer_rows:
+        if transfer.requires_user_action:
+            uncertain = transfer.status == "creation_uncertain" or not transfer.authorization_url
+            needs_you.append(
+                {
+                    "type": "transfer_reconciliation" if uncertain else "transfer_authorization",
+                    "id": transfer.id,
+                    "title": "Check bank before retrying transfer" if uncertain else "Authorize own-account transfer",
+                    "detail": transfer.failure_reason or _money(transfer.amount, transfer.currency),
+                    "authorization_url": transfer.authorization_url,
+                }
+            )
     for task in open_tasks:
         if task.requires_approval:
             needs_you.append(
@@ -782,6 +838,11 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         "tasks_upcoming": len(task_activity["upcoming"]),
         "replies_sent": sum(1 for item in reply_activity if item["status"] == "sent"),
         "replies_awaiting_decision": sum(1 for item in reply_activity if item["status"] == "awaiting_decision"),
+        "messages_received": sum(1 for item in communication_rows if item.channel != "call" and item.direction == "incoming"),
+        "calls_received": sum(1 for item in communication_rows if item.channel == "call" and item.direction == "incoming"),
+        "communication_replies_sent": communication_reply_count,
+        "communication_needing_attention": sum(1 for item in communication_rows if item.action_required),
+        "own_account_transfers_changed": len(own_transfer_rows),
         "important_documents": len(important_documents),
         "unusual_items": len(unusual_items),
         "provider_problems": len(provider_problems),
@@ -797,6 +858,8 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
     )
     notification_body = (
         f"{stats['emails_received']} email{'s' if stats['emails_received'] != 1 else ''} · "
+        f"{stats['messages_received']} message{'s' if stats['messages_received'] != 1 else ''} · "
+        f"{stats['calls_received']} call{'s' if stats['calls_received'] != 1 else ''} · "
         f"{stats['payments_changed']} payment update{'s' if stats['payments_changed'] != 1 else ''} · "
         f"{stats['bills_due_7d']} bill{'s' if stats['bills_due_7d'] != 1 else ''} due · "
         f"{stats['needs_you']} item{'s' if stats['needs_you'] != 1 else ''} "
@@ -822,6 +885,42 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         "mail": mail,
         "mail_category_counts": dict(Counter(item["category"] for item in mail)),
         "payment_activity": payments,
+        "communications": [
+            {
+                "id": row.id,
+                "channel": row.channel,
+                "provider": row.provider,
+                "sender": _trim(row.sender, 180),
+                "body": _trim(row.body, 360),
+                "direction": row.direction,
+                "event_type": row.event_type,
+                "occurred_at": row.occurred_at,
+                "category": row.category,
+                "priority": row.priority,
+                "action_required": row.action_required,
+                "protected": row.protected,
+                "status": row.status,
+            }
+            for row in communication_rows
+        ],
+        "internal_transfers": [
+            {
+                "id": row.id,
+                "source_account_id": row.source_account_id,
+                "destination_account_id": row.destination_account_id,
+                "amount": row.amount,
+                "currency": row.currency,
+                "amount_text": _money(row.amount, row.currency),
+                "reason": _trim(row.reason, 300),
+                "status": row.status,
+                "requires_user_action": row.requires_user_action,
+                "authorization_url": row.authorization_url,
+                "failure_reason": _trim(row.failure_reason, 500),
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+            for row in own_transfer_rows
+        ],
         "bill_activity": [_bill_item(row) for row in bill_activity],
         "reply_activity": reply_activity,
         "task_activity": task_activity,

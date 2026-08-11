@@ -791,19 +791,33 @@ async def _gmail_sync(db: AsyncSession, payload: dict[str, Any]) -> dict[str, An
 
 @job_handler("banking.autopilot")
 async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.core.settings import get_settings
     from app.services.action_reconciler import reconcile_action_queue
     from app.services.banking_service import refresh_all_payments, sync_all_banks
+    from app.services.financial_autopilot import (
+        refresh_all_own_account_transfers,
+        run_budget_autopilot,
+        sync_bank_transactions,
+    )
     from app.services.financial_reconciliation import reconcile_receipts_with_bank_transactions
 
     bank_sync = await sync_all_banks(db)
+    transaction_sync = await sync_bank_transactions(db)
     receipt_reconciliation = await reconcile_receipts_with_bank_transactions(db)
     refreshed = await refresh_all_payments(db)
+    transfer_refresh = await refresh_all_own_account_transfers(db)
+    settings = get_settings()
+    transfer_callback = str(settings.public_base_url).rstrip("/") + "/api/banking/transfer-callback"
+    budget = await run_budget_autopilot(db, redirect_url=transfer_callback)
     reconciled = await reconcile_action_queue(db)
     return {
         "bank_sync": bank_sync,
+        "transaction_sync": transaction_sync,
         "receipt_reconciliation": receipt_reconciliation,
         "payment_initiation": "delegated_to_durable_bill_lifecycle",
         "payment_refresh": refreshed,
+        "internal_transfer_refresh": transfer_refresh,
+        "budget_autopilot": budget,
         "action_reconciliation": reconciled,
     }
 

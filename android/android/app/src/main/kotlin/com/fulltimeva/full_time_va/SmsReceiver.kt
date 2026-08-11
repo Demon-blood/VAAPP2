@@ -1,0 +1,81 @@
+package com.fulltimeva.full_time_va
+
+import android.content.BroadcastReceiver
+import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
+import android.provider.Telephony
+import org.json.JSONObject
+import kotlin.concurrent.thread
+
+class SmsReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Telephony.Sms.Intents.SMS_DELIVER_ACTION &&
+            intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION
+        ) return
+        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+        if (messages.isEmpty()) return
+        val sender = messages.firstOrNull()?.originatingAddress.orEmpty()
+        val body = messages.joinToString("") { it.messageBody.orEmpty() }
+        val timestamp = messages.minOfOrNull { it.timestampMillis } ?: System.currentTimeMillis()
+        val externalId = "sms:$timestamp:${sender.hashCode()}:${body.hashCode()}"
+
+        // The default SMS handler is responsible for persisting SMS_DELIVER messages.
+        if (intent.action == Telephony.Sms.Intents.SMS_DELIVER_ACTION) {
+            try {
+                context.contentResolver.insert(
+                    Telephony.Sms.Inbox.CONTENT_URI,
+                    ContentValues().apply {
+                        put(Telephony.Sms.ADDRESS, sender)
+                        put(Telephony.Sms.BODY, body)
+                        put(Telephony.Sms.DATE, timestamp)
+                        put(Telephony.Sms.READ, 0)
+                    },
+                )
+            } catch (_: Exception) {
+                // Ingestion still proceeds; role/permission status is shown in the app.
+            }
+        }
+
+        thread(name = "va-sms-ingest") {
+            val response = VaBackendClient.postEvent(
+                context,
+                JSONObject()
+                    .put("external_id", externalId)
+                    .put("channel", "sms")
+                    .put("provider", "android_sms")
+                    .put("package_name", context.packageName)
+                    .put("thread_key", VaBackendClient.normalizeNumber(sender))
+                    .put("sender", sender)
+                    .put("recipient", "me")
+                    .put("body", body)
+                    .put("direction", "incoming")
+                    .put("event_type", "message")
+                    .put("occurred_at", VaBackendClient.isoTime(timestamp))
+                    .put("supports_direct_reply", true)
+                    .put("allow_action", true),
+            ) ?: return@thread
+            val decision = response.optJSONObject("decision")
+            if (decision?.optBoolean("action_required", false) == true || decision?.optBoolean("protected", false) == true) {
+                VaBackendClient.notifyAttention(
+                    context,
+                    "Message needs you",
+                    if (sender.isBlank()) body else "$sender · $body",
+                    externalId,
+                )
+            }
+            val action = response.optJSONObject("device_action") ?: return@thread
+            if (action.optString("type") != "reply") return@thread
+            val actionId = action.optLong("id", -1L)
+            val text = action.optString("text")
+            if (actionId <= 0 || text.isBlank() || !VaBackendClient.markActionExecuted(context, actionId)) return@thread
+            try {
+                VaSms.send(context, sender, text)
+                VaBackendClient.postActionResult(context, actionId, "completed")
+            } catch (exc: Exception) {
+                VaBackendClient.clearActionExecuted(context, actionId)
+                VaBackendClient.postActionResult(context, actionId, "failed", exc.toString())
+            }
+        }
+    }
+}

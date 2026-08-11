@@ -416,3 +416,176 @@ async def analyze_email(
             except Exception:
                 pass
         raise primary_error
+
+
+COMMUNICATION_SYSTEM_PROMPT = """You are the communications decision engine for a private full-time virtual assistant.
+Return only the structured JSON requested by the schema. Classify incoming SMS and supported messaging-app
+notifications in Dutch or English. Protect financial, legal, identity/security, authentication-code, medical,
+employment, intimate/family-conflict, and other materially sensitive messages. Never send a reply that commits
+money, accepts a contract, changes credentials, shares an authentication code, makes a medical/legal claim, or
+creates a material commitment. Safe automatic replies are short acknowledgements, simple factual responses
+already supported by the message/context, or low-risk coordination that does not create a binding commitment.
+If the notification content is generic/hidden (for example only "New message"), never auto-reply because the
+actual message is unavailable. If unsure, set auto_reply_safe=false and action_required=true. Spam may be marked
+spam=true. For phone-call metadata without message content, be conservative: do not block merely because the caller is unknown. Keep
+reasoning_summary to one short sentence."""
+
+COMMUNICATION_DECISION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string"},
+        "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+        "action_required": {"type": "boolean"},
+        "protected": {"type": "boolean"},
+        "spam": {"type": "boolean"},
+        "auto_reply_safe": {"type": "boolean"},
+        "reply_text": {"type": ["string", "null"]},
+        "call_action": {"type": "string", "enum": ["allow", "silence", "block"]},
+        "reasoning_summary": {"type": "string"},
+    },
+    "required": [
+        "category", "priority", "action_required", "protected", "spam",
+        "auto_reply_safe", "reply_text", "call_action", "reasoning_summary",
+    ],
+    "additionalProperties": False,
+}
+
+
+def _communication_estimated_tokens(payload: dict[str, Any]) -> int:
+    chars = len(COMMUNICATION_SYSTEM_PROMPT) + len(json.dumps(payload, ensure_ascii=False, default=str))
+    return max(180, chars // 3 + 450)
+
+
+async def _call_communication_provider(
+    db: AsyncSession,
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    payload: dict[str, Any],
+    urgent: bool,
+    apply_budget: bool,
+) -> dict[str, Any]:
+    if apply_budget:
+        allowed, reason = await _budget_allows(
+            db,
+            urgent=urgent,
+            estimated_tokens=_communication_estimated_tokens(payload),
+            is_backfill=False,
+        )
+        if not allowed:
+            raise AIQuotaDeferred(reason)
+
+    strict = _is_groq_strict(base_url, model)
+    body: dict[str, Any] = {
+        "model": model,
+        "temperature": 0,
+        "max_completion_tokens": 500,
+        "messages": [
+            {"role": "system", "content": COMMUNICATION_SYSTEM_PROMPT},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
+        ],
+        "response_format": (
+            {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "communication_decision",
+                    "strict": True,
+                    "schema": COMMUNICATION_DECISION_SCHEMA,
+                },
+            }
+            if strict
+            else {"type": "json_object"}
+        ),
+    }
+    if strict:
+        body["reasoning_effort"] = "low"
+        body["include_reasoning"] = False
+
+    endpoint = base_url.rstrip("/") + "/chat/completions"
+    timeout = min(30.0, float(await get_runtime_value(db, "ai_timeout_seconds", "90") or 90))
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(2):
+            response = await client.post(
+                endpoint,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=body,
+            )
+            if response.status_code == 429:
+                await _record_rate_limit(db)
+                retry_after = None
+                try:
+                    retry_after = float(response.headers.get("retry-after", ""))
+                except ValueError:
+                    pass
+                if attempt == 0 and retry_after is not None and retry_after <= 5:
+                    await asyncio.sleep(max(0.2, retry_after))
+                    continue
+                raise AIQuotaDeferred("AI provider rate limit reached", retry_after=retry_after)
+            response.raise_for_status()
+            data = response.json()
+            await _record_response_usage(db, response, data, is_backfill=False)
+            content = data["choices"][0]["message"]["content"]
+            try:
+                decoded = json.loads(content)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("AI provider returned an invalid communication decision") from exc
+            if not isinstance(decoded, dict):
+                raise RuntimeError("AI provider returned a non-object communication decision")
+            required = set(COMMUNICATION_DECISION_SCHEMA["required"])
+            if not required.issubset(decoded):
+                raise RuntimeError("AI provider returned an incomplete communication decision")
+            if decoded.get("priority") not in {"low", "normal", "high", "urgent"}:
+                raise RuntimeError("AI provider returned an invalid communication priority")
+            if decoded.get("call_action") not in {"allow", "silence", "block"}:
+                raise RuntimeError("AI provider returned an invalid call action")
+            reply = decoded.get("reply_text")
+            decoded["reply_text"] = None if reply is None else str(reply)[:800]
+            decoded["category"] = str(decoded.get("category") or "general")[:120]
+            decoded["reasoning_summary"] = str(decoded.get("reasoning_summary") or "")[:500]
+            for key in ("action_required", "protected", "spam", "auto_reply_safe"):
+                decoded[key] = bool(decoded.get(key))
+            return decoded
+    raise RuntimeError("AI communication request failed")
+
+
+async def analyze_communication(
+    db: AsyncSession,
+    payload: dict[str, Any],
+    *,
+    urgent: bool = False,
+    sensitive: bool = False,
+) -> dict[str, Any]:
+    await ensure_ai_configured(db)
+    base_url = await get_runtime_value(db, "ai_base_url", "https://api.openai.com/v1")
+    api_key = await get_runtime_value(db, "ai_api_key")
+    model = await get_runtime_value(db, "ai_model")
+    try:
+        return await _call_communication_provider(
+            db,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            payload=payload,
+            urgent=urgent,
+            apply_budget=True,
+        )
+    except (AIQuotaDeferred, httpx.HTTPError, RuntimeError) as primary_error:
+        fallback_key = await get_runtime_value(db, "ai_fallback_api_key")
+        fallback_model = await get_runtime_value(db, "ai_fallback_model")
+        fallback_base = await get_runtime_value(db, "ai_fallback_base_url")
+        allow_sensitive = (await get_runtime_value(db, "ai_fallback_allow_sensitive", "false")).lower() == "true"
+        if fallback_key and fallback_model and fallback_base and (allow_sensitive or not sensitive):
+            try:
+                return await _call_communication_provider(
+                    db,
+                    base_url=fallback_base,
+                    api_key=fallback_key,
+                    model=fallback_model,
+                    payload=payload,
+                    urgent=True,
+                    apply_budget=False,
+                )
+            except Exception:
+                pass
+        raise primary_error

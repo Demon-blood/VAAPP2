@@ -1,3 +1,20 @@
+# Full-Time VA v0.7.0 — Communications & Financial Autopilot
+
+v0.7.0 expands Full-Time VA from email/bill automation into a unified device communications and personal-finance Autopilot.
+
+Highlights:
+
+- **Gmail actually manages Inbox state:** routine classified mail is archived, earlier processed mail gets a one-time safe reconciliation, and read/aged low-value newsletters/social/notifications can move to Trash after a grace period.
+- **Phone communications:** SMS ingest/send/auto-reply, messaging-app notification/direct-reply integration, local call screening, recent SMS/call history, call rules, unified communication tasks and Daily Briefing activity.
+- **Financial Autopilot:** persistent transaction categorization, learned/manual budgets, reserve targets, percentage-of-income tax allocation, cash-flow buffers, own-account rebalancing and SCA handoff.
+- **Money-movement safety:** source-account row locking, effective balances that reserve locally committed outflows, persisted local intents before provider POST, explicit debtor IBANs, idempotency, a EUR 1,000 default operating floor, per-transfer/daily/monthly limits, stale-creation quarantine, and no blind retry when provider creation outcome is uncertain.
+- **Native security:** the background communications token copy is encrypted with Android Keystore AES-GCM rather than ordinary plaintext preferences.
+- **Release identity:** backend `0.7.0`, Android `0.7.0+28`, APK `Full-Time-VA-Android-v0.7.0.apk`.
+
+See `docs/V0.7.0_COMMUNICATIONS_FINANCIAL_AUTOPILOT.md` for the functional/safety contract and `docs/V0.7.0_VALIDATION.md` for the exact validation boundary.
+
+---
+
 # Full-Time VA v0.6.2 — Gmail Conflict Hardening
 
 v0.6.2 is a production hotfix on top of v0.6.1 Autopilot Completion. It closes the live Gmail label-creation race observed on Render: HTTP 409 `Label name exists or conflicts` can no longer abort a durable `gmail.sync` job when Gmail has not yet exposed the winning label ID.

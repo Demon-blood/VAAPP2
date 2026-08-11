@@ -321,6 +321,149 @@ class FinancialRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class BankTransaction(Base):
+    __tablename__ = "bank_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+    provider_transaction_id: Mapped[str] = mapped_column(String(255))
+    booking_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    value_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    direction: Mapped[str] = mapped_column(String(10), default="debit", index=True)
+    counterparty_name: Mapped[str] = mapped_column(String(255), default="")
+    counterparty_iban: Mapped[str] = mapped_column(String(34), default="")
+    remittance: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(80), default="other", index=True)
+    is_internal_transfer: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    raw_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("bank_account_id", "provider_transaction_id", name="uq_bank_transaction_account_provider_id"),
+        Index("ix_bank_transactions_budget_window", "bank_account_id", "booking_date", "direction"),
+    )
+
+
+class BudgetEnvelope(Base):
+    __tablename__ = "budget_envelopes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_scope: Mapped[str] = mapped_column(String(30), default="personal", index=True)
+    category: Mapped[str] = mapped_column(String(80), index=True)
+    monthly_limit: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    reserve_target: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    income_allocation_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"))
+    priority: Mapped[int] = mapped_column(Integer, default=50)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("account_scope", "category", name="uq_budget_envelope_scope_category"),
+    )
+
+
+class BankAutopilotPolicy(Base):
+    __tablename__ = "bank_autopilot_policies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), unique=True, index=True)
+    role: Mapped[str] = mapped_column(String(30), default="operating", index=True)
+    internal_transfers_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    target_floor: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    target_ceiling: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    accept_surplus: Mapped[bool] = mapped_column(Boolean, default=False)
+    monthly_outbound_limit: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("5000.00"))
+    min_transfer_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("50.00"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class OwnAccountTransfer(Base):
+    __tablename__ = "own_account_transfers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+    destination_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    reason: Mapped[str] = mapped_column(Text, default="budget_rebalancing")
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    external_payment_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="planned", index=True)
+    authorization_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requires_user_action: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    failure_reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        Index("ix_own_transfer_source_status", "source_account_id", "status"),
+    )
+
+
+class CommunicationEvent(Base):
+    __tablename__ = "communication_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    external_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    channel: Mapped[str] = mapped_column(String(40), index=True)
+    provider: Mapped[str] = mapped_column(String(80), default="device", index=True)
+    package_name: Mapped[str] = mapped_column(String(255), default="")
+    thread_key: Mapped[str] = mapped_column(String(255), default="", index=True)
+    sender: Mapped[str] = mapped_column(Text, default="")
+    recipient: Mapped[str] = mapped_column(Text, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    direction: Mapped[str] = mapped_column(String(20), default="incoming", index=True)
+    event_type: Mapped[str] = mapped_column(String(40), default="message", index=True)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    category: Mapped[str] = mapped_column(String(120), default="unclassified", index=True)
+    priority: Mapped[str] = mapped_column(String(20), default="normal", index=True)
+    action_required: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    protected: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(40), default="received", index=True)
+    decision_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class CommunicationAction(Base):
+    __tablename__ = "communication_actions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("communication_events.id"), index=True)
+    action_type: Mapped[str] = mapped_column(String(40), index=True)
+    target: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    requires_user_action: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    failure_reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class CommunicationRule(Base):
+    __tablename__ = "communication_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    channel: Mapped[str] = mapped_column(String(40), index=True)
+    contact_key: Mapped[str] = mapped_column(String(255), index=True)
+    disposition: Mapped[str] = mapped_column(String(30), default="allow")
+    auto_reply_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    source: Mapped[str] = mapped_column(String(40), default="learned")
+    confidence: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("1.0000"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("channel", "contact_key", name="uq_communication_rule_channel_contact"),
+    )
+
+
 class AIUsageDaily(Base):
     __tablename__ = "ai_usage_daily"
 

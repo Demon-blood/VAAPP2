@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
+import 'communications_page.dart';
 import '../widgets/automation_rules_section.dart';
 
 class ServicesPage extends StatelessWidget {
@@ -17,6 +18,16 @@ class ServicesPage extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.forum_outlined),
+            title: const Text('Communications Autopilot', style: TextStyle(fontWeight: FontWeight.w900)),
+            subtitle: const Text('SMS, WhatsApp, Signal, Telegram, Messenger and incoming call screening'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CommunicationsPage())),
+          ),
+        ),
+        const SizedBox(height: 12),
         Text('Built-in services', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 8),
         const Text('Configure, connect, test and disconnect every live service from this phone.'),

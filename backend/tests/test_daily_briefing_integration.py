@@ -19,12 +19,12 @@ def test_daily_briefing_has_zero_input_defaults() -> None:
     assert '"daily_briefing_window_hours"' in config
 
 
-def test_release_version_is_v061() -> None:
+def test_release_version_is_v070() -> None:
     root = Path(__file__).parents[2]
     version = (root / "backend" / "app" / "core" / "version.py").read_text()
     pubspec = (root / "android" / "pubspec.yaml").read_text()
-    assert 'APP_VERSION = "0.6.2"' in version
-    assert "version: 0.6.2+27" in pubspec
+    assert 'APP_VERSION = "0.7.0"' in version
+    assert "version: 0.7.0+28" in pubspec
 
 
 def test_daily_intelligence_covers_full_exception_only_briefing_contract() -> None:
@@ -39,6 +39,8 @@ def test_daily_intelligence_covers_full_exception_only_briefing_contract() -> No
         '"payment_activity"',
         '"bill_activity"',
         '"calendar_changes"',
+        '"communications"',
+        '"internal_transfers"',
         '"needs_you"',
     ):
         assert key in source

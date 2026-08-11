@@ -30,7 +30,7 @@ from app.integrations.google_api import (
     modify_gmail_message,
     send_gmail_message,
 )
-from app.models.entities import AutomationRule, Bill, Creditor, EmailMessage, Task
+from app.models.entities import AuditLog, AutomationRule, Bill, Creditor, EmailMessage, Task
 from app.schemas.api import AutomationDecision
 from app.services.action_reconciler import reconcile_action_queue
 from app.services.ai_policy import (
@@ -48,6 +48,7 @@ from app.services.ai_policy import (
 )
 from app.services.audit import write_audit
 from app.services.autonomy_policy import learn_successful_reply, reply_autonomy_decision, task_requires_human
+from app.services.runtime_config import get_runtime_value
 from app.services.financial_document_policy import (
     PAYABLE_INVOICE,
     assess_financial_document,
@@ -120,6 +121,34 @@ def _is_protected(decision: AutomationDecision) -> bool:
         return True
     lower = f"{decision.category} {' '.join(decision.labels)}".lower()
     return any(term in lower for term in PROTECTED_CATEGORY_TERMS)
+
+
+def _apply_inbox_policy(decision: AutomationDecision, *, protected: bool) -> None:
+    """Turn classification into deterministic Gmail Inbox behavior.
+
+    Labels are organization metadata; Inbox is reserved for messages that still need
+    attention. Routine categorized mail is archived even when the model forgot to set
+    archive=true. Protected legal/health/security/family mail and anything high/urgent
+    stays visible. Paid receipts and informational finance notices are preserved but
+    archived because retention is not the same as requiring Inbox attention. Replies
+    remain in Inbox until the reply policy has actually sent them.
+    """
+    routine_finance = (
+        decision.financial_document_type in {"paid_receipt", "statement_or_notice"}
+        and not decision.action_required
+    )
+    requires_attention = (
+        decision.action_required
+        or str(decision.priority).lower() in {"high", "urgent"}
+        or (protected and not routine_finance)
+        or decision.reply is not None
+    )
+    if decision.trash:
+        decision.archive = False
+    elif requires_attention:
+        decision.archive = False
+    else:
+        decision.archive = True
 
 
 def _parse_amount(value: Any) -> Decimal | None:
@@ -503,6 +532,7 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
     if protected:
         decision.trash = False
         decision.preserve = True
+    _apply_inbox_policy(decision, protected=protected)
 
     record.category = decision.category
     record.priority = decision.priority
@@ -711,6 +741,10 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 message=record,
                 mode="explicit_rule" if explicit_rule_send else "deterministic_autopilot",
             )
+            if not protected and "INBOX" in label_ids:
+                await modify_gmail_message(db, message["id"], remove_labels=["INBOX"])
+                decision.archive = True
+                record.analysis_json = decision.model_dump_json()
             await write_audit(
                 db,
                 "email_reply_sent",
@@ -801,6 +835,169 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
     return record
 
 
+async def reconcile_v070_processed_inbox(db: AsyncSession, *, max_messages: int = 2000) -> dict[str, int]:
+    """One-time archive reconciliation for messages classified before v0.7.0.
+
+    Earlier releases could label a routine message while leaving Gmail's INBOX label
+    untouched. Reuse the persisted decision only; do not spend AI tokens or reclassify.
+    Protected/action-required/high-priority mail remains in Inbox. Trash decisions are
+    deliberately not replayed against historical mail: this migration only archives.
+    """
+    marker = "v070_gmail_inbox_policy_reconciled"
+    already_done = (
+        await db.execute(select(AuditLog.id).where(AuditLog.event_type == marker).limit(1))
+    ).scalar_one_or_none()
+    if already_done is not None:
+        return {"examined": 0, "archived": 0}
+
+    service = await gmail_service(db)
+    message_ids: list[str] = []
+    page_token: str | None = None
+    while len(message_ids) < max_messages:
+        page = await asyncio.to_thread(
+            lambda token=page_token: service.users()
+            .messages()
+            .list(
+                userId="me",
+                q="in:inbox",
+                maxResults=min(500, max_messages - len(message_ids)),
+                **({"pageToken": token} if token else {}),
+            )
+            .execute()
+        )
+        message_ids.extend(str(item.get("id")) for item in (page.get("messages") or []) if item.get("id"))
+        page_token = str(page.get("nextPageToken") or "").strip() or None
+        if not page_token:
+            break
+
+    if not message_ids:
+        await write_audit(db, marker, entity_type="gmail", details={"examined": 0, "archived": 0})
+        await db.commit()
+        return {"examined": 0, "archived": 0}
+
+    rows = list(
+        (
+            await db.execute(
+                select(EmailMessage).where(
+                    EmailMessage.provider_message_id.in_(message_ids),
+                    EmailMessage.status == "processed",
+                )
+            )
+        ).scalars()
+    )
+    archived = 0
+    examined = 0
+    for record in rows:
+        try:
+            decision = AutomationDecision.model_validate_json(record.analysis_json or "{}")
+        except Exception:
+            continue
+        examined += 1
+        protected = _is_protected(decision)
+        _apply_inbox_policy(decision, protected=protected)
+        if not decision.archive or decision.trash:
+            continue
+        await modify_gmail_message(db, record.provider_message_id, remove_labels=["INBOX"])
+        archived += 1
+        # Keep the stored decision aligned with the policy actually applied so the
+        # briefing correctly reports the message as filed on subsequent reads.
+        record.analysis_json = decision.model_dump_json()
+        await write_audit(
+            db,
+            "email_inbox_reconciled",
+            entity_type="email",
+            entity_id=record.provider_message_id,
+            details={"category": decision.category, "archive": True},
+        )
+
+    await write_audit(db, marker, entity_type="gmail", details={"examined": examined, "archived": archived})
+    await db.commit()
+    return {"examined": examined, "archived": archived}
+
+
+def _safe_low_value_for_trash(decision: AutomationDecision) -> bool:
+    category = str(decision.category or "").casefold()
+    low_value_category = any(
+        term in category for term in ("newsletter", "promotion", "reclame", "social", "communit", "notification", "melding")
+    )
+    return bool(
+        low_value_category
+        and str(decision.priority).lower() == "low"
+        and not decision.action_required
+        and not decision.preserve
+        and decision.financial_document_type == "none"
+        and decision.task is None
+        and decision.bill is None
+        and decision.calendar_event is None
+        and decision.reply is None
+        and decision.support_case is None
+        and decision.order is None
+        and decision.subscription is None
+    )
+
+
+async def cleanup_v070_read_low_value_mail(db: AsyncSession, *, max_messages: int = 250) -> dict[str, int]:
+    """Move only read, aged, already-classified low-value mail to Gmail Trash.
+
+    This is intentionally a second-stage cleanup rather than immediate deletion.
+    Unread mail and anything protected/actionable/dynamic is never selected. Gmail
+    Trash remains recoverable, and the grace period is configurable from Android.
+    """
+    enabled = (await get_runtime_value(db, "gmail_auto_trash_low_value_enabled", "true")).lower() == "true"
+    if not enabled:
+        return {"examined": 0, "trashed": 0}
+    try:
+        days = max(1, min(int(await get_runtime_value(db, "gmail_low_value_trash_after_days", "14")), 365))
+    except ValueError:
+        days = 14
+    service = await gmail_service(db)
+    page = await asyncio.to_thread(
+        lambda: service.users()
+        .messages()
+        .list(userId="me", q=f"in:anywhere is:read older_than:{days}d -in:trash", maxResults=min(max_messages, 500))
+        .execute()
+    )
+    ids = [str(item.get("id")) for item in (page.get("messages") or []) if item.get("id")]
+    if not ids:
+        return {"examined": 0, "trashed": 0}
+    rows = list(
+        (
+            await db.execute(
+                select(EmailMessage).where(
+                    EmailMessage.provider_message_id.in_(ids),
+                    EmailMessage.status == "processed",
+                )
+            )
+        ).scalars()
+    )
+    examined = 0
+    trashed = 0
+    for record in rows:
+        try:
+            decision = AutomationDecision.model_validate_json(record.analysis_json or "{}")
+        except Exception:
+            continue
+        examined += 1
+        if not _safe_low_value_for_trash(decision):
+            continue
+        await asyncio.to_thread(
+            lambda message_id=record.provider_message_id: service.users().messages().trash(userId="me", id=message_id).execute()
+        )
+        decision.trash = True
+        decision.archive = False
+        record.analysis_json = decision.model_dump_json()
+        trashed += 1
+        await write_audit(
+            db,
+            "email_low_value_trashed",
+            entity_type="email",
+            entity_id=record.provider_message_id,
+            details={"category": decision.category, "grace_days": days},
+        )
+    await db.commit()
+    return {"examined": examined, "trashed": trashed}
+
+
 async def sync_gmail(db: AsyncSession, max_messages: int = 100) -> int:
     service = await gmail_service(db)
     response = await asyncio.to_thread(
@@ -826,6 +1023,8 @@ async def sync_gmail(db: AsyncSession, max_messages: int = 100) -> int:
         )
         await process_single_message(db, message)
         processed += 1
+    await reconcile_v070_processed_inbox(db)
+    await cleanup_v070_read_low_value_mail(db)
     await reconcile_action_queue(db)
     return processed
 

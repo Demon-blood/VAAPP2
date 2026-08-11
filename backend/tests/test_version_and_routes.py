@@ -7,7 +7,7 @@ from app.core.version import APP_VERSION
 
 
 def test_backend_version_matches_release() -> None:
-    assert APP_VERSION == "0.6.2"
+    assert APP_VERSION == "0.7.0"
 
 
 def test_required_system_and_connector_routes_exist() -> None:
@@ -28,6 +28,12 @@ def test_required_system_and_connector_routes_exist() -> None:
     assert "/api/actions/run" in paths
     assert "/api/tasks/{task_id}/execute" in paths
     assert "/api/payments/auto-run" in paths
+    assert "/api/communications/ingest" in paths
+    assert "/api/communications/device-policy" in paths
+    assert "/api/finance/overview" in paths
+    assert "/api/finance/autopilot/run" in paths
+    assert "/api/finance/transfers/{transfer_id}/refresh" in paths
+    assert "/api/banking/transfer-callback" in paths
     assert "/api/documents/cleanup" in paths
     assert "/api/bills" in paths
     assert "/api/financial-records" in paths

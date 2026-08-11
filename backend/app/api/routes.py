@@ -46,6 +46,13 @@ from app.models.entities import (
     AuditLog,
     AutomationRule,
     BankAccount,
+    BankAutopilotPolicy,
+    BankTransaction,
+    BudgetEnvelope,
+    CommunicationAction,
+    CommunicationEvent,
+    CommunicationRule,
+    OwnAccountTransfer,
     Bill,
     Creditor,
     Device,
@@ -64,6 +71,16 @@ from app.models.entities import (
 from app.schemas.api import (
     AccountPolicyRequest,
     AccountResponse,
+    BankAutopilotPolicyRequest,
+    BankAutopilotPolicyResponse,
+    BudgetEnvelopeRequest,
+    BudgetEnvelopeResponse,
+    CommunicationActionResultRequest,
+    CommunicationBatchRequest,
+    CommunicationEventResponse,
+    CommunicationIngestRequest,
+    CommunicationRuleRequest,
+    CommunicationRuleResponse,
     AutomationDecision,
     AutomationRuleRequest,
     BillResponse,
@@ -79,6 +96,7 @@ from app.schemas.api import (
     PairDeviceRequest,
     PairDeviceResponse,
     PaymentResponse,
+    OwnAccountTransferResponse,
     StartBankAuthRequest,
     TaskResponse,
 )
@@ -95,6 +113,20 @@ from app.services.banking_service import (
     refresh_payment,
     start_bank_connection,
     sync_all_banks,
+)
+from app.services.communications_service import (
+    complete_communication_action,
+    device_call_policy,
+    ingest_communication,
+)
+from app.services.financial_autopilot import (
+    complete_own_transfer_authorization,
+    ensure_account_autopilot_policies,
+    finance_overview,
+    refresh_all_own_account_transfers,
+    refresh_own_account_transfer,
+    run_budget_autopilot,
+    sync_bank_transactions,
 )
 from app.services.action_reconciler import reconcile_action_queue
 from app.services.email_processor import sync_gmail
@@ -158,6 +190,12 @@ async def system_info() -> dict:
             "smart_document_retention",
             "document_cleanup",
             "money_live_refresh",
+            "budgeting_autopilot",
+            "own_account_transfers",
+            "communications_autopilot",
+            "sms_management",
+            "messaging_notification_management",
+            "call_screening",
             "phone_deployment",
         ],
     }
@@ -485,6 +523,149 @@ async def update_account_policy(
     return account
 
 
+@router.get("/api/finance/account-policies", response_model=list[BankAutopilotPolicyResponse])
+async def list_finance_account_policies(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> list[BankAutopilotPolicy]:
+    await ensure_account_autopilot_policies(db)
+    return list((await db.execute(select(BankAutopilotPolicy).order_by(BankAutopilotPolicy.bank_account_id))).scalars())
+
+
+@router.put("/api/finance/account-policies/{account_id}", response_model=BankAutopilotPolicyResponse)
+async def update_finance_account_policy(
+    account_id: int,
+    payload: BankAutopilotPolicyRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> BankAutopilotPolicy:
+    account = await db.get(BankAccount, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if min(payload.target_floor, payload.target_ceiling, payload.monthly_outbound_limit, payload.min_transfer_amount) < 0:
+        raise HTTPException(status_code=422, detail="Financial automation amounts cannot be negative")
+    if payload.target_ceiling > 0 and payload.target_ceiling < payload.target_floor:
+        raise HTTPException(status_code=422, detail="Target ceiling must be zero (dynamic) or at least the target floor")
+    await ensure_account_autopilot_policies(db)
+    policy = (
+        await db.execute(select(BankAutopilotPolicy).where(BankAutopilotPolicy.bank_account_id == account_id))
+    ).scalar_one()
+    if payload.internal_transfers_enabled and not account.enabled_for_payments:
+        raise HTTPException(
+            status_code=422,
+            detail="Enable payment execution on this bank account before enabling automatic own-account transfers",
+        )
+    policy.role = payload.role
+    policy.internal_transfers_enabled = payload.internal_transfers_enabled and payload.role != "disabled"
+    policy.target_floor = payload.target_floor
+    policy.target_ceiling = payload.target_ceiling
+    policy.accept_surplus = payload.accept_surplus and payload.role != "disabled"
+    policy.monthly_outbound_limit = payload.monthly_outbound_limit
+    policy.min_transfer_amount = payload.min_transfer_amount
+    await write_audit(
+        db,
+        "bank_autopilot_policy_updated",
+        entity_type="bank_account",
+        entity_id=str(account_id),
+        details={
+            "role": policy.role,
+            "internal_transfers_enabled": policy.internal_transfers_enabled,
+            "accept_surplus": policy.accept_surplus,
+        },
+    )
+    await db.commit()
+    await db.refresh(policy)
+    return policy
+
+
+@router.get("/api/finance/budgets", response_model=list[BudgetEnvelopeResponse])
+async def list_budget_envelopes(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> list[BudgetEnvelope]:
+    await finance_overview(db)
+    return list((await db.execute(select(BudgetEnvelope).order_by(BudgetEnvelope.account_scope, BudgetEnvelope.priority, BudgetEnvelope.category))).scalars())
+
+
+@router.post("/api/finance/budgets", response_model=BudgetEnvelopeResponse)
+async def upsert_budget_envelope(
+    payload: BudgetEnvelopeRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> BudgetEnvelope:
+    if payload.monthly_limit < 0 or payload.reserve_target < 0:
+        raise HTTPException(status_code=422, detail="Budget amounts cannot be negative")
+    if payload.income_allocation_percent < 0 or payload.income_allocation_percent > 100:
+        raise HTTPException(status_code=422, detail="Income allocation percentage must be between 0 and 100")
+    category = payload.category.strip().lower().replace(" ", "_")[:80]
+    row = (
+        await db.execute(
+            select(BudgetEnvelope).where(
+                BudgetEnvelope.account_scope == payload.account_scope,
+                BudgetEnvelope.category == category,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = BudgetEnvelope(account_scope=payload.account_scope, category=category)
+        db.add(row)
+    row.monthly_limit = payload.monthly_limit
+    row.reserve_target = payload.reserve_target
+    row.income_allocation_percent = payload.income_allocation_percent
+    row.priority = payload.priority
+    row.enabled = payload.enabled
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.get("/api/finance/overview")
+async def get_finance_overview(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    return await finance_overview(db)
+
+
+@router.get("/api/finance/transfers", response_model=list[OwnAccountTransferResponse])
+async def list_own_account_transfers(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> list[OwnAccountTransfer]:
+    return list((await db.execute(select(OwnAccountTransfer).order_by(OwnAccountTransfer.id.desc()).limit(250))).scalars())
+
+
+@router.post("/api/finance/transfers/{transfer_id}/refresh", response_model=OwnAccountTransferResponse)
+async def refresh_internal_transfer(
+    transfer_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> OwnAccountTransfer:
+    transfer = await db.get(OwnAccountTransfer, transfer_id)
+    if transfer is None:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    return await refresh_own_account_transfer(db, transfer)
+
+
+@router.post("/api/finance/autopilot/run")
+async def run_finance_autopilot_now(
+    request: Request,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        accounts_synced = await sync_all_banks(db)
+        transactions = await sync_bank_transactions(db)
+        transfer_refresh = await refresh_all_own_account_transfers(db)
+        budget = await run_budget_autopilot(
+            db, redirect_url=str(request.url_for("own_transfer_authorization_callback"))
+        )
+        return {
+            "accounts_synced": accounts_synced,
+            "transactions": transactions,
+            "transfer_refresh": transfer_refresh,
+            "budget": budget,
+        }
+    except EnableBankingConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.get("/api/payments", response_model=list[PaymentResponse])
 async def list_payments(
     _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
@@ -623,6 +804,115 @@ async def delete_rule(
     return {"deleted": True}
 
 
+@router.post("/api/communications/ingest")
+async def communication_ingest(
+    payload: CommunicationIngestRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await ingest_communication(db, payload)
+
+
+@router.post("/api/communications/batch")
+async def communication_batch_ingest(
+    payload: CommunicationBatchRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    processed = 0
+    duplicates = 0
+    for event in payload.events:
+        result = await ingest_communication(db, event)
+        processed += 1
+        duplicates += int(result.get("duplicate") is True)
+    return {"processed": processed, "duplicates": duplicates}
+
+
+@router.get("/api/communications/events", response_model=list[CommunicationEventResponse])
+async def list_communication_events(
+    limit: int = Query(default=200, ge=1, le=1000),
+    channel: str | None = None,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[CommunicationEvent]:
+    query = select(CommunicationEvent).order_by(CommunicationEvent.occurred_at.desc().nullslast(), CommunicationEvent.id.desc()).limit(limit)
+    if channel:
+        query = query.where(CommunicationEvent.channel == channel)
+    return list((await db.execute(query)).scalars())
+
+
+@router.post("/api/communications/actions/{action_id}/result")
+async def communication_action_result(
+    action_id: int,
+    payload: CommunicationActionResultRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        action = await complete_communication_action(
+            db, action_id, status=payload.status, failure_reason=payload.failure_reason
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"id": action.id, "status": action.status}
+
+
+@router.get("/api/communications/device-policy")
+async def communication_device_policy(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    return await device_call_policy(db)
+
+
+@router.get("/api/communications/rules", response_model=list[CommunicationRuleResponse])
+async def list_communication_rules(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> list[CommunicationRule]:
+    return list((await db.execute(select(CommunicationRule).order_by(CommunicationRule.channel, CommunicationRule.contact_key))).scalars())
+
+
+@router.post("/api/communications/rules", response_model=CommunicationRuleResponse)
+async def upsert_communication_rule(
+    payload: CommunicationRuleRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> CommunicationRule:
+    contact_key = "".join(character for character in payload.contact_key.strip() if character.isdigit() or character == "+")
+    if not contact_key:
+        raise HTTPException(status_code=422, detail="A phone number is required")
+    row = (
+        await db.execute(
+            select(CommunicationRule).where(
+                CommunicationRule.channel == payload.channel, CommunicationRule.contact_key == contact_key
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = CommunicationRule(channel=payload.channel, contact_key=contact_key)
+        db.add(row)
+    row.disposition = payload.disposition
+    row.auto_reply_enabled = payload.auto_reply_enabled
+    row.source = payload.source
+    row.confidence = 1
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/api/communications/rules/{rule_id}")
+async def delete_communication_rule(
+    rule_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = await db.get(CommunicationRule, rule_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Communication rule not found")
+    await db.delete(row)
+    await db.commit()
+    return {"deleted": True}
+
+
 @router.get("/api/google/start", response_model=ConnectionStartResponse)
 async def google_start(
     request: Request,
@@ -681,11 +971,16 @@ async def run_all_safe_actions(
     if bank_connected:
         try:
             result["accounts_synced"] = await sync_all_banks(db)
+            result["bank_transactions"] = await sync_bank_transactions(db)
             result["receipt_reconciliation"] = await reconcile_receipts_with_bank_transactions(db)
             result["auto_pay"] = await auto_pay_eligible_bills(
                 db, redirect_url=str(request.url_for("payment_authorization_callback"))
             )
             result["payments_refreshed"] = await refresh_all_payments(db)
+            result["internal_transfers_refreshed"] = await refresh_all_own_account_transfers(db)
+            result["budget_autopilot"] = await run_budget_autopilot(
+                db, redirect_url=str(request.url_for("own_transfer_authorization_callback"))
+            )
         except Exception as exc:
             await db.rollback()
             errors["banking"] = str(exc)
@@ -778,8 +1073,15 @@ async def manual_bank_sync(
 ) -> dict:
     try:
         synced = await sync_all_banks(db)
+        transactions = await sync_bank_transactions(db)
         receipts = await reconcile_receipts_with_bank_transactions(db)
-        return {"accounts_synced": synced, "receipt_reconciliation": receipts}
+        transfers = await refresh_all_own_account_transfers(db)
+        return {
+            "accounts_synced": synced,
+            "transactions": transactions,
+            "receipt_reconciliation": receipts,
+            "internal_transfers_refreshed": transfers,
+        }
     except EnableBankingConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -859,6 +1161,35 @@ async def payment_authorization_callback(
     except Exception as exc:
         return HTMLResponse(
             f"<html><body><h2>Payment status check failed</h2><p>{html.escape(str(exc))}</p></body></html>",
+            status_code=400,
+        )
+
+
+@router.get("/api/banking/transfer-callback", response_class=HTMLResponse, name="own_transfer_authorization_callback")
+async def own_transfer_authorization_callback(
+    state: str,
+    error: str | None = None,
+    error_description: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    try:
+        transfer = await complete_own_transfer_authorization(
+            db, state=state, error=error, error_description=error_description
+        )
+        if error:
+            return HTMLResponse(
+                f"<html><body><h2>Transfer was not authorized</h2><p>{html.escape(error_description or error)}</p>"
+                "<p>You may return to Full-Time VA.</p></body></html>",
+                status_code=400,
+            )
+        status = transfer.status if transfer is not None else "authorization returned"
+        return HTMLResponse(
+            f"<html><body><h2>Transfer authorization completed</h2><p>Status: {html.escape(str(status))}</p>"
+            "<p>You may return to Full-Time VA.</p></body></html>"
+        )
+    except Exception as exc:
+        return HTMLResponse(
+            f"<html><body><h2>Transfer status check failed</h2><p>{html.escape(str(exc))}</p></body></html>",
             status_code=400,
         )
 

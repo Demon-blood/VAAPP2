@@ -187,8 +187,22 @@ async def get_account_balances(db: AsyncSession, account_id: str) -> dict[str, A
     return await _request(db, "GET", f"/accounts/{account_id}/balances")
 
 
-async def get_account_transactions(db: AsyncSession, account_id: str, date_from: str | None = None) -> dict[str, Any]:
-    suffix = f"?date_from={date_from}" if date_from else ""
+async def get_account_transactions(
+    db: AsyncSession,
+    account_id: str,
+    date_from: str | None = None,
+    *,
+    date_to: str | None = None,
+    continuation_key: str | None = None,
+) -> dict[str, Any]:
+    params: dict[str, str] = {}
+    if date_from:
+        params["date_from"] = date_from
+    if date_to:
+        params["date_to"] = date_to
+    if continuation_key:
+        params["continuation_key"] = continuation_key
+    suffix = f"?{urlencode(params)}" if params else ""
     return await _request(db, "GET", f"/accounts/{account_id}/transactions{suffix}")
 
 
@@ -205,6 +219,7 @@ async def create_sepa_payment(
     reference: str,
     state: str,
     redirect_url: str,
+    debtor_iban: str | None = None,
 ) -> dict[str, Any]:
     aspsps = await list_aspsps(
         db,
@@ -229,7 +244,12 @@ async def create_sepa_payment(
                         "instructed_amount": {"amount": amount, "currency": currency},
                         "remittance_information": [reference] if reference else [],
                     }
-                ]
+                ],
+                **(
+                    {"debtor_account": {"identification": debtor_iban, "scheme_name": "IBAN"}}
+                    if debtor_iban
+                    else {}
+                ),
             },
             "payment_type": "SEPA",
             "psu_type": psu_type,

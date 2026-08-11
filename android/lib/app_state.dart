@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'models/view_models.dart';
 import 'services/api_client.dart';
+import 'services/device_bridge.dart';
 import 'services/local_connector_catalog.dart';
 
 class AppState extends ChangeNotifier {
@@ -43,6 +44,13 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic> autopilotHealth = {};
   Map<String, dynamic> dailyBriefing = {};
   List<Map<String, dynamic>> autopilotJobs = [];
+  List<Map<String, dynamic>> communications = [];
+  List<Map<String, dynamic>> communicationRules = [];
+  Map<String, dynamic> communicationStatus = {};
+  Map<String, dynamic> financeOverview = {};
+  List<Map<String, dynamic>> financeAccountPolicies = [];
+  List<Map<String, dynamic>> budgetEnvelopes = [];
+  List<Map<String, dynamic>> internalTransfers = [];
 
   Future<void> initialize() async {
     try {
@@ -53,6 +61,7 @@ class AppState extends ChangeNotifier {
       serverWarning = 'The built-in connector catalog could not be loaded: $catalogError';
     }
     paired = await api.deviceToken != null && await api.serverUrl != null;
+    if (paired) await _syncDeviceLink();
     initialized = true;
     notifyListeners();
     if (paired) await refreshAll();
@@ -70,12 +79,16 @@ class AppState extends ChangeNotifier {
         deviceName: deviceName,
       );
       paired = true;
+      await _syncDeviceLink();
       await refreshAll(showBusy: false);
     });
   }
 
   Future<void> disconnect() async {
     await api.disconnect();
+    try {
+      await DeviceBridge.clearCredentials();
+    } catch (_) {}
     paired = false;
     dashboard = null;
     configuration = {};
@@ -101,6 +114,13 @@ class AppState extends ChangeNotifier {
     autopilotHealth = {};
     dailyBriefing = {};
     autopilotJobs = [];
+    communications = [];
+    communicationRules = [];
+    communicationStatus = {};
+    financeOverview = {};
+    financeAccountPolicies = [];
+    budgetEnvelopes = [];
+    internalTransfers = [];
     systemInfo = {};
     endpointErrors = {};
     serverWarning = null;
@@ -121,11 +141,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.6.2')) {
+        if (!_versionAtLeast(backendVersion, '0.7.0')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.6.2 requires backend 0.6.2 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.7.0 requires backend 0.7.0 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -158,6 +178,12 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/autopilot/health'),
         _safeGet('/api/autopilot/briefing'),
         _safeGet('/api/autopilot/jobs?limit=30'),
+        _safeGet('/api/communications/events?limit=200'),
+        _safeGet('/api/finance/overview'),
+        _safeGet('/api/finance/account-policies'),
+        _safeGet('/api/finance/budgets'),
+        _safeGet('/api/finance/transfers'),
+        _safeGet('/api/communications/rules'),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -182,6 +208,13 @@ class AppState extends ChangeNotifier {
       if (results[19] is Map) autopilotHealth = Map<String, dynamic>.from(results[19] as Map);
       if (results[20] is Map) dailyBriefing = Map<String, dynamic>.from(results[20] as Map);
       if (results[21] is List) autopilotJobs = _list(results[21]);
+      if (results[22] is List) communications = _list(results[22]);
+      if (results[23] is Map) financeOverview = Map<String, dynamic>.from(results[23] as Map);
+      if (results[24] is List) financeAccountPolicies = _list(results[24]);
+      if (results[25] is List) budgetEnvelopes = _list(results[25]);
+      if (results[26] is List) internalTransfers = _list(results[26]);
+      if (results[27] is List) communicationRules = _list(results[27]);
+      await _refreshNativeCommunicationState();
 
       githubRepositories = [];
       githubNotifications = [];
@@ -284,12 +317,20 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/accounts'),
         _safeGet('/api/payments'),
         _safeGet('/api/dashboard'),
+        _safeGet('/api/finance/overview'),
+        _safeGet('/api/finance/account-policies'),
+        _safeGet('/api/finance/budgets'),
+        _safeGet('/api/finance/transfers'),
       ]);
       if (results[0] is List) bills = _list(results[0]);
       if (results[1] is List) financialRecords = _list(results[1]);
       if (results[2] is List) accounts = _list(results[2]);
       if (results[3] is List) payments = _list(results[3]);
       if (results[4] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[4] as Map));
+      if (results[5] is Map) financeOverview = Map<String, dynamic>.from(results[5] as Map);
+      if (results[6] is List) financeAccountPolicies = _list(results[6]);
+      if (results[7] is List) budgetEnvelopes = _list(results[7]);
+      if (results[8] is List) internalTransfers = _list(results[8]);
       if (endpointErrors.isNotEmpty && serverWarning == null) {
         final first = endpointErrors.entries.first;
         serverWarning = 'Some VA server functions are unavailable. ${first.key}: ${first.value}';
@@ -299,6 +340,125 @@ class AppState extends ChangeNotifier {
       refreshComplete = true;
       notifyListeners();
     }
+  }
+
+  Future<void> _syncDeviceLink() async {
+    try {
+      await DeviceBridge.syncCredentials(
+        serverUrl: await api.serverUrl,
+        deviceToken: await api.deviceToken,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _refreshNativeCommunicationState() async {
+    await _syncDeviceLink();
+    try {
+      communicationStatus = await DeviceBridge.communicationStatus();
+      await DeviceBridge.syncCallPolicy();
+    } catch (_) {
+      communicationStatus = {};
+    }
+  }
+
+  Future<void> refreshCommunications({bool syncDeviceHistory = false}) async {
+    if (syncDeviceHistory) {
+      await _syncDeviceLink();
+      try {
+        await DeviceBridge.syncRecentCommunications();
+        await DeviceBridge.syncCallPolicy();
+      } catch (bridgeError) {
+        error = 'Phone communication sync failed: $bridgeError';
+      }
+    }
+    final results = await Future.wait<dynamic>([
+      _safeGet('/api/communications/events?limit=200'),
+      _safeGet('/api/communications/rules'),
+    ]);
+    if (results[0] is List) communications = _list(results[0]);
+    if (results[1] is List) communicationRules = _list(results[1]);
+    await _refreshNativeCommunicationState();
+    notifyListeners();
+  }
+
+  Future<void> saveCallRule({required String phoneNumber, required String disposition}) async {
+    await _run(() async {
+      await api.postJson('/api/communications/rules', {
+        'channel': 'call',
+        'contact_key': phoneNumber,
+        'disposition': disposition,
+        'auto_reply_enabled': false,
+        'source': disposition == 'allow' ? 'vip' : 'manual',
+      });
+      await refreshCommunications();
+      try {
+        await DeviceBridge.syncCallPolicy();
+      } catch (_) {}
+    });
+  }
+
+  Future<void> deleteCallRule(int ruleId) async {
+    await _run(() async {
+      await api.deleteJson('/api/communications/rules/$ruleId');
+      await refreshCommunications();
+      try {
+        await DeviceBridge.syncCallPolicy();
+      } catch (_) {}
+    });
+  }
+
+  Future<void> requestCommunicationPermissions() async {
+    await DeviceBridge.requestRuntimePermissions();
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await _refreshNativeCommunicationState();
+    notifyListeners();
+  }
+
+  Future<void> requestSmsRole() async {
+    await DeviceBridge.requestSmsRole();
+  }
+
+  Future<void> requestCallScreeningRole() async {
+    await DeviceBridge.requestCallScreeningRole();
+  }
+
+  Future<void> openNotificationAccess() async {
+    await DeviceBridge.openNotificationAccess();
+  }
+
+  Future<void> sendSms({required String target, required String text}) async {
+    await DeviceBridge.sendSms(target: target, text: text);
+    await refreshCommunications(syncDeviceHistory: true);
+  }
+
+  Future<Map<String, dynamic>> runFinancialAutopilotNow() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(await api.postJson('/api/finance/autopilot/run') as Map);
+      await refreshMoneyData();
+    });
+    return result;
+  }
+
+  Future<void> refreshInternalTransfer(int transferId) async {
+    await _run(() async {
+      await api.postJson('/api/finance/transfers/$transferId/refresh');
+      await refreshMoneyData();
+    });
+  }
+
+  Future<void> updateFinanceAccountPolicy(int accountId, Map<String, dynamic> values) async {
+    await _run(() async {
+      await api.putJson('/api/finance/account-policies/$accountId', values);
+      await refreshMoneyData();
+    });
+  }
+
+  Future<void> saveBudgetEnvelope(Map<String, dynamic> values) async {
+    await _run(() async {
+      await api.postJson('/api/finance/budgets', values);
+      await refreshMoneyData();
+    });
   }
 
   Future<Map<String, dynamic>> reconcileFinancialRecords() async {

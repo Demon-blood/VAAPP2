@@ -8,6 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.database import SessionLocal
 from app.core.settings import get_settings
+from app.services.cash_safety import quarantine_stale_creation_intents
 from app.services.workflow_engine import (
     compact_duplicate_dead_letters,
     enqueue_job,
@@ -185,11 +186,19 @@ async def workflow_watchdog_job() -> None:
         try:
             outcome = await recover_expired_leases(db)
             compacted = await compact_duplicate_dead_letters(db)
-            if outcome["recovered"] or outcome["dead_lettered"] or compacted["superseded"]:
+            money = await quarantine_stale_creation_intents(db)
+            if (
+                outcome["recovered"]
+                or outcome["dead_lettered"]
+                or compacted["superseded"]
+                or money["payments"]
+                or money["transfers"]
+            ):
                 logger.warning(
-                    "Autopilot watchdog recovery: leases=%s duplicate_failures=%s",
+                    "Autopilot watchdog recovery: leases=%s duplicate_failures=%s money_creation=%s",
                     outcome,
                     compacted,
+                    money,
                 )
         except Exception:
             logger.exception("Autopilot workflow watchdog failed")

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.core.crypto import decrypt_text, encrypt_text, new_token
 from app.integrations import enable_banking
 from app.models.entities import BankAccount, BankConnection, Bill, Creditor, OAuthState, Payment, Task
 from app.services.audit import write_audit
+from app.services.cash_safety import effective_available_balance
 from app.services.runtime_config import get_runtime_value
 
 SUCCESS_STATUSES = {"ACSC", "ACCC", "BOOK"}
@@ -173,8 +175,15 @@ async def sync_all_banks(db: AsyncSession) -> int:
 
 
 async def create_payment_for_bill(db: AsyncSession, *, bill_id: int, bank_account_id: int, redirect_url: str) -> Payment:
-    bill = await db.get(Bill, bill_id)
-    account = await db.get(BankAccount, bank_account_id)
+    # Serialize payment creation per bill. The local payment intent is committed
+    # before the irreversible provider POST, so a concurrent worker that waited on
+    # this row lock will observe the duplicate and cannot submit a second payment.
+    bill = (
+        await db.execute(select(Bill).where(Bill.id == bill_id).with_for_update())
+    ).scalar_one_or_none()
+    account = (
+        await db.execute(select(BankAccount).where(BankAccount.id == bank_account_id).with_for_update())
+    ).scalar_one_or_none()
     if bill is None or account is None:
         raise ValueError("Bill or bank account does not exist")
     if bill.status == "reclassified_nonpayable":
@@ -185,9 +194,7 @@ async def create_payment_for_bill(db: AsyncSession, *, bill_id: int, bank_accoun
         raise ValueError("This bank account has not been approved for payment execution")
     if not bill.iban:
         raise ValueError("Bill has no IBAN")
-    creditor = (
-        await db.execute(select(Creditor).where(Creditor.iban == bill.iban))
-    ).scalar_one_or_none()
+    creditor = (await db.execute(select(Creditor).where(Creditor.iban == bill.iban))).scalar_one_or_none()
     if creditor is None or not creditor.auto_pay_enabled:
         raise ValueError("Creditor is not approved for automatic payment")
     if bill.amount > creditor.max_auto_amount:
@@ -196,34 +203,44 @@ async def create_payment_for_bill(db: AsyncSession, *, bill_id: int, bank_accoun
         raise ValueError("Bill scope does not match the approved creditor policy")
     if account.account_scope != bill.account_scope:
         raise ValueError("Selected account does not match the bill scope")
-    available = account.available_balance if account.available_balance is not None else account.current_balance
-    if available is None:
-        raise ValueError("Bank balance is not available")
-    if available - bill.amount < account.safety_reserve:
-        raise ValueError("Payment would breach the account safety reserve")
     duplicate = (
         await db.execute(
-            select(Payment).where(
-                Payment.bill_id == bill.id,
-                Payment.status.not_in(["failed", "cancelled", "rejected"]),
-            )
+            select(Payment).where(Payment.bill_id == bill.id, Payment.status.not_in(["failed", "cancelled", "rejected"]))
         )
     ).scalar_one_or_none()
     if duplicate:
         raise ValueError("A payment already exists for this bill")
+    available = await effective_available_balance(db, account)
+    if available is None:
+        raise ValueError("Bank balance is not available")
+    if available - bill.amount < account.safety_reserve:
+        raise ValueError("Payment would breach the account safety reserve")
     connection = await db.get(BankConnection, account.bank_connection_id)
     if connection is None:
         raise ValueError("Bank connection is missing")
 
+    # Persist the local intent before the irreversible provider POST. If the network
+    # drops after submission, this record prevents a workflow retry from double-paying.
+    payment = Payment(
+        bill_id=bill.id,
+        bank_account_id=account.id,
+        amount=bill.amount,
+        currency=bill.currency,
+        status="creating",
+        requires_user_action=False,
+    )
+    db.add(payment)
+    await db.flush()
     state = new_token(24)
     state_row = OAuthState(
         state=state,
         provider="enable_banking_payment",
-        payload_json=json.dumps({"bill_id": bill.id, "bank_account_id": account.id}),
+        payload_json=json.dumps({"bill_id": bill.id, "bank_account_id": account.id, "payment_id": payment.id}),
         expires_at=datetime.utcnow() + timedelta(days=2),
     )
     db.add(state_row)
     await db.commit()
+
     try:
         response = await enable_banking.create_sepa_payment(
             db,
@@ -237,39 +254,74 @@ async def create_payment_for_bill(db: AsyncSession, *, bill_id: int, bank_accoun
             reference=bill.reference or bill.invoice_number,
             state=state,
             redirect_url=redirect_url,
+            debtor_iban=account.iban or None,
         )
-    except Exception:
+    except enable_banking.EnableBankingConfigurationError as exc:
+        payment.status = "failed"
+        payment.failure_reason = str(exc)[:2000]
         await db.delete(state_row)
         await db.commit()
         raise
-    external_id = response.get("payment_id")
-    payment = Payment(
-        bill_id=bill.id,
-        bank_account_id=account.id,
-        external_payment_id=external_id,
-        amount=bill.amount,
-        currency=bill.currency,
-        status=str(response.get("status") or "received").lower(),
-        authorization_url=response.get("url"),
-        requires_user_action=bool(response.get("url")),
-    )
-    db.add(payment)
+    except (httpx.RequestError, TimeoutError) as exc:
+        payment.status = "creation_uncertain"
+        payment.requires_user_action = True
+        payment.failure_reason = (
+            f"Payment creation outcome is uncertain; automatic retry is blocked until the bank is checked: {exc}"
+        )[:2000]
+        bill.status = "payment_initiated"
+        db.add(
+            Task(
+                title=f"Check bank before retrying {bill.creditor_name}",
+                description=payment.failure_reason,
+                source_type="payment_creation_uncertain",
+                source_id=str(payment.id),
+                priority="urgent",
+                requires_approval=True,
+            )
+        )
+        await write_audit(
+            db,
+            "payment_creation_uncertain",
+            entity_type="payment",
+            entity_id=str(payment.id),
+            result="blocked",
+            details={"bill_id": bill.id, "retry_suppressed": True, "error": str(exc)},
+        )
+        await db.commit()
+        return payment
+
+    external_id = str(response.get("payment_id") or response.get("id") or "").strip() or None
+    payment.external_payment_id = external_id
+    payment.authorization_url = str(response.get("url") or "").strip() or None
+    payment.requires_user_action = bool(payment.authorization_url)
+    if external_id is None:
+        payment.status = "creation_uncertain"
+        payment.requires_user_action = True
+        payment.failure_reason = "Payment provider returned success without a payment identifier; automatic retry is blocked."
+    else:
+        payment.status = "authorization_required" if payment.authorization_url else str(response.get("status") or "received").lower()
     bill.status = "payment_initiated"
-    await db.flush()
     state_row.payload_json = json.dumps(
-        {
-            "bill_id": bill.id,
-            "bank_account_id": account.id,
-            "payment_id": payment.id,
-            "external_payment_id": external_id,
-        }
+        {"bill_id": bill.id, "bank_account_id": account.id, "payment_id": payment.id, "external_payment_id": external_id}
     )
+    if payment.status == "creation_uncertain":
+        db.add(
+            Task(
+                title=f"Check bank before retrying {bill.creditor_name}",
+                description=payment.failure_reason,
+                source_type="payment_creation_uncertain",
+                source_id=str(payment.id),
+                priority="urgent",
+                requires_approval=True,
+            )
+        )
     await write_audit(
         db,
-        "payment_initiated",
+        "payment_initiated" if external_id else "payment_creation_uncertain",
         entity_type="payment",
         entity_id=str(payment.id),
-        details={"bill_id": bill.id, "external_payment_id": external_id},
+        result="success" if external_id else "blocked",
+        details={"bill_id": bill.id, "external_payment_id": external_id, "retry_suppressed": external_id is None},
     )
     await db.commit()
     await db.refresh(payment)
@@ -316,7 +368,11 @@ async def complete_payment_authorization(
     error_description: str | None = None,
 ) -> Payment | None:
     state_row = await db.get(OAuthState, state)
-    if state_row is None or state_row.provider != "enable_banking_payment":
+    if (
+        state_row is None
+        or state_row.provider != "enable_banking_payment"
+        or state_row.expires_at < datetime.utcnow()
+    ):
         raise ValueError("Payment authorization state is invalid or expired")
     context = json.loads(state_row.payload_json or "{}")
     payment = await db.get(Payment, context.get("payment_id")) if context.get("payment_id") else None
@@ -335,7 +391,12 @@ async def complete_payment_authorization(
             )
         else:
             await refresh_payment(db, payment)
-            payment.requires_user_action = payment.status not in {"completed", "failed", "cancelled", "rejected"}
+            # Returning through the signed OAuth state means the user completed the
+            # bank authorization step. Processing may still be pending at the bank,
+            # but it no longer belongs in Needs You unless a later provider response
+            # explicitly creates a new authorization requirement.
+            payment.authorization_url = None
+            payment.requires_user_action = False
             await write_audit(
                 db,
                 "payment_authorization_returned",
@@ -397,7 +458,7 @@ async def auto_pay_eligible_bills(db: AsyncSession, *, redirect_url: str) -> dic
         )
         selected = None
         for account in accounts:
-            available = account.available_balance if account.available_balance is not None else account.current_balance
+            available = await effective_available_balance(db, account)
             if available is not None and available - bill.amount >= account.safety_reserve:
                 selected = account
                 break
