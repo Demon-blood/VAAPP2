@@ -41,10 +41,10 @@ def test_daily_briefing_exposes_activity_timeline_and_provider_auth_exceptions()
     assert "VA activity timeline" in widget
 
 
-def test_release_is_v061() -> None:
+def test_release_is_v062() -> None:
     root = _root()
-    assert 'APP_VERSION = "0.6.1"' in (root / "backend" / "app" / "core" / "version.py").read_text()
-    assert 'version = "0.6.1"' in (root / "backend" / "pyproject.toml").read_text()
-    assert "version: 0.6.1+26" in (root / "android" / "pubspec.yaml").read_text()
+    assert 'APP_VERSION = "0.6.2"' in (root / "backend" / "app" / "core" / "version.py").read_text()
+    assert 'version = "0.6.2"' in (root / "backend" / "pyproject.toml").read_text()
+    assert "version: 0.6.2+27" in (root / "android" / "pubspec.yaml").read_text()
     workflow = (root / ".github" / "workflows" / "android-release.yml").read_text()
-    assert "Full-Time-VA-Android-v0.6.1.apk" in workflow
+    assert "Full-Time-VA-Android-v0.6.2.apk" in workflow
