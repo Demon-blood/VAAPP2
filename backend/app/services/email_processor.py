@@ -117,30 +117,71 @@ def _parse_received_at(headers: dict[str, str], internal_date: str | None) -> da
 
 
 def _is_protected(decision: AutomationDecision) -> bool:
-    if decision.preserve:
-        return True
+    """Return whether the classified content belongs to a retention-protected domain.
+
+    `preserve` is deliberately *not* consulted here. Older AI decisions sometimes set
+    preserve=True too broadly, which previously turned a retention hint into a permanent
+    Inbox pin. Protection is derived from the actual category/labels instead.
+    """
     lower = f"{decision.category} {' '.join(decision.labels)}".lower()
     return any(term in lower for term in PROTECTED_CATEGORY_TERMS)
+
+
+def _is_low_value_routine(decision: AutomationDecision) -> bool:
+    category = str(decision.category or "").casefold()
+    low_value_category = any(
+        term in category
+        for term in (
+            "newsletter",
+            "promotion",
+            "reclame",
+            "social",
+            "communit",
+            "notification",
+            "melding",
+        )
+    )
+    return bool(
+        low_value_category
+        and str(decision.priority).lower() == "low"
+        and not decision.action_required
+        and decision.financial_document_type == "none"
+        and decision.task is None
+        and decision.bill is None
+        and decision.calendar_event is None
+        and decision.reply is None
+        and decision.support_case is None
+        and decision.order is None
+        and decision.subscription is None
+    )
+
+
+def _normalize_retention_policy(decision: AutomationDecision, *, protected: bool) -> None:
+    """Keep retention semantics independent from Inbox semantics.
+
+    Protected domains are retained even when archived. Conversely, confidently low-value
+    routine mail must not inherit a stale preserve=True decision, otherwise it can never
+    graduate to the delayed Trash cleanup.
+    """
+    if protected:
+        decision.preserve = True
+    elif _is_low_value_routine(decision):
+        decision.preserve = False
 
 
 def _apply_inbox_policy(decision: AutomationDecision, *, protected: bool) -> None:
     """Turn classification into deterministic Gmail Inbox behavior.
 
-    Labels are organization metadata; Inbox is reserved for messages that still need
-    attention. Routine categorized mail is archived even when the model forgot to set
-    archive=true. Protected legal/health/security/family mail and anything high/urgent
-    stays visible. Paid receipts and informational finance notices are preserved but
-    archived because retention is not the same as requiring Inbox attention. Replies
-    remain in Inbox until the reply policy has actually sent them.
+    `preserve` means retain/not-trash; it does not mean keep in Inbox. The Inbox is only
+    for unresolved attention. Routine informational mail is archived after classification
+    even when it belongs to a protected domain and is retained under its VA labels.
     """
-    routine_finance = (
-        decision.financial_document_type in {"paid_receipt", "statement_or_notice"}
-        and not decision.action_required
-    )
+    del protected  # retention protection is intentionally independent from Inbox placement
+    task_waiting = bool(decision.task and decision.task.get("requires_approval"))
     requires_attention = (
         decision.action_required
         or str(decision.priority).lower() in {"high", "urgent"}
-        or (protected and not routine_finance)
+        or task_waiting
         or decision.reply is not None
     )
     if decision.trash:
@@ -527,11 +568,11 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
         # earlier cost-saving AI cache write.
         await cache_decision(db, fingerprint, message["id"], decision)
 
+    _normalize_retention_policy(decision, protected=protected)
     if not is_read:
         decision.trash = False
     if protected:
         decision.trash = False
-        decision.preserve = True
     _apply_inbox_policy(decision, protected=protected)
 
     record.category = decision.category
@@ -544,10 +585,20 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
         labels.append("Mail/00 Status/Actie nodig")
     if decision.preserve:
         labels.append("Mail/00 Status/Belangrijk bewaren")
-    if labels:
-        await modify_gmail_message(db, message["id"], add_labels=list(dict.fromkeys(labels)))
+    remove_labels: list[str] = []
+    if not decision.action_required:
+        remove_labels.append("Mail/00 Status/Actie nodig")
+    if not decision.preserve:
+        remove_labels.append("Mail/00 Status/Belangrijk bewaren")
     if decision.archive and "INBOX" in label_ids:
-        await modify_gmail_message(db, message["id"], remove_labels=["INBOX"])
+        remove_labels.append("INBOX")
+    if labels or remove_labels:
+        await modify_gmail_message(
+            db,
+            message["id"],
+            add_labels=list(dict.fromkeys(labels)),
+            remove_labels=list(dict.fromkeys(remove_labels)),
+        )
     if decision.trash:
         await asyncio.to_thread(
             lambda: service.users().messages().trash(userId="me", id=message["id"]).execute()
@@ -741,7 +792,13 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 message=record,
                 mode="explicit_rule" if explicit_rule_send else "deterministic_autopilot",
             )
-            if not protected and "INBOX" in label_ids:
+            reply_task_waiting = bool(decision.task and decision.task.get("requires_approval"))
+            reply_still_needs_attention = (
+                decision.action_required
+                or str(decision.priority).lower() in {"high", "urgent"}
+                or reply_task_waiting
+            )
+            if not reply_still_needs_attention and "INBOX" in label_ids:
                 await modify_gmail_message(db, message["id"], remove_labels=["INBOX"])
                 decision.archive = True
                 record.analysis_json = decision.model_dump_json()
@@ -840,10 +897,12 @@ async def reconcile_v070_processed_inbox(db: AsyncSession, *, max_messages: int 
 
     Earlier releases could label a routine message while leaving Gmail's INBOX label
     untouched. Reuse the persisted decision only; do not spend AI tokens or reclassify.
-    Protected/action-required/high-priority mail remains in Inbox. Trash decisions are
-    deliberately not replayed against historical mail: this migration only archives.
+    Action-required/high-priority/reply-pending mail remains in Inbox. Protected content
+    can be retained under its labels while still being archived when no attention is due.
+    Trash decisions are deliberately not replayed against historical mail: this migration
+    only archives and repairs stale status labels.
     """
-    marker = "v070_gmail_inbox_policy_reconciled"
+    marker = "v070_gmail_attention_policy_reconciled_v2"
     already_done = (
         await db.execute(select(AuditLog.id).where(AuditLog.event_type == marker).limit(1))
     ).scalar_one_or_none()
@@ -894,21 +953,41 @@ async def reconcile_v070_processed_inbox(db: AsyncSession, *, max_messages: int 
             continue
         examined += 1
         protected = _is_protected(decision)
+        _normalize_retention_policy(decision, protected=protected)
         _apply_inbox_policy(decision, protected=protected)
-        if not decision.archive or decision.trash:
-            continue
-        await modify_gmail_message(db, record.provider_message_id, remove_labels=["INBOX"])
-        archived += 1
+
+        remove_labels: list[str] = []
+        if not decision.action_required:
+            remove_labels.append("Mail/00 Status/Actie nodig")
+        if not decision.preserve:
+            remove_labels.append("Mail/00 Status/Belangrijk bewaren")
+        if decision.archive and not decision.trash:
+            remove_labels.append("INBOX")
+            archived += 1
+
+        if remove_labels:
+            await modify_gmail_message(
+                db,
+                record.provider_message_id,
+                remove_labels=list(dict.fromkeys(remove_labels)),
+            )
+
         # Keep the stored decision aligned with the policy actually applied so the
-        # briefing correctly reports the message as filed on subsequent reads.
+        # briefing and later cleanup use the corrected retention/Inbox semantics.
         record.analysis_json = decision.model_dump_json()
-        await write_audit(
-            db,
-            "email_inbox_reconciled",
-            entity_type="email",
-            entity_id=record.provider_message_id,
-            details={"category": decision.category, "archive": True},
-        )
+        if decision.archive and not decision.trash:
+            await write_audit(
+                db,
+                "email_inbox_reconciled",
+                entity_type="email",
+                entity_id=record.provider_message_id,
+                details={
+                    "category": decision.category,
+                    "archive": True,
+                    "preserve": decision.preserve,
+                    "policy": "attention_only_inbox_v2",
+                },
+            )
 
     await write_audit(db, marker, entity_type="gmail", details={"examined": examined, "archived": archived})
     await db.commit()
@@ -916,13 +995,8 @@ async def reconcile_v070_processed_inbox(db: AsyncSession, *, max_messages: int 
 
 
 def _safe_low_value_for_trash(decision: AutomationDecision) -> bool:
-    category = str(decision.category or "").casefold()
-    low_value_category = any(
-        term in category for term in ("newsletter", "promotion", "reclame", "social", "communit", "notification", "melding")
-    )
     return bool(
-        low_value_category
-        and str(decision.priority).lower() == "low"
+        _is_low_value_routine(decision)
         and not decision.action_required
         and not decision.preserve
         and decision.financial_document_type == "none"

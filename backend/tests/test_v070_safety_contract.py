@@ -8,11 +8,13 @@ def _root() -> Path:
 def test_gmail_v070_reconciles_old_labeled_inbox_without_historical_trash() -> None:
     source = (_root() / "backend" / "app" / "services" / "email_processor.py").read_text()
     block = source.split("async def reconcile_v070_processed_inbox", 1)[1].split("def _safe_low_value_for_trash", 1)[0]
-    assert 'marker = "v070_gmail_inbox_policy_reconciled"' in block
+    assert 'marker = "v070_gmail_attention_policy_reconciled_v2"' in block
     assert 'q="in:inbox"' in block
     assert "AutomationDecision.model_validate_json" in block
+    assert "_normalize_retention_policy" in block
     assert "_apply_inbox_policy" in block
-    assert 'remove_labels=["INBOX"]' in block
+    assert 'remove_labels.append("INBOX")' in block
+    assert 'remove_labels.append("Mail/00 Status/Belangrijk bewaren")' in block
     assert ".trash(" not in block
 
 
@@ -108,3 +110,27 @@ def test_cash_safety_reserves_unreflected_money_movements() -> None:
     assert "automatic retry is blocked" in cash
     scheduler = (_root() / "backend" / "app" / "services" / "scheduler.py").read_text()
     assert "quarantine_stale_creation_intents" in scheduler
+
+
+def test_gmail_inbox_attention_is_independent_from_retention() -> None:
+    source = (_root() / "backend" / "app" / "services" / "email_processor.py").read_text()
+    protected = source.split("def _is_protected", 1)[1].split("def _is_low_value_routine", 1)[0]
+    assert "if decision.preserve" not in protected
+    policy = source.split("def _apply_inbox_policy", 1)[1].split("def _parse_amount", 1)[0]
+    assert "decision.action_required" in policy
+    assert 'str(decision.priority).lower() in {"high", "urgent"}' in policy
+    assert "decision.reply is not None" in policy
+    assert "protected and" not in policy
+    retention = source.split("def _normalize_retention_policy", 1)[1].split("def _apply_inbox_policy", 1)[0]
+    assert "if protected" in retention
+    assert "_is_low_value_routine" in retention
+    assert "decision.preserve = False" in retention
+
+
+def test_gmail_modify_resolves_custom_remove_labels_to_ids() -> None:
+    source = (_root() / "backend" / "app" / "integrations" / "google_api.py").read_text()
+    block = source.split("async def modify_gmail_message", 1)[1].split("async def send_gmail_message", 1)[0]
+    assert "custom_remove_names" in block
+    assert "_list_gmail_labels(service)" in block
+    assert "_find_gmail_label(existing_labels, name)" in block
+    assert 'value.startswith("Label_")' in block

@@ -1,5 +1,5 @@
 from app.schemas.api import AutomationDecision
-from app.services.email_processor import _apply_inbox_policy
+from app.services.email_processor import _apply_inbox_policy, _normalize_retention_policy
 
 
 def test_routine_classified_mail_is_archived_even_if_ai_forgot() -> None:
@@ -41,3 +41,28 @@ def test_reply_candidate_stays_in_inbox_until_reply_succeeds() -> None:
     )
     _apply_inbox_policy(decision, protected=False)
     assert decision.archive is False
+
+
+def test_preserved_security_notice_is_retained_but_not_pinned_to_inbox() -> None:
+    decision = AutomationDecision(
+        category="Accounts & Security",
+        priority="normal",
+        action_required=False,
+        preserve=True,
+        labels=["Mail/03 Accounts & beveiliging"],
+    )
+    _apply_inbox_policy(decision, protected=True)
+    assert decision.preserve is True
+    assert decision.archive is True
+    assert decision.trash is False
+
+
+def test_stale_preserve_is_cleared_for_confident_low_value_routine_mail() -> None:
+    decision = AutomationDecision(
+        category="Newsletters & Promotions",
+        priority="low",
+        action_required=False,
+        preserve=True,
+    )
+    _normalize_retention_policy(decision, protected=False)
+    assert decision.preserve is False

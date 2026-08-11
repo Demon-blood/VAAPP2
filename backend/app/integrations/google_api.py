@@ -434,7 +434,33 @@ async def modify_gmail_message(
     # the message or the entire durable gmail.sync job. Apply every label whose
     # immutable ID was resolved and continue with the business action.
     add_ids = [label_ids[name] for name in requested_labels if name in label_ids]
-    remove_ids = remove_labels or []
+
+    requested_remove = [name.strip() for name in dict.fromkeys(remove_labels or []) if name.strip()]
+    system_label_ids = {
+        "CHAT",
+        "SENT",
+        "INBOX",
+        "IMPORTANT",
+        "TRASH",
+        "DRAFT",
+        "SPAM",
+        "STARRED",
+        "UNREAD",
+    }
+    remove_ids: list[str] = []
+    custom_remove_names: list[str] = []
+    for value in requested_remove:
+        if value in system_label_ids or value.startswith("CATEGORY_") or value.startswith("Label_"):
+            remove_ids.append(value)
+        else:
+            custom_remove_names.append(value)
+    if custom_remove_names:
+        existing_labels = await _list_gmail_labels(service)
+        for name in custom_remove_names:
+            winner = _find_gmail_label(existing_labels, name)
+            if winner is not None:
+                remove_ids.append(str(winner["id"]))
+
     if not add_ids and not remove_ids:
         return
 
