@@ -135,7 +135,6 @@ jobs:
           flutter build apk --release
           test -s build/app/outputs/flutter-apk/app-release.apk
           cp build/app/outputs/flutter-apk/app-release.apk \
-            | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.7.0.apk.sha256"
             "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.7.2.apk"
           sha256sum "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.7.2.apk" \
             | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.7.2.apk.sha256"
