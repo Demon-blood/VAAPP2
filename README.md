@@ -1,4 +1,4 @@
-# Full-Time VA v0.8.0 — Structured Cash & Investments
+# Full-Time VA v0.8.1 — Investments Dashboard
 
 v0.8.0 builds on the verified v0.7.2 banking/history baseline and gives Financial Autopilot a structured model for Personal cash, Pro cash, recurring obligations, Revolut spending/investment funding, Revolut Securities portfolios, and optional Kraken investment funding.
 
@@ -23,6 +23,11 @@ v0.8.0 builds on the verified v0.7.2 banking/history baseline and gives Financia
 
 ## Release identity
 
-Backend `0.8.0` · Android `0.8.0+31` · APK `Full-Time-VA-Android-v0.8.0.apk`.
+Backend `0.8.1` · Android `0.8.1+32` · APK `Full-Time-VA-Android-v0.8.1.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
+
+
+## v0.8.1 Investments dashboard
+
+Money now includes a dedicated Investments tab for Revolut Brokerage/Robo statements and live Kraken balances, performance, contribution tracking and investment-autopilot status. Budget remains focused on cash flow, obligations and reserves.

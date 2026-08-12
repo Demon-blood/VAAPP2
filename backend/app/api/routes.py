@@ -725,6 +725,30 @@ async def get_finance_investments(
 ) -> dict:
     result = await investment_history_summary(db)
     result["funding_transfers"] = await investment_funding_transfer_summary(db)
+    result["autopilot"] = {
+        "kraken_monthly_target_eur": await get_runtime_value(db, "kraken_monthly_target_eur", "0"),
+        "kraken_auto_fund_enabled": (await get_runtime_value(db, "kraken_auto_fund_enabled", "false")).lower() == "true",
+        "kraken_auto_trade_enabled": (await get_runtime_value(db, "kraken_auto_trade_enabled", "false")).lower() == "true",
+        "kraken_default_pair": await get_runtime_value(db, "kraken_default_pair", "XBTEUR"),
+        "kraken_max_auto_trade_eur": await get_runtime_value(db, "kraken_max_auto_trade_eur", "250"),
+        "revolut_execution": "revolut_managed_schedule",
+    }
+    try:
+        from app.integrations.kraken_api import get_eur_valued_balances
+
+        result["kraken"] = await get_eur_valued_balances(db)
+    except Exception as exc:
+        message = str(exc)
+        result["kraken"] = {
+            "status": "configuration_required" if "key and secret are required" in message.lower() else "unavailable",
+            "estimated_total_eur": "0.00",
+            "assets": [],
+            "asset_count": 0,
+            "unvalued_asset_count": 0,
+            "detail": "Configure Kraken in Services/Settings to show live holdings."
+            if "key and secret are required" in message.lower()
+            else message[:240],
+        }
     return result
 
 

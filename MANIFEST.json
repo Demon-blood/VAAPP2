@@ -1,8 +1,9 @@
 {
-  "release": "0.8.0",
-  "android_version": "0.8.0+31",
+  "release": "0.8.1",
+  "android_version": "0.8.1+32",
   "baseline_repository": "Demon-blood/VAAPP2",
-  "baseline_commit": "fc66b6eaae97eef5d7ecbe698e7394e658b31069",
-  "purpose": "Structured Personal/Pro cash roles, learned recurring obligations, Revolut Securities Brokerage/Robo statement ingestion, protected investment funding, and optional Kraken funding/trading autopilot",
-  "database_strategy": "additive_tables_only"
+  "baseline_commit": "52c7aa7a523feac58de1e66c695782f26b68bbf0",
+  "purpose": "Dedicated Investments dashboard with Revolut Brokerage/Robo holdings, live Kraken valuation, performance, contribution tracking, and Personal-only Kraken funding guard",
+  "database_strategy": "additive_tables_only",
+  "version": "0.8.1"
 }

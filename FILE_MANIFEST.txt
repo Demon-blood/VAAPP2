@@ -25,6 +25,7 @@ android/lib/screens/dashboard_page.dart
 android/lib/screens/finance_autopilot_page.dart
 android/lib/screens/home_shell.dart
 android/lib/screens/inbox_page.dart
+android/lib/screens/investments_page.dart
 android/lib/screens/money_page.dart
 android/lib/screens/onboarding_page.dart
 android/lib/screens/payments_page.dart
@@ -146,6 +147,8 @@ backend/tests/test_v072_revolut_import.py
 backend/tests/test_v072_revolut_parser.py
 backend/tests/test_v080_finance_structure.py
 backend/tests/test_v080_investment_parser.py
+backend/tests/test_v080_kraken_source_policy.py
+backend/tests/test_v081_investments_dashboard_contract.py
 backend/tests/test_version_and_routes.py
 backend/tests/test_workflow_engine.py
 build_android.ps1
@@ -172,8 +175,10 @@ docs/V0.7.1_VALIDATION.md
 docs/V0.7.2_MONEY_OVERVIEW_HOTFIX.md
 docs/V0.7.2_REVOLUT_DUAL_FORMAT.md
 docs/V0.7.2_VALIDATION.md
+docs/V0.8.0_KRAKEN_PERSONAL_FUNDING_GUARD.md
 docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md
 docs/V0.8.0_VALIDATION.md
+docs/V0.8.1_INVESTMENTS_DASHBOARD.md
 generate_enable_banking_keys.ps1
 render.yaml
 start_backend.ps1

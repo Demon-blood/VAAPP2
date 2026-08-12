@@ -58,6 +58,26 @@ def _iban(value: Any) -> str:
     return "".join(str(value or "").upper().split())
 
 
+def _kraken_source_policy_error(account: BankAccount, connection: BankConnection) -> str | None:
+    """Return a fail-closed Kraken funding policy error, if any.
+
+    Kraken personal cash deposits must originate from a personal bank account in
+    the same user's banking context. The current bank data model does not expose
+    a reliable account-holder-name field, so authenticated Personal PSU consent
+    plus Personal account scope is the ownership boundary. Pro/business sources
+    are structurally forbidden before any payment intent is persisted.
+    """
+    if str(account.account_scope or "").casefold() != "personal":
+        return "Kraken funding is restricted to Personal-scope bank accounts."
+    if str(connection.psu_type or "").casefold() != "personal":
+        return "Kraken funding requires a personal bank consent; business/corporate PSU sources are blocked."
+    if str(account.currency or "").upper() != "EUR":
+        return "Kraken EUR funding requires an EUR source account."
+    if not bool(account.enabled_for_payments):
+        return "Kraken funding source is not payment-enabled."
+    return None
+
+
 async def _active_bank_transfer_exists(db: AsyncSession, source_id: int) -> bool:
     count = (
         await db.execute(
@@ -107,6 +127,7 @@ async def _personal_source(db: AsyncSession) -> tuple[BankAccount, BankAutopilot
                 .join(BankConnection, BankConnection.id == BankAccount.bank_connection_id)
                 .where(
                     BankAccount.account_scope == "personal",
+                    func.lower(BankConnection.psu_type) == "personal",
                     BankAccount.enabled_for_payments.is_(True),
                     BankAutopilotPolicy.role == "operating",
                     BankAutopilotPolicy.internal_transfers_enabled.is_(True),
@@ -163,8 +184,17 @@ async def run_kraken_funding_autopilot(db: AsyncSession, *, redirect_url: str) -
     recipient = (await get_runtime_value(db, "kraken_funding_recipient", "")).strip()
     iban = _iban(await get_runtime_value(db, "kraken_funding_iban", ""))
     reference = (await get_runtime_value(db, "kraken_funding_reference", "")).strip()
-    if not recipient or len(iban) < 15 or not reference:
-        return {"enabled": True, "state": "configuration_required", "missing": "recipient/IBAN/reference"}
+    owner_confirmed = (
+        await get_runtime_value(db, "kraken_personal_owner_confirmed", "false")
+    ).casefold() == "true"
+    if not recipient or len(iban) < 15:
+        return {"enabled": True, "state": "configuration_required", "missing": "recipient/IBAN"}
+    if not owner_confirmed:
+        return {
+            "enabled": True,
+            "state": "configuration_required",
+            "missing": "personal account-holder ownership confirmation",
+        }
 
     permissions = await get_api_key_permissions(db)
     if "query-funds" not in permissions:
@@ -178,6 +208,28 @@ async def run_kraken_funding_autopilot(db: AsyncSession, *, redirect_url: str) -
     if source_bundle is None:
         return {"enabled": True, "state": "no_personal_operating_source"}
     source, policy, connection = source_bundle
+    source_policy_error = _kraken_source_policy_error(source, connection)
+    if source_policy_error:
+        await write_audit(
+            db,
+            "kraken_funding_source_blocked",
+            entity_type="bank_account",
+            entity_id=str(source.id),
+            result="blocked",
+            details={
+                "reason": source_policy_error,
+                "source_scope": source.account_scope,
+                "source_psu_type": connection.psu_type,
+                "same_owner_basis": "authenticated_personal_psu",
+            },
+        )
+        await db.commit()
+        return {
+            "enabled": True,
+            "state": "source_blocked",
+            "source_account_id": source.id,
+            "error": source_policy_error,
+        }
     if await _active_bank_transfer_exists(db, source.id):
         return {"enabled": True, "state": "bank_transfer_active", "source_account_id": source.id}
 
@@ -293,7 +345,14 @@ async def run_kraken_funding_autopilot(db: AsyncSession, *, redirect_url: str) -
         "kraken_funding_initiated",
         entity_type="investment_funding_transfer",
         entity_id=str(transfer.id),
-        details={"source_account_id": source.id, "amount": str(amount), "requires_user_action": transfer.requires_user_action},
+        details={
+            "source_account_id": source.id,
+            "source_scope": source.account_scope,
+            "source_psu_type": connection.psu_type,
+            "same_owner_basis": "authenticated_personal_psu",
+            "amount": str(amount),
+            "requires_user_action": transfer.requires_user_action,
+        },
     )
     await db.commit()
     return {"enabled": True, "state": transfer.status, "transfer_id": transfer.id, "amount": str(amount), "requires_user_action": transfer.requires_user_action}

@@ -48,6 +48,7 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> communicationRules = [];
   Map<String, dynamic> communicationStatus = {};
   Map<String, dynamic> financeOverview = {};
+  Map<String, dynamic> financeInvestments = {};
   List<Map<String, dynamic>> financeAccountPolicies = [];
   List<Map<String, dynamic>> budgetEnvelopes = [];
   List<Map<String, dynamic>> internalTransfers = [];
@@ -118,6 +119,7 @@ class AppState extends ChangeNotifier {
     communicationRules = [];
     communicationStatus = {};
     financeOverview = {};
+    financeInvestments = {};
     financeAccountPolicies = [];
     budgetEnvelopes = [];
     internalTransfers = [];
@@ -141,11 +143,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.8.0')) {
+        if (!_versionAtLeast(backendVersion, '0.8.1')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.8.0 requires backend 0.8.0 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.8.1 requires backend 0.8.1 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -184,6 +186,7 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/finance/budgets'),
         _safeGet('/api/finance/transfers'),
         _safeGet('/api/communications/rules'),
+        _safeGet('/api/finance/investments'),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -214,6 +217,7 @@ class AppState extends ChangeNotifier {
       if (results[25] is List) budgetEnvelopes = _list(results[25]);
       if (results[26] is List) internalTransfers = _list(results[26]);
       if (results[27] is List) communicationRules = _list(results[27]);
+      if (results[28] is Map) financeInvestments = Map<String, dynamic>.from(results[28] as Map);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -321,6 +325,7 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/finance/account-policies'),
         _safeGet('/api/finance/budgets'),
         _safeGet('/api/finance/transfers'),
+        _safeGet('/api/finance/investments'),
       ]);
       if (results[0] is List) bills = _list(results[0]);
       if (results[1] is List) financialRecords = _list(results[1]);
@@ -331,6 +336,7 @@ class AppState extends ChangeNotifier {
       if (results[6] is List) financeAccountPolicies = _list(results[6]);
       if (results[7] is List) budgetEnvelopes = _list(results[7]);
       if (results[8] is List) internalTransfers = _list(results[8]);
+      if (results[9] is Map) financeInvestments = Map<String, dynamic>.from(results[9] as Map);
       if (endpointErrors.isNotEmpty && serverWarning == null) {
         final first = endpointErrors.entries.first;
         serverWarning = 'Some VA server functions are unavailable. ${first.key}: ${first.value}';

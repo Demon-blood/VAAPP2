@@ -7,8 +7,8 @@ def _root() -> Path:
 
 def test_v080_release_identity_and_account_roles() -> None:
     root = _root()
-    assert 'APP_VERSION = "0.8.0"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version: 0.8.0+31' in (root / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "0.8.1"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version: 0.8.1+32' in (root / "android/pubspec.yaml").read_text()
     finance = (root / "backend/app/services/financial_autopilot.py").read_text()
     assert 'role == "spending"' in finance
     assert '"investment_contribution"' in finance
@@ -35,6 +35,11 @@ def test_kraken_autopilot_has_no_withdrawal_execution() -> None:
     assert "/0/private/DepositStatus" in kraken
     assert "/0/private/Withdraw" not in kraken
     assert 'BankAccount.account_scope == "personal"' in funding
+    assert 'func.lower(BankConnection.psu_type) == "personal"' in funding
+    assert '_kraken_source_policy_error' in funding
+    assert 'kraken_personal_owner_confirmed' in funding
+    assert 'missing": "recipient/IBAN"' in funding
+    assert 'missing": "recipient/IBAN/reference"' not in funding
     assert 'kraken_auto_fund_enabled' in funding
     assert 'kraken_auto_trade_enabled' in funding
     assert 'creation_uncertain' in funding

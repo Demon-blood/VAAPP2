@@ -89,13 +89,16 @@ async def import_account_statement(
         portfolio_kind=statement.portfolio_kind,
     )
     duplicate_source = portfolio.source_checksum_sha256 == statement.checksum_sha256
+    previous_period_end = portfolio.period_end
+    is_latest_snapshot = previous_period_end is None or statement.period_end >= previous_period_end
     portfolio.period_start = statement.period_start if portfolio.period_start is None else min(portfolio.period_start, statement.period_start)
     portfolio.period_end = statement.period_end if portfolio.period_end is None else max(portfolio.period_end, statement.period_end)
     if statement.account_reference:
         portfolio.external_account_ref = statement.account_reference
-    if statement.summary_by_currency:
+    if statement.summary_by_currency and is_latest_snapshot:
         portfolio.summary_json = json.dumps(statement.summary_by_currency, default=_json_decimal, sort_keys=True)
-    portfolio.source_checksum_sha256 = statement.checksum_sha256
+    if is_latest_snapshot:
+        portfolio.source_checksum_sha256 = statement.checksum_sha256
     portfolio.imported_at = datetime.utcnow()
 
     created_transactions = 0
@@ -143,7 +146,7 @@ async def import_account_statement(
         created_transactions += 1
 
     positions_updated = 0
-    if statement.positions:
+    if statement.positions and is_latest_snapshot:
         await db.execute(delete(InvestmentPosition).where(InvestmentPosition.portfolio_id == portfolio.id))
         for position in statement.positions:
             db.add(
@@ -391,6 +394,20 @@ async def investment_history_summary(db: AsyncSession) -> dict[str, Any]:
             dividend_by_currency[event.currency] += Decimal(event.net_amount)
             tax_by_currency[event.currency] += Decimal(event.withholding_tax)
         total_positions += len(positions)
+        summary_by_currency = json.loads(portfolio.summary_json or "{}")
+        total_value_by_currency: dict[str, Decimal] = {}
+        cash_value_by_currency: dict[str, Decimal] = {}
+        for currency, summary_row in summary_by_currency.items():
+            if not isinstance(summary_row, dict):
+                continue
+            try:
+                total_value_by_currency[str(currency)] = Decimal(str(summary_row.get("total_end") or "0"))
+                cash_value_by_currency[str(currency)] = Decimal(str(summary_row.get("cash_end") or "0"))
+            except Exception:
+                continue
+        for currency, market_value in values.items():
+            total_value_by_currency.setdefault(currency, market_value)
+            cash_value_by_currency.setdefault(currency, Decimal("0"))
         result.append(
             {
                 "id": portfolio.id,
@@ -403,11 +420,15 @@ async def investment_history_summary(db: AsyncSession) -> dict[str, Any]:
                 "positions": len(positions),
                 "transactions": len(txs),
                 "market_value_by_currency": {key: str(value.quantize(Decimal('0.01'))) for key, value in values.items()},
+                "total_value_by_currency": {key: str(value.quantize(Decimal('0.01'))) for key, value in total_value_by_currency.items()},
+                "cash_value_by_currency": {key: str(value.quantize(Decimal('0.01'))) for key, value in cash_value_by_currency.items()},
                 "realised_pnl_by_currency": {key: str(value.quantize(Decimal('0.01'))) for key, value in realised_by_currency.items()},
                 "net_investment_income_by_currency": {key: str(value.quantize(Decimal('0.01'))) for key, value in dividend_by_currency.items()},
                 "withholding_tax_by_currency": {key: str(value.quantize(Decimal('0.01'))) for key, value in tax_by_currency.items()},
                 "learned_monthly_cash_topup": str(monthly_topup),
-                "summary_by_currency": json.loads(portfolio.summary_json or "{}"),
+                "last_cash_topup_at": last_topup.isoformat() if last_topup else None,
+                "topup_months_observed": len(topups_by_month),
+                "summary_by_currency": summary_by_currency,
                 "top_positions": [
                     {
                         "symbol": position.symbol,
@@ -423,7 +444,34 @@ async def investment_history_summary(db: AsyncSession) -> dict[str, Any]:
                 ],
             }
         )
-    return {"portfolios": result, "portfolio_count": len(result), "position_count": total_positions}
+
+    total_value: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    realised: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    income_total: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    tax_total: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    monthly_by_scope: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    for portfolio in result:
+        for currency, value in portfolio.get("total_value_by_currency", {}).items():
+            total_value[currency] += Decimal(str(value))
+        for currency, value in portfolio.get("realised_pnl_by_currency", {}).items():
+            realised[currency] += Decimal(str(value))
+        for currency, value in portfolio.get("net_investment_income_by_currency", {}).items():
+            income_total[currency] += Decimal(str(value))
+        for currency, value in portfolio.get("withholding_tax_by_currency", {}).items():
+            tax_total[currency] += Decimal(str(value))
+        monthly_by_scope[str(portfolio.get("scope") or "personal")] += Decimal(
+            str(portfolio.get("learned_monthly_cash_topup") or "0")
+        )
+    return {
+        "portfolios": result,
+        "portfolio_count": len(result),
+        "position_count": total_positions,
+        "total_value_by_currency": {key: str(value.quantize(Decimal("0.01"))) for key, value in total_value.items()},
+        "realised_pnl_by_currency": {key: str(value.quantize(Decimal("0.01"))) for key, value in realised.items()},
+        "net_investment_income_by_currency": {key: str(value.quantize(Decimal("0.01"))) for key, value in income_total.items()},
+        "withholding_tax_by_currency": {key: str(value.quantize(Decimal("0.01"))) for key, value in tax_total.items()},
+        "learned_monthly_cash_topup_by_scope": {key: str(value.quantize(Decimal("0.01"))) for key, value in monthly_by_scope.items()},
+    }
 
 
 async def investment_funding_forecast_by_scope(db: AsyncSession) -> dict[str, Decimal]:

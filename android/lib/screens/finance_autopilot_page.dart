@@ -58,8 +58,6 @@ class FinanceAutopilotPage extends StatelessWidget {
           ],
           _RecurringCashflowCard(data: Map<String, dynamic>.from((overview['learned_recurring_cashflows'] as Map?) ?? const {})),
           const SizedBox(height: 12),
-          _InvestmentSummaryCard(data: Map<String, dynamic>.from((overview['investments'] as Map?) ?? const {})),
-          const SizedBox(height: 12),
           Text('Budget envelopes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
           const SizedBox(height: 6),
           const Text('Limits default to learned spending when configured limit is 0. Tap an envelope to override it.'),
@@ -211,44 +209,6 @@ class _RecurringCashflowCard extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 5),
                   child: Text('${raw['kind']} · ${raw['direction']} · ${raw['amount']} EUR · confidence ${raw['confidence']}'),
                 ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InvestmentSummaryCard extends StatelessWidget {
-  const _InvestmentSummaryCard({required this.data});
-  final Map<String, dynamic> data;
-
-  @override
-  Widget build(BuildContext context) {
-    final portfolios = (data['portfolios'] as List? ?? const []).cast<Map>();
-    final funding = Map<String, dynamic>.from((data['funding_transfers'] as Map?) ?? const {});
-    final krakenFunding = (funding['kraken'] as List? ?? const []).cast<Map>();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Investments', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-            const SizedBox(height: 6),
-            Text('${data['portfolio_count'] ?? 0} portfolios · ${data['position_count'] ?? 0} current positions'),
-            const SizedBox(height: 8),
-            if (portfolios.isEmpty)
-              const Text('Import Revolut Securities Account/P&L statements to build the investment view.')
-            else
-              for (final raw in portfolios)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text('${raw['display_name']} · ${raw['positions']} positions · monthly funding ${raw['learned_monthly_cash_topup']} EUR'),
-                ),
-            if (krakenFunding.isNotEmpty) ...[
-              const Divider(),
-              Text('Kraken funding · ${krakenFunding.first['amount']} ${krakenFunding.first['currency']} · ${krakenFunding.first['status']}'),
-            ],
           ],
         ),
       ),
