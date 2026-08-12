@@ -1001,6 +1001,31 @@ async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[s
     return outcome
 
 
+def _aggregate_current_month(
+    rows: list[tuple[str, datetime, str, Decimal, str, bool]],
+) -> tuple[dict[tuple[str, str], Decimal], dict[str, Decimal]]:
+    """Aggregate current-month budget totals without counting refunds as income.
+
+    `_learning_transactions` returns six fields, including `is_refund`. Keeping the
+    tuple contract in one pure helper prevents API overview regressions when the
+    evidence model evolves.
+    """
+    spent: dict[tuple[str, str], Decimal] = {}
+    income: dict[str, Decimal] = {}
+    for scope, _, category, amount, direction, is_refund in rows:
+        key = (scope, category)
+        if direction == "debit":
+            spent[key] = spent.get(key, Decimal("0.00")) + _money(amount)
+        elif is_refund:
+            spent[key] = max(
+                Decimal("0.00"),
+                spent.get(key, Decimal("0.00")) - _money(amount),
+            )
+        else:
+            income[scope] = income.get(scope, Decimal("0.00")) + _money(amount)
+    return spent, income
+
+
 async def finance_overview(db: AsyncSession) -> dict[str, Any]:
     await ensure_default_budget_envelopes(db, "personal")
     await ensure_default_budget_envelopes(db, "pro")
@@ -1008,14 +1033,7 @@ async def finance_overview(db: AsyncSession) -> dict[str, Any]:
     accounts = list((await db.execute(select(BankAccount).order_by(BankAccount.id))).scalars())
     month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     current_rows = await _learning_transactions(db, since=month_start)
-    spent: dict[tuple[str, str], Decimal] = {}
-    income: dict[str, Decimal] = {}
-    for scope, _, category, amount, direction in current_rows:
-        if direction == "debit":
-            key = (scope, category)
-            spent[key] = spent.get(key, Decimal("0.00")) + amount
-        else:
-            income[scope] = income.get(scope, Decimal("0.00")) + amount
+    spent, income = _aggregate_current_month(current_rows)
 
     history_spend, learned_categories = await _learned_monthly_spend(db, days=180)
     envelopes = list((await db.execute(select(BudgetEnvelope).where(BudgetEnvelope.enabled.is_(True)))).scalars())
