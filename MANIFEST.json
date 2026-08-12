@@ -1,8 +1,8 @@
 {
-  "release": "0.7.2",
-  "android_version": "0.7.2+30",
+  "release": "0.8.0",
+  "android_version": "0.8.0+31",
   "baseline_repository": "Demon-blood/VAAPP2",
-  "baseline_commit": "9536cf64cf602ace69911d29afd52ecb42d1a37a",
-  "purpose": "Revolut XLSX/PDF canonical import, cross-account transfer reconciliation, refund-aware budget learning, and live-bank internal-transfer propagation",
-  "database_strategy": "no_schema_change"
+  "baseline_commit": "fc66b6eaae97eef5d7ecbe698e7394e658b31069",
+  "purpose": "Structured Personal/Pro cash roles, learned recurring obligations, Revolut Securities Brokerage/Robo statement ingestion, protected investment funding, and optional Kraken funding/trading autopilot",
+  "database_strategy": "additive_tables_only"
 }

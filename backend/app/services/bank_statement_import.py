@@ -84,6 +84,11 @@ def _is_internal(
 
 def _categorize(transaction: ParsedStatementTransaction, is_internal: bool) -> str:
     if is_internal:
+        normalized = _normalize_party(f"{transaction.transaction_type} {transaction.counterparty_name} {transaction.remittance}")
+        if "roboportfolio" in normalized:
+            return "investment_contribution"
+        if transaction.transaction_type.casefold() == "exchange":
+            return "internal_fx"
         return "internal_transfer"
     from app.services.financial_autopilot import categorize_transaction_text
 
@@ -152,6 +157,9 @@ async def recategorize_historical_statement_history(db: AsyncSession) -> dict[st
     """Apply current account aliases/category policy to imported historical evidence."""
     accounts = list((await db.execute(select(BankAccount))).scalars())
     own_ibans = {_normalize_iban(account.iban) for account in accounts if account.iban}
+    own_by_iban = {_normalize_iban(account.iban): account for account in accounts if account.iban}
+    accounts_by_id = {account.id: account for account in accounts}
+    statements = {row.id: row for row in (await db.execute(select(BankStatementImport))).scalars()}
     connections = {row.id: row for row in (await db.execute(select(BankConnection))).scalars()}
     connected_names = {_normalize_party(account.name) for account in accounts if account.name}
     connected_names.update(
@@ -169,9 +177,25 @@ async def recategorize_historical_statement_history(db: AsyncSession) -> dict[st
         exact_internal = bool(row.counterparty_iban and _normalize_iban(row.counterparty_iban) in own_ibans)
         revolut_alias = bool(has_revolut and _normalize_party(row.counterparty_name).startswith("revolut"))
         is_internal = exact_internal or revolut_alias or _row_is_intrinsically_internal(row)
-        category = "internal_transfer" if is_internal else categorize_transaction_text(
-            f"{row.transaction_type} {row.counterparty_name} {row.remittance}"
-        )
+        normalized = _normalize_party(f"{row.transaction_type} {row.counterparty_name} {row.remittance}")
+        statement = statements.get(row.statement_import_id)
+        source_account = accounts_by_id.get(statement.matched_bank_account_id) if statement and statement.matched_bank_account_id else own_by_iban.get(_normalize_iban(row.account_iban))
+        counterparty_account = own_by_iban.get(_normalize_iban(row.counterparty_iban)) if row.counterparty_iban else None
+        if exact_internal and source_account is not None and counterparty_account is not None and source_account.account_scope != counterparty_account.account_scope:
+            if source_account.account_scope == "pro" and row.direction == "debit":
+                category = "owner_draw"
+            elif source_account.account_scope == "personal" and row.direction == "debit":
+                category = "owner_contribution"
+            else:
+                category = "owner_transfer"
+        elif is_internal and "roboportfolio" in normalized:
+            category = "investment_contribution"
+        elif is_internal and row.transaction_type.casefold() == "exchange":
+            category = "internal_fx"
+        else:
+            category = "internal_transfer" if is_internal else categorize_transaction_text(
+                f"{row.transaction_type} {row.counterparty_name} {row.remittance}"
+            )
         income_kind = _income_kind_from_text(
             row.direction,
             f"{row.counterparty_name} {row.remittance}",

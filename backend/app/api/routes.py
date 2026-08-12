@@ -135,6 +135,18 @@ from app.services.bank_statement_import import (
     reconcile_statement_transactions_with_bank,
     statement_history_summary,
 )
+from app.services.investment_service import (
+    InvestmentImportError,
+    import_revolut_investment_file_bytes,
+    investment_history_summary,
+)
+from app.services.revolut_investment_parser import looks_like_revolut_investment
+from app.services.investment_autopilot import (
+    complete_kraken_funding_authorization,
+    investment_funding_transfer_summary,
+    refresh_all_kraken_funding,
+    run_kraken_funding_autopilot,
+)
 from app.services.action_reconciler import reconcile_action_queue
 from app.services.email_processor import sync_gmail
 from app.services.document_policy import document_retention_decision
@@ -634,7 +646,7 @@ async def import_financial_history_statements(
     if account_scope not in {"personal", "pro"}:
         raise HTTPException(status_code=422, detail="Statement account scope must be Personal or Pro")
     if not files or len(files) > 12:
-        raise HTTPException(status_code=422, detail="Select between 1 and 12 bank statements per import")
+        raise HTTPException(status_code=422, detail="Select between 1 and 12 bank or investment statements per import")
     results: list[dict] = []
     errors: list[dict] = []
     pending: list[tuple[str, bytes]] = []
@@ -645,20 +657,43 @@ async def import_financial_history_statements(
             errors.append({"filename": filename, "error": "File exceeds the 15 MB statement limit"})
             continue
         pending.append((filename, content))
-    # Revolut XLSX is the authoritative ledger. Process it before a paired PDF so
-    # the PDF enriches the same canonical statement instead of creating another one.
-    pending.sort(key=lambda item: (0 if item[0].casefold().endswith(".xlsx") else 1, item[0].casefold()))
+    # Structured XLSX is authoritative. For investments, process account history
+    # before P&L so realised rows can be matched to the correct Brokerage/Robo portfolio.
+    def _import_rank(item: tuple[str, bytes]) -> tuple[int, int, str]:
+        name = item[0].casefold()
+        investment = looks_like_revolut_investment(item[0], item[1])
+        if investment and "account" in name and name.endswith(".xlsx"):
+            return (0, 0, name)
+        if investment and "account" in name and name.endswith(".pdf"):
+            return (0, 1, name)
+        if investment and "pnl" in name and name.endswith(".xlsx"):
+            return (0, 2, name)
+        if investment and "pnl" in name:
+            return (0, 3, name)
+        return (1, 0 if name.endswith(".xlsx") else 1, name)
+
+    pending.sort(key=_import_rank)
     for filename, content in pending:
         try:
-            results.extend(
-                await import_statement_file_bytes(
-                    db,
-                    filename=filename,
-                    content=content,
-                    fallback_scope=account_scope,
+            if looks_like_revolut_investment(filename, content):
+                results.extend(
+                    await import_revolut_investment_file_bytes(
+                        db,
+                        filename=filename,
+                        content=content,
+                        account_scope=account_scope,
+                    )
                 )
-            )
-        except StatementImportError as exc:
+            else:
+                results.extend(
+                    await import_statement_file_bytes(
+                        db,
+                        filename=filename,
+                        content=content,
+                        fallback_scope=account_scope,
+                    )
+                )
+        except (StatementImportError, InvestmentImportError) as exc:
             errors.append({"filename": filename, "error": str(exc)})
     if not results and errors:
         raise HTTPException(status_code=422, detail={"message": "No statements could be imported", "files": errors})
@@ -668,6 +703,7 @@ async def import_financial_history_statements(
         "files": results,
         "errors": errors,
         "history": await statement_history_summary(db),
+        "investments": await investment_history_summary(db),
     }
 
 
@@ -681,6 +717,15 @@ async def get_financial_history_statements(
         "history": await statement_history_summary(db),
         "imports": await list_statement_imports(db, limit=limit),
     }
+
+
+@router.get("/api/finance/investments")
+async def get_finance_investments(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    result = await investment_history_summary(db)
+    result["funding_transfers"] = await investment_funding_transfer_summary(db)
+    return result
 
 
 @router.get("/api/finance/overview")
@@ -720,15 +765,21 @@ async def run_finance_autopilot_now(
         transactions = await sync_bank_transactions(db)
         statement_reconciliation = await reconcile_statement_transactions_with_bank(db)
         transfer_refresh = await refresh_all_own_account_transfers(db)
+        kraken_refresh = await refresh_all_kraken_funding(db)
         budget = await run_budget_autopilot(
             db, redirect_url=str(request.url_for("own_transfer_authorization_callback"))
+        )
+        kraken = await run_kraken_funding_autopilot(
+            db, redirect_url=str(request.url_for("kraken_funding_authorization_callback"))
         )
         return {
             "accounts_synced": accounts_synced,
             "transactions": transactions,
             "statement_reconciliation": statement_reconciliation,
             "transfer_refresh": transfer_refresh,
+            "kraken_refresh": kraken_refresh,
             "budget": budget,
+            "kraken_investment": kraken,
         }
     except EnableBankingConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -1261,6 +1312,35 @@ async def own_transfer_authorization_callback(
     except Exception as exc:
         return HTMLResponse(
             f"<html><body><h2>Transfer status check failed</h2><p>{html.escape(str(exc))}</p></body></html>",
+            status_code=400,
+        )
+
+
+@router.get("/api/banking/investment-callback", response_class=HTMLResponse, name="kraken_funding_authorization_callback")
+async def kraken_funding_authorization_callback(
+    state: str,
+    error: str | None = None,
+    error_description: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    try:
+        transfer = await complete_kraken_funding_authorization(
+            db, state=state, error=error, error_description=error_description
+        )
+        if error:
+            return HTMLResponse(
+                f"<html><body><h2>Investment funding was not authorized</h2><p>{html.escape(error_description or error)}</p>"
+                "<p>You may return to Full-Time VA.</p></body></html>",
+                status_code=400,
+            )
+        status = transfer.status if transfer is not None else "authorization returned"
+        return HTMLResponse(
+            f"<html><body><h2>Investment funding authorization completed</h2><p>Status: {html.escape(str(status))}</p>"
+            "<p>You may return to Full-Time VA.</p></body></html>"
+        )
+    except Exception as exc:
+        return HTMLResponse(
+            f"<html><body><h2>Investment funding status check failed</h2><p>{html.escape(str(exc))}</p></body></html>",
             status_code=400,
         )
 
@@ -1861,6 +1941,18 @@ async def test_setup_section(
             from app.integrations.enable_banking import verify_connection
             result = await verify_connection(db)
             return {"live": True, "institutions": len(result.get("aspsps") or result.get("items") or []) if isinstance(result, dict) else 0}
+        if section_slug == "kraken":
+            from app.integrations.kraken_api import get_balances, verify_connection as verify_kraken_connection
+            identity = await verify_kraken_connection(db)
+            balances = await get_balances(db)
+            return {
+                "live": True,
+                "identity": {
+                    "apiKeyName": identity.get("apiKeyName") if isinstance(identity, dict) else None,
+                    "permissions": identity.get("permissions") if isinstance(identity, dict) else [],
+                },
+                "assets": len([value for value in balances.values() if value != 0]),
+            }
         if section_slug == "github":
             return {"live": True, "identity": await verify_github_connection(db)}
         if section_slug == "cloudflare":

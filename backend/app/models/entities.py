@@ -425,6 +425,136 @@ class HistoricalFinancialTransaction(Base):
     )
 
 
+class InvestmentPortfolio(Base):
+    __tablename__ = "investment_portfolios"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(80), default="revolut_securities", index=True)
+    account_scope: Mapped[str] = mapped_column(String(30), default="personal", index=True)
+    portfolio_kind: Mapped[str] = mapped_column(String(40), default="brokerage", index=True)
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    external_account_ref: Mapped[str] = mapped_column(Text, default="")
+    period_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    summary_json: Mapped[str] = mapped_column(Text, default="{}")
+    source_checksum_sha256: Mapped[str] = mapped_column(String(64), default="", index=True)
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("provider", "account_scope", "portfolio_kind", name="uq_investment_portfolio_provider_scope_kind"),
+    )
+
+
+class InvestmentPosition(Base):
+    __tablename__ = "investment_positions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("investment_portfolios.id", ondelete="CASCADE"), index=True)
+    symbol: Mapped[str] = mapped_column(String(40), index=True)
+    company: Mapped[str] = mapped_column(String(255), default="")
+    isin: Mapped[str] = mapped_column(String(32), default="", index=True)
+    currency: Mapped[str] = mapped_column(String(3), default="EUR", index=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 12), default=Decimal("0"))
+    price: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
+    market_value: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    allocation_percent: Mapped[Decimal] = mapped_column(Numeric(8, 4), default=Decimal("0"))
+    as_of: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("portfolio_id", "symbol", "currency", name="uq_investment_position_portfolio_symbol_currency"),
+    )
+
+
+class InvestmentTransaction(Base):
+    __tablename__ = "investment_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("investment_portfolios.id", ondelete="CASCADE"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    booked_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    symbol: Mapped[str] = mapped_column(String(40), default="", index=True)
+    transaction_type: Mapped[str] = mapped_column(String(80), default="", index=True)
+    side: Mapped[str] = mapped_column(String(10), default="")
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(28, 12), nullable=True)
+    price: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR", index=True)
+    fx_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    fee: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    commission: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    raw_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        Index("ix_investment_transactions_portfolio_date", "portfolio_id", "booked_at"),
+    )
+
+
+class InvestmentPnLEvent(Base):
+    __tablename__ = "investment_pnl_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("investment_portfolios.id", ondelete="CASCADE"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    date_acquired: Mapped[datetime] = mapped_column(DateTime, index=True)
+    date_sold: Mapped[datetime] = mapped_column(DateTime, index=True)
+    symbol: Mapped[str] = mapped_column(String(40), index=True)
+    security_name: Mapped[str] = mapped_column(String(255), default="")
+    isin: Mapped[str] = mapped_column(String(32), default="", index=True)
+    country: Mapped[str] = mapped_column(String(8), default="")
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 12), default=Decimal("0"))
+    cost_basis: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    gross_proceeds: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    gross_pnl: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class InvestmentIncomeEvent(Base):
+    __tablename__ = "investment_income_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("investment_portfolios.id", ondelete="CASCADE"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    booked_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    symbol: Mapped[str] = mapped_column(String(40), default="", index=True)
+    security_name: Mapped[str] = mapped_column(String(255), default="")
+    isin: Mapped[str] = mapped_column(String(32), default="", index=True)
+    country: Mapped[str] = mapped_column(String(8), default="")
+    gross_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    withholding_tax: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    net_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class InvestmentFundingTransfer(Base):
+    __tablename__ = "investment_funding_transfers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), default="kraken", index=True)
+    source_bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    recipient_name: Mapped[str] = mapped_column(String(255), default="")
+    creditor_iban: Mapped[str] = mapped_column(String(34), default="")
+    reference: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="creating", index=True)
+    external_payment_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    authorization_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requires_user_action: Mapped[bool] = mapped_column(Boolean, default=False)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pre_provider_cash: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    observed_provider_cash: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    provider_deposit_ref: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    trade_pair: Mapped[str] = mapped_column(String(40), default="")
+    trade_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(180), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class BudgetEnvelope(Base):
     __tablename__ = "budget_envelopes"
 

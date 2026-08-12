@@ -265,7 +265,7 @@ class CommunicationRuleResponse(BaseModel):
 
 
 class BankAutopilotPolicyRequest(BaseModel):
-    role: Literal["operating", "savings", "reserve", "tax", "income", "disabled"] = "operating"
+    role: Literal["operating", "spending", "savings", "reserve", "tax", "income", "disabled"] = "operating"
     internal_transfers_enabled: bool = False
     target_floor: Decimal = Decimal("0.00")
     target_ceiling: Decimal = Decimal("0.00")

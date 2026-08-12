@@ -359,9 +359,15 @@ class _BuiltInServiceCard extends StatelessWidget {
                     label: const Text('Connect Beobank'),
                   ),
                   OutlinedButton.icon(
-                    onPressed: configured ? () => _connectBank(context, 'Revolut') : null,
+                    onPressed: configured ? () => _connectBank(context, 'Revolut', psuType: 'personal') : null,
                     icon: const Icon(Icons.account_balance_wallet_outlined),
                     label: const Text('Connect Revolut Personal / Pro'),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Revolut Pro lives inside the personal Revolut app. The VA keeps a separate Pro scope when Revolut exposes the Pro product and preserves any scope you set in Money → Accounts.',
+                    ),
                   ),
                 ],
                 TextButton.icon(
@@ -509,12 +515,12 @@ class _BuiltInServiceCard extends StatelessWidget {
     }
   }
 
-  Future<void> _connectBank(BuildContext context, String name) async {
+  Future<void> _connectBank(BuildContext context, String name, {String psuType = 'personal'}) async {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(SnackBar(content: Text('Starting $name authorization…')));
     try {
-      final url = await context.read<AppState>().startBankConnection(institutionName: name);
+      final url = await context.read<AppState>().startBankConnection(institutionName: name, psuType: psuType);
       final uri = Uri.tryParse(url);
       if (uri == null || !uri.hasScheme || !(uri.scheme == 'https' || uri.scheme == 'http')) {
         throw StateError('The banking provider returned an invalid authorization URL: $url');

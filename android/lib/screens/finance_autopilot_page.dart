@@ -56,6 +56,10 @@ class FinanceAutopilotPage extends StatelessWidget {
             _StatementHistoryCard(history: history),
             const SizedBox(height: 12),
           ],
+          _RecurringCashflowCard(data: Map<String, dynamic>.from((overview['learned_recurring_cashflows'] as Map?) ?? const {})),
+          const SizedBox(height: 12),
+          _InvestmentSummaryCard(data: Map<String, dynamic>.from((overview['investments'] as Map?) ?? const {})),
+          const SizedBox(height: 12),
           Text('Budget envelopes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
           const SizedBox(height: 6),
           const Text('Limits default to learned spending when configured limit is 0. Tap an envelope to override it.'),
@@ -97,7 +101,7 @@ class FinanceAutopilotPage extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Import Beobank PDFs or Revolut XLSX/PDF exports. When both Revolut formats are selected, XLSX is used for the ledger and PDF enriches it without double counting. Choose the ownership scope only as a fallback for accounts that are not connected yet.'),
+              const Text('Import Beobank statements, Revolut bank XLSX/PDF exports, or Revolut Securities Account/P&L XLSX/PDF exports. Structured XLSX rows are authoritative and the paired PDF adds portfolio holdings/validation without double counting. Choose the ownership scope only as a fallback.'),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: scope,
@@ -174,6 +178,77 @@ class _StatementHistoryCard extends StatelessWidget {
             Text('${history['matched_to_bank'] ?? 0} matched to Enable Banking · ${history['historical_only'] ?? 0} historical-only'),
             Text('${history['internal_transfers'] ?? 0} own-account transfers excluded from spending'),
             Text(verified ? 'Statement balance chain verified' : 'Statement balance chain is incomplete or does not reconcile'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecurringCashflowCard extends StatelessWidget {
+  const _RecurringCashflowCard({required this.data});
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = (data['items'] as List? ?? const []).cast<Map>();
+    final protected = Map<String, dynamic>.from((data['protected_next_30_days'] as Map?) ?? const {});
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Learned recurring cash flow', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+            const SizedBox(height: 6),
+            Text('Protected next 30 days: Personal ${protected['personal'] ?? '0'} EUR · Pro ${protected['pro'] ?? '0'} EUR'),
+            const SizedBox(height: 8),
+            if (items.isEmpty)
+              const Text('The VA needs at least three recurring months before it creates a durable pattern.')
+            else
+              for (final raw in items.take(8))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 5),
+                  child: Text('${raw['kind']} · ${raw['direction']} · ${raw['amount']} EUR · confidence ${raw['confidence']}'),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InvestmentSummaryCard extends StatelessWidget {
+  const _InvestmentSummaryCard({required this.data});
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final portfolios = (data['portfolios'] as List? ?? const []).cast<Map>();
+    final funding = Map<String, dynamic>.from((data['funding_transfers'] as Map?) ?? const {});
+    final krakenFunding = (funding['kraken'] as List? ?? const []).cast<Map>();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Investments', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+            const SizedBox(height: 6),
+            Text('${data['portfolio_count'] ?? 0} portfolios · ${data['position_count'] ?? 0} current positions'),
+            const SizedBox(height: 8),
+            if (portfolios.isEmpty)
+              const Text('Import Revolut Securities Account/P&L statements to build the investment view.')
+            else
+              for (final raw in portfolios)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text('${raw['display_name']} · ${raw['positions']} positions · monthly funding ${raw['learned_monthly_cash_topup']} EUR'),
+                ),
+            if (krakenFunding.isNotEmpty) ...[
+              const Divider(),
+              Text('Kraken funding · ${krakenFunding.first['amount']} ${krakenFunding.first['currency']} · ${krakenFunding.first['status']}'),
+            ],
           ],
         ),
       ),
@@ -288,7 +363,7 @@ class _PolicyCard extends StatelessWidget {
                 DropdownButtonFormField<String>(
                   initialValue: role,
                   decoration: const InputDecoration(labelText: 'Account role'),
-                  items: const ['operating', 'savings', 'reserve', 'tax', 'income', 'disabled'].map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+                  items: const ['operating', 'spending', 'savings', 'reserve', 'tax', 'income', 'disabled'].map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
                   onChanged: (value) => setState(() => role = value ?? role),
                 ),
                 SwitchListTile(

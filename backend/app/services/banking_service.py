@@ -98,6 +98,40 @@ async def complete_bank_connection(db: AsyncSession, *, code: str, state: str) -
     return connection
 
 
+def _account_text(item: dict[str, Any]) -> str:
+    """Flatten provider account metadata used only for safe product classification."""
+    fields = (
+        item.get("name"),
+        item.get("product"),
+        item.get("details"),
+        item.get("account_type"),
+        item.get("account_subtype"),
+        item.get("type"),
+        item.get("usage"),
+    )
+    return " ".join(str(value or "") for value in fields).casefold()
+
+
+def _derive_account_scope(item: dict[str, Any], connection: BankConnection) -> str:
+    """Derive the initial Personal/Pro scope without confusing Revolut Pro with Business.
+
+    Revolut Pro is a separate professional account inside the personal Revolut app.
+    A business/corporate PSU remains Pro, while a personal Revolut consent can still
+    expose a Pro account whose product/name metadata contains a clear Pro marker.
+    Existing user-selected scopes are preserved by ``sync_bank_connection``.
+    """
+    if connection.psu_type.casefold() in {"business", "corporate"}:
+        return "pro"
+    institution = (connection.institution_name or "").casefold()
+    text = f" {_account_text(item)} "
+    if "revolut" in institution and any(
+        marker in text
+        for marker in (" pro account ", " revolut pro ", " pro current ", " professional ")
+    ):
+        return "pro"
+    return "personal"
+
+
 def _extract_balance(payload: dict[str, Any], preferred: tuple[str, ...]) -> Decimal | None:
     candidates = payload.get("balances") or payload.get("balance") or []
     if isinstance(candidates, dict):
@@ -144,16 +178,25 @@ async def sync_bank_connection(db: AsyncSession, connection: BankConnection) -> 
                 await db.execute(select(BankAccount).where(BankAccount.iban == iban))
             ).scalar_one_or_none()
 
+        is_new = existing is None
         account = existing or BankAccount(
             bank_connection_id=connection.id,
             external_account_id=external_id,
+            account_scope=_derive_account_scope(item, connection),
         )
         account.bank_connection_id = connection.id
         account.external_account_id = external_id
         account.name = str(item.get("name") or item.get("product") or item.get("details") or connection.institution_name)
         account.iban = iban
         account.currency = str(item.get("currency") or "EUR")
-        account.account_scope = "pro" if connection.psu_type.lower() in {"business", "corporate"} else "personal"
+        derived_scope = _derive_account_scope(item, connection)
+        if is_new or account.account_scope not in {"personal", "pro"}:
+            account.account_scope = derived_scope
+        elif derived_scope == "pro" and account.account_scope == "personal":
+            # An explicit provider-side Revolut Pro marker is stronger evidence than
+            # the old blanket personal default. Never downgrade a user-selected Pro
+            # scope back to Personal during later bank synchronisation.
+            account.account_scope = "pro"
         if existing is None:
             db.add(account)
         await db.flush()

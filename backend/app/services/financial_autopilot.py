@@ -17,6 +17,7 @@ from app.models.entities import (
     BankAccount,
     BankAutopilotPolicy,
     BankConnection,
+    BankStatementImport,
     BankTransaction,
     Bill,
     BudgetEnvelope,
@@ -27,6 +28,8 @@ from app.models.entities import (
 )
 from app.services.audit import write_audit
 from app.services.cash_safety import committed_destination_balance, effective_available_balance
+from app.services.financial_learning import learn_recurring_cashflows
+from app.services.investment_service import investment_funding_forecast_by_scope, investment_history_summary
 from app.services.runtime_config import get_runtime_value
 
 TRANSFER_SUCCESS = {"ACSC", "ACCC", "BOOK"}
@@ -138,6 +141,7 @@ def _transaction_identity(account_id: int, item: dict[str, Any]) -> str:
 async def recategorize_bank_transaction_history(db: AsyncSession) -> dict[str, int]:
     accounts = {account.id: account for account in (await db.execute(select(BankAccount))).scalars()}
     own_ibans = {_iban(account.iban) for account in accounts.values() if account.iban}
+    own_by_iban = {_iban(account.iban): account for account in accounts.values() if account.iban}
     connections = {row.id: row for row in (await db.execute(select(BankConnection))).scalars()}
     revolut_account_ids = {
         account.id
@@ -164,9 +168,21 @@ async def recategorize_bank_transaction_history(db: AsyncSession) -> dict[str, i
             and any(term in f"{row.counterparty_name} {row.remittance}".casefold() for term in ("robo portfolio", "exchanged to "))
         )
         is_internal = exact_internal or revolut_alias or revolut_internal
-        category = "internal_transfer" if is_internal else categorize_transaction_text(
-            f"{row.counterparty_name} {row.remittance}"
-        )
+        normalized_text = f"{row.counterparty_name} {row.remittance}".casefold()
+        counterparty_account = own_by_iban.get(_iban(row.counterparty_iban)) if row.counterparty_iban else None
+        if exact_internal and source is not None and counterparty_account is not None and source.account_scope != counterparty_account.account_scope:
+            if source.account_scope == "pro" and row.direction == "debit":
+                category = "owner_draw"
+            elif source.account_scope == "personal" and row.direction == "debit":
+                category = "owner_contribution"
+            else:
+                category = "owner_transfer"
+        elif is_internal and source is not None and source.id in revolut_account_ids and "robo portfolio" in normalized_text:
+            category = "investment_contribution"
+        elif is_internal and source is not None and source.id in revolut_account_ids and "exchanged to " in normalized_text:
+            category = "internal_fx"
+        else:
+            category = "internal_transfer" if is_internal else categorize_transaction_text(normalized_text)
         if row.is_internal_transfer != is_internal or row.category != category:
             row.is_internal_transfer = is_internal
             row.category = category
@@ -259,12 +275,19 @@ async def ensure_default_budget_envelopes(db: AsyncSession, account_scope: str =
     await db.commit()
 
 
-def _derived_role(account: BankAccount) -> str:
-    name = f"{account.name} {account.account_scope}".casefold()
-    if any(term in name for term in ("saving", "savings", "spaar", "vault", "reserve")):
+def _derived_role(account: BankAccount, institution_name: str = "") -> str:
+    name = f"{account.name} {institution_name}".casefold()
+    if any(term in name for term in ("emergency", "reserve")):
+        return "reserve"
+    if any(term in name for term in ("saving", "savings", "spaar", "vault")):
         return "savings"
     if any(term in name for term in ("tax", "belasting", "btw", "vat")):
         return "tax"
+    # A personal Revolut current account is the controlled day-to-day spending
+    # wallet in the learned cash architecture. Revolut Pro remains a business
+    # operating account because its Uber income and business reserves live there.
+    if "revolut" in name and account.account_scope == "personal":
+        return "spending"
     return "operating"
 
 
@@ -303,9 +326,78 @@ async def repair_legacy_account_scopes(db: AsyncSession) -> int:
     return len(accounts)
 
 
+async def repair_v080_default_account_roles(db: AsyncSession) -> int:
+    """One-time-safe migration between Personal Revolut spending and Revolut Pro operating.
+
+    Only policies that still look auto-seeded are changed. Explicit user-edited
+    policies are left alone. Revolut Pro is a professional account inside the
+    personal Revolut app and must remain Pro/operating rather than spending.
+    """
+    accounts = {account.id: account for account in (await db.execute(select(BankAccount))).scalars()}
+    connections = {row.id: row for row in (await db.execute(select(BankConnection))).scalars()}
+    policies = list((await db.execute(select(BankAutopilotPolicy))).scalars())
+    changed = 0
+    for policy in policies:
+        account = accounts.get(policy.bank_account_id)
+        if account is None:
+            continue
+        connection = connections.get(account.bank_connection_id)
+        name = f"{account.name} {connection.institution_name if connection else ''}".casefold()
+        if "revolut" not in name:
+            continue
+
+        # If an account was originally synced under the old blanket Personal rule
+        # and later identified as Revolut Pro, undo only the default-like spending
+        # policy. User-customised policies are intentionally preserved.
+        if account.account_scope == "pro" and policy.role == "spending":
+            old_spending_default = (
+                policy.accept_surplus
+                and not policy.internal_transfers_enabled
+                and _money(policy.target_floor) == Decimal("0.00")
+                and _money(policy.target_ceiling) == Decimal("0.00")
+                and _money(policy.monthly_outbound_limit) == Decimal("5000.00")
+                and _money(policy.min_transfer_amount) == Decimal("50.00")
+            )
+            if old_spending_default:
+                policy.role = "operating"
+                policy.internal_transfers_enabled = bool(account.enabled_for_payments)
+                policy.accept_surplus = False
+                policy.target_floor = max(_money(account.safety_reserve), Decimal("0.00"))
+                changed += 1
+            continue
+
+        if account.account_scope != "personal" or policy.role != "operating":
+            continue
+        default_like = (
+            not policy.accept_surplus
+            and _money(policy.target_ceiling) == Decimal("0.00")
+            and _money(policy.monthly_outbound_limit) == Decimal("5000.00")
+            and _money(policy.min_transfer_amount) == Decimal("50.00")
+            and _money(policy.target_floor) in {Decimal("0.00"), _money(account.safety_reserve)}
+        )
+        if not default_like:
+            continue
+        policy.role = "spending"
+        policy.internal_transfers_enabled = False
+        policy.accept_surplus = True
+        policy.target_floor = Decimal("0.00")
+        changed += 1
+    if changed:
+        await write_audit(
+            db,
+            "v080_revolut_spending_role_migrated",
+            entity_type="bank_autopilot_policy",
+            details={"count": changed},
+        )
+        await db.commit()
+    return changed
+
+
 async def ensure_account_autopilot_policies(db: AsyncSession) -> list[BankAutopilotPolicy]:
     await repair_legacy_account_scopes(db)
+    await repair_v080_default_account_roles(db)
     accounts = list((await db.execute(select(BankAccount))).scalars())
+    connections = {row.id: row for row in (await db.execute(select(BankConnection))).scalars()}
     by_account = {
         row.bank_account_id: row
         for row in (await db.execute(select(BankAutopilotPolicy))).scalars()
@@ -314,14 +406,15 @@ async def ensure_account_autopilot_policies(db: AsyncSession) -> list[BankAutopi
     for account in accounts:
         if account.id in by_account:
             continue
-        role = _derived_role(account)
+        institution = connections.get(account.bank_connection_id)
+        role = _derived_role(account, institution.institution_name if institution else "")
         policy = BankAutopilotPolicy(
             bank_account_id=account.id,
             role=role,
             internal_transfers_enabled=bool(account.enabled_for_payments and role == "operating"),
-            target_floor=max(_money(account.safety_reserve), Decimal("0.00")),
+            target_floor=max(_money(account.safety_reserve), Decimal("0.00")) if role == "operating" else Decimal("0.00"),
             target_ceiling=Decimal("0.00"),
-            accept_surplus=role in {"savings", "reserve", "tax"},
+            accept_surplus=role in {"spending", "savings", "reserve", "tax"},
             monthly_outbound_limit=Decimal("5000.00"),
             min_transfer_amount=Decimal("50.00"),
         )
@@ -804,6 +897,51 @@ async def complete_own_transfer_authorization(
     return transfer
 
 
+async def _spending_target_for_account(
+    db: AsyncSession,
+    account: BankAccount,
+    policy: BankAutopilotPolicy,
+    *,
+    monthly_investment_funding: Decimal,
+) -> Decimal:
+    """Return a one-week cash target for a spending wallet.
+
+    Revolut Personal is funded as a controlled wallet, not as a savings sink. The
+    target learns recent non-internal debits and adds one week of the investment
+    cash that Revolut's own scheduler is expected to move into its portfolios.
+    Explicit floor/ceiling values remain authoritative minimum targets.
+    """
+    since = datetime.utcnow() - timedelta(days=56)
+    live_total = (
+        await db.execute(
+            select(func.coalesce(func.sum(BankTransaction.amount), 0)).where(
+                BankTransaction.bank_account_id == account.id,
+                BankTransaction.booking_date >= since,
+                BankTransaction.direction == "debit",
+                BankTransaction.is_internal_transfer.is_(False),
+            )
+        )
+    ).scalar_one()
+    historical_total = (
+        await db.execute(
+            select(func.coalesce(func.sum(HistoricalFinancialTransaction.amount), 0))
+            .join(BankStatementImport, HistoricalFinancialTransaction.statement_import_id == BankStatementImport.id)
+            .where(
+                BankStatementImport.matched_bank_account_id == account.id,
+                HistoricalFinancialTransaction.booking_date >= since,
+                HistoricalFinancialTransaction.direction == "debit",
+                HistoricalFinancialTransaction.is_internal_transfer.is_(False),
+                HistoricalFinancialTransaction.matched_bank_transaction_id.is_(None),
+            )
+        )
+    ).scalar_one()
+    weekly_spend = ((_money(live_total) + _money(historical_total)) / Decimal("8")).quantize(Decimal("0.01"))
+    weekly_investment = (_money(monthly_investment_funding) / Decimal("4.345")).quantize(Decimal("0.01"))
+    learned = (weekly_spend * Decimal("1.20") + weekly_investment * Decimal("1.10")).quantize(Decimal("0.01"))
+    configured = max(_money(policy.target_floor), _money(policy.target_ceiling))
+    return max(configured, learned)
+
+
 async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[str, Any]:
     await ensure_default_budget_envelopes(db, "personal")
     await ensure_default_budget_envelopes(db, "pro")
@@ -817,6 +955,11 @@ async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[s
     policy_by_account = {policy.bank_account_id: policy for policy in policies}
     spend = await monthly_spend_by_scope(db)
     obligations = await upcoming_bill_totals(db)
+    recurring = await learn_recurring_cashflows(db)
+    protected_recurring = {
+        scope: _money(value) for scope, value in recurring.get("protected_next_30_days", {}).items()
+    }
+    investment_funding = await investment_funding_forecast_by_scope(db)
     monthly_budget, reserve_targets, allocation_percent = await budget_cash_plan_by_scope(db)
     month_income = await current_month_income_by_scope(db)
     try:
@@ -834,7 +977,7 @@ async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[s
         accounts[policy.bank_account_id]
         for policy in policies
         if policy.accept_surplus
-        and policy.role in {"savings", "reserve", "tax"}
+        and policy.role in {"spending", "savings", "reserve", "tax"}
         and policy.bank_account_id in accounts
         and accounts[policy.bank_account_id].iban
     ]
@@ -881,11 +1024,23 @@ async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[s
             continue
         monthly_need = max(
             spend.get(source.account_scope, Decimal("0.00")),
-            obligations.get(source.account_scope, Decimal("0.00")),
+            obligations.get(source.account_scope, Decimal("0.00"))
+            + protected_recurring.get(source.account_scope, Decimal("0.00")),
             monthly_budget.get(source.account_scope, Decimal("0.00")),
             reserve_targets.get(source.account_scope, Decimal("0.00")),
         )
-        dynamic_floor = (_money(monthly_need) * buffer_multiplier).quantize(Decimal("0.01")) + _money(source.safety_reserve)
+        tax_virtual_reserve = Decimal("0.00")
+        if not tax_account_ids_by_scope.get(source.account_scope):
+            tax_virtual_reserve = (
+                _money(month_income.get(source.account_scope, Decimal("0.00")))
+                * _money(allocation_percent.get(source.account_scope, Decimal("0.00")))
+                / Decimal("100")
+            ).quantize(Decimal("0.01"))
+        dynamic_floor = (
+            (_money(monthly_need) * buffer_multiplier).quantize(Decimal("0.01"))
+            + _money(source.safety_reserve)
+            + tax_virtual_reserve
+        )
         retained = max(dynamic_floor, _money(policy.target_floor), _money(policy.target_ceiling), minimum_operating_floor)
         excess = _money(available) - retained
         if excess < _money(policy.min_transfer_amount):
@@ -899,22 +1054,34 @@ async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[s
         if not destinations:
             continue
         destination_balances: dict[int, Decimal] = {}
+        spending_targets: dict[int, Decimal] = {}
         for candidate in destinations:
             committed = await committed_destination_balance(db, candidate)
             destination_balances[candidate.id] = _money(committed)
+            candidate_policy = policy_by_account[candidate.id]
+            if candidate_policy.role == "spending":
+                spending_targets[candidate.id] = await _spending_target_for_account(
+                    db,
+                    candidate,
+                    candidate_policy,
+                    monthly_investment_funding=investment_funding.get(candidate.account_scope, Decimal("0.00")),
+                )
 
         def destination_rank(account: BankAccount) -> tuple[int, int]:
             dest_policy = policy_by_account[account.id]
             balance = destination_balances[account.id]
             explicit_gap = _money(dest_policy.target_floor) - balance
             tax_gap = tax_gap_remaining.get(account.account_scope, Decimal("0.00"))
-            if dest_policy.role == "tax" and tax_gap > 0:
+            spending_gap = spending_targets.get(account.id, Decimal("0.00")) - balance
+            if dest_policy.role == "spending" and spending_gap > 0:
                 return (0, account.id)
-            if dest_policy.role in {"reserve", "tax"} and explicit_gap > 0:
+            if dest_policy.role == "tax" and tax_gap > 0:
                 return (1, account.id)
-            if dest_policy.role == "savings":
+            if dest_policy.role in {"reserve", "tax"} and explicit_gap > 0:
                 return (2, account.id)
-            return (3, account.id)
+            if dest_policy.role == "savings":
+                return (3, account.id)
+            return (4, account.id)
 
         destinations.sort(key=destination_rank)
         destination = destinations[0]
@@ -922,7 +1089,26 @@ async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[s
         destination_balance = destination_balances[destination.id]
         explicit_gap = _money(dest_policy.target_floor) - destination_balance
         tax_gap = tax_gap_remaining.get(destination.account_scope, Decimal("0.00")) if dest_policy.role == "tax" else Decimal("0.00")
-        gap = max(explicit_gap, tax_gap)
+        spending_gap = (
+            spending_targets.get(destination.id, Decimal("0.00")) - destination_balance
+            if dest_policy.role == "spending" else Decimal("0.00")
+        )
+        gap = max(explicit_gap, tax_gap, spending_gap)
+        if dest_policy.role == "spending" and gap <= 0:
+            alternatives = [
+                account for account in destinations
+                if account.id != destination.id and policy_by_account[account.id].role != "spending"
+            ]
+            if not alternatives:
+                continue
+            alternatives.sort(key=destination_rank)
+            destination = alternatives[0]
+            dest_policy = policy_by_account[destination.id]
+            destination_balance = destination_balances[destination.id]
+            explicit_gap = _money(dest_policy.target_floor) - destination_balance
+            tax_gap = tax_gap_remaining.get(destination.account_scope, Decimal("0.00")) if dest_policy.role == "tax" else Decimal("0.00")
+            spending_gap = Decimal("0.00")
+            gap = max(explicit_gap, tax_gap)
         # Reserve/tax accounts only receive money for an explicit target or a
         # configured income-allocation gap. Ordinary surplus belongs in savings.
         if dest_policy.role in {"reserve", "tax"} and gap <= 0:
@@ -959,7 +1145,10 @@ async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[s
                     f"Budget rebalance: keep {retained:.2f} {source.currency} available; "
                     f"monthly spend forecast {spend.get(source.account_scope, Decimal('0.00')):.2f}; "
                     f"budget plan {monthly_budget.get(source.account_scope, Decimal('0.00')):.2f}; "
-                    f"30-day obligations {obligations.get(source.account_scope, Decimal('0.00')):.2f}."
+                    f"30-day bills {obligations.get(source.account_scope, Decimal('0.00')):.2f}; "
+                    f"learned protected obligations {protected_recurring.get(source.account_scope, Decimal('0.00')):.2f}; "
+                    f"virtual tax reserve {tax_virtual_reserve:.2f}; "
+                    f"learned monthly investment funding {investment_funding.get(source.account_scope, Decimal('0.00')):.2f}."
                 ),
                 redirect_url=redirect_url,
                 idempotency_key=key,
@@ -1065,6 +1254,11 @@ async def finance_overview(db: AsyncSession) -> dict[str, Any]:
         Decimal("0.00"),
     )
     obligations = await upcoming_bill_totals(db)
+    recurring_cashflows = await learn_recurring_cashflows(db)
+    investments = await investment_history_summary(db)
+    from app.services.investment_autopilot import investment_funding_transfer_summary
+    investments["funding_transfers"] = await investment_funding_transfer_summary(db)
+    investment_funding = await investment_funding_forecast_by_scope(db)
     pending_transfers = (
         await db.execute(
             select(func.count()).select_from(OwnAccountTransfer).where(
@@ -1082,6 +1276,9 @@ async def finance_overview(db: AsyncSession) -> dict[str, Any]:
         "month_income": {scope: str(value) for scope, value in income.items()},
         "monthly_spend_forecast": {scope: str(value) for scope, value in history_spend.items()},
         "upcoming_30_day_obligations": {scope: str(value) for scope, value in obligations.items()},
+        "learned_recurring_cashflows": recurring_cashflows,
+        "investment_funding_forecast": {scope: str(value) for scope, value in investment_funding.items()},
+        "investments": investments,
         "pending_internal_transfers": int(pending_transfers),
         "statement_history": statement_history,
         "envelopes": envelope_rows,

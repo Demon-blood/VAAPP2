@@ -27,7 +27,7 @@ def test_scope_and_role_are_not_conflated() -> None:
     accounts = (root / "android" / "lib" / "screens" / "accounts_page.dart").read_text()
     finance = (root / "android" / "lib" / "screens" / "finance_autopilot_page.dart").read_text()
     assert "DropdownMenuItem(value: 'reserve', child: Text('Reserve only'))" not in accounts
-    assert "'operating', 'savings', 'reserve', 'tax', 'income', 'disabled'" in finance
+    assert "'operating', 'spending', 'savings', 'reserve', 'tax', 'income', 'disabled'" in finance
 
 
 def test_historical_financial_evidence_uses_new_tables() -> None:

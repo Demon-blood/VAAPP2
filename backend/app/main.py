@@ -15,6 +15,7 @@ from app.services.financial_reconciliation import reclassify_existing_nonpayable
 from app.services.financial_autopilot import (
     recategorize_bank_transaction_history,
     repair_legacy_account_scopes,
+    repair_v080_default_account_roles,
 )
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.services.operations_service import cleanup_low_value_documents
@@ -66,6 +67,15 @@ async def lifespan(_: FastAPI):
                 logger.warning("Legacy bank account scope repair: %s account(s)", repaired_scopes)
     except Exception:
         logger.exception("Initial bank-account scope repair failed")
+    # Repair only untouched auto-seeded Revolut policies between Personal spending
+    # and Pro operating roles. Explicit user edits remain authoritative.
+    try:
+        async with SessionLocal() as db:
+            migrated_roles = await repair_v080_default_account_roles(db)
+            if migrated_roles:
+                logger.warning("v0.8 account-role migration: %s policy/policies", migrated_roles)
+    except Exception:
+        logger.exception("Initial v0.8 account-role migration failed")
     # Re-evaluate stored Enable Banking rows under the current deterministic category
     # rules. This repairs historical rows (for example irregular Google Play purchases)
     # without touching amounts, dates, or provider identities.
