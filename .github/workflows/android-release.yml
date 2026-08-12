@@ -132,7 +132,39 @@ jobs:
           flutter pub get
           flutter analyze --no-fatal-infos
           flutter test
-          flutter build apk --release
+
+          # Download the Gradle wrapper distribution before the release build and
+          # retry transient EOF/network failures. GitHub-hosted runners occasionally
+          # lose the wrapper download mid-stream; deleting the ephemeral wrapper
+          # cache ensures the next attempt starts from a clean distribution.
+          for attempt in 1 2 3 4 5; do
+            if (cd android && ./gradlew --version); then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Gradle wrapper download failed after five attempts." >&2
+              exit 1
+            fi
+            echo "Gradle wrapper download failed (attempt $attempt/5); retrying..." >&2
+            rm -rf "$HOME/.gradle/wrapper/dists"
+            sleep $((attempt * 10))
+          done
+
+          # Maven/Gradle dependency repositories can also fail transiently. Re-running
+          # the same deterministic release task is safe; never alter source or signing
+          # state between attempts.
+          for attempt in 1 2 3; do
+            if flutter build apk --release; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Android release build failed after three attempts." >&2
+              exit 1
+            fi
+            echo "Android release build failed (attempt $attempt/3); retrying..." >&2
+            sleep $((attempt * 15))
+          done
+
           test -s build/app/outputs/flutter-apk/app-release.apk
           cp build/app/outputs/flutter-apk/app-release.apk \
             "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.8.0.apk"
