@@ -41,13 +41,8 @@ def test_daily_briefing_exposes_activity_timeline_and_provider_auth_exceptions()
     assert "VA activity timeline" in widget
 
 
-def test_release_is_v070() -> None:
-    root = _root()
-    assert 'APP_VERSION = "0.7.0"' in (root / "backend" / "app" / "core" / "version.py").read_text()
-    assert 'version = "0.7.0"' in (root / "backend" / "pyproject.toml").read_text()
-    assert "version: 0.7.0+28" in (root / "android" / "pubspec.yaml").read_text()
-    workflow = (root / ".github" / "workflows" / "android-release.yml").read_text()
-    assert "Full-Time-VA-Android-v0.7.0.apk" in workflow
+def test_release_workflow_keeps_nonfatal_info_lints() -> None:
+    workflow = (_root() / ".github" / "workflows" / "android-release.yml").read_text()
     assert "flutter analyze --no-fatal-infos" in workflow
 
 

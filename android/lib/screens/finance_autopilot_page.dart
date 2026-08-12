@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -17,6 +18,7 @@ class FinanceAutopilotPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final overview = state.financeOverview;
+    final history = Map<String, dynamic>.from((overview['statement_history'] as Map?) ?? const {});
     final envelopes = (overview['envelopes'] as List? ?? const []).cast<Map>();
     return RefreshIndicator(
       onRefresh: () => context.read<AppState>().refreshMoneyData(),
@@ -39,11 +41,21 @@ class FinanceAutopilotPage extends StatelessWidget {
                     icon: const Icon(Icons.auto_awesome_rounded),
                     label: const Text('Run budgeting & rebalancing now'),
                   ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: state.busy ? null : () => _importHistory(context),
+                    icon: const Icon(Icons.upload_file_rounded),
+                    label: const Text('Import financial history'),
+                  ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 12),
+          if ((history['statements'] as num? ?? 0) > 0) ...[
+            _StatementHistoryCard(history: history),
+            const SizedBox(height: 12),
+          ],
           Text('Budget envelopes', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
           const SizedBox(height: 6),
           const Text('Limits default to learned spending when configured limit is 0. Tap an envelope to override it.'),
@@ -73,6 +85,100 @@ class FinanceAutopilotPage extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Financial Autopilot completed. Transfers planned: $planned')));
     } catch (_) {}
   }
+
+  Future<void> _importHistory(BuildContext context) async {
+    var scope = 'personal';
+    final selectedScope = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Import financial history'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Import Beobank PDFs or Revolut XLSX/PDF exports. When both Revolut formats are selected, XLSX is used for the ledger and PDF enriches it without double counting. Choose the ownership scope only as a fallback for accounts that are not connected yet.'),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: scope,
+                decoration: const InputDecoration(labelText: 'Account scope'),
+                items: const [
+                  DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                  DropdownMenuItem(value: 'pro', child: Text('Pro / business')),
+                ],
+                onChanged: (value) => setState(() => scope = value ?? scope),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, scope), child: const Text('Choose bank files')),
+          ],
+        ),
+      ),
+    );
+    if (selectedScope == null || !context.mounted) return;
+    final picked = await FilePicker.pickFiles(
+      allowMultiple: true,
+      type: FileType.custom,
+      allowedExtensions: const ['pdf', 'xlsx'],
+    );
+    if (picked == null || !context.mounted) return;
+    final paths = picked.files.map((file) => file.path).whereType<String>().toList();
+    if (paths.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('The selected bank files could not be opened.')));
+      return;
+    }
+    try {
+      final result = await context.read<AppState>().importFinancialHistory(paths, accountScope: selectedScope);
+      if (!context.mounted) return;
+      final imported = result['imported'] ?? 0;
+      final duplicates = result['duplicates'] ?? 0;
+      final errors = (result['errors'] as List? ?? const []).length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Financial history imported: $imported new · $duplicates duplicate · $errors rejected')),
+      );
+    } catch (_) {}
+  }
+}
+
+class _StatementHistoryCard extends StatelessWidget {
+  const _StatementHistoryCard({required this.history});
+  final Map<String, dynamic> history;
+
+  String _shortDate(dynamic value) {
+    final parsed = DateTime.tryParse('$value');
+    if (parsed == null) return '—';
+    return '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')}/${parsed.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final verified = history['balance_chain_verified'] == true;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(verified ? Icons.verified_rounded : Icons.warning_amber_rounded, color: verified ? VaTheme.success : VaTheme.warning),
+                const SizedBox(width: 9),
+                const Expanded(child: Text('Imported financial history', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17))),
+              ],
+            ),
+            const SizedBox(height: 9),
+            Text('${history['statements'] ?? 0} statements · ${history['transactions'] ?? 0} transactions'),
+            Text('${_shortDate(history['period_start'])} → ${_shortDate(history['period_end'])}'),
+            Text('${history['matched_to_bank'] ?? 0} matched to Enable Banking · ${history['historical_only'] ?? 0} historical-only'),
+            Text('${history['internal_transfers'] ?? 0} own-account transfers excluded from spending'),
+            Text(verified ? 'Statement balance chain verified' : 'Statement balance chain is incomplete or does not reconcile'),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _BudgetCard extends StatelessWidget {
@@ -82,12 +188,13 @@ class _BudgetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final overspent = envelope['overspent'] == true;
+    final learned = (double.tryParse('${envelope['monthly_limit'] ?? 0}') ?? 0) <= 0;
     return Card(
       child: ListTile(
         onTap: () => _edit(context),
         leading: Icon(overspent ? Icons.warning_amber_rounded : Icons.pie_chart_outline_rounded, color: overspent ? VaTheme.warning : VaTheme.secondary),
         title: Text('${envelope['category'] ?? ''}'.replaceAll('_', ' '), style: const TextStyle(fontWeight: FontWeight.w800)),
-        subtitle: Text('Spent ${envelope['spent'] ?? '0'} / ${envelope['effective_limit'] ?? '0'} EUR · ${envelope['scope'] ?? 'personal'}'),
+        subtitle: Text('Spent ${envelope['spent'] ?? '0'} / ${envelope['effective_limit'] ?? '0'} EUR · ${envelope['scope'] ?? 'personal'}${learned ? ' · learned' : ''}'),
         trailing: const Icon(Icons.tune_rounded),
       ),
     );

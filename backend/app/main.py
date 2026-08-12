@@ -10,7 +10,12 @@ from app.core.database import SessionLocal, init_db
 from app.core.version import APP_VERSION
 from app.core.settings import get_settings
 from app.services.action_reconciler import reconcile_action_queue
+from app.services.bank_statement_import import reconcile_statement_transactions_with_bank
 from app.services.financial_reconciliation import reclassify_existing_nonpayable_bills
+from app.services.financial_autopilot import (
+    recategorize_bank_transaction_history,
+    repair_legacy_account_scopes,
+)
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.services.operations_service import cleanup_low_value_documents
 from app.services.workflow_engine import (
@@ -52,6 +57,35 @@ async def lifespan(_: FastAPI):
                 logger.warning("Financial document reclassification: %s", outcome)
     except Exception:
         logger.exception("Initial financial-document reconciliation failed")
+    # Scope is ownership (Personal/Pro); Reserve is an account role. Repair the
+    # legacy Android option that could store `reserve` as an ownership scope.
+    try:
+        async with SessionLocal() as db:
+            repaired_scopes = await repair_legacy_account_scopes(db)
+            if repaired_scopes:
+                logger.warning("Legacy bank account scope repair: %s account(s)", repaired_scopes)
+    except Exception:
+        logger.exception("Initial bank-account scope repair failed")
+    # Re-evaluate stored Enable Banking rows under the current deterministic category
+    # rules. This repairs historical rows (for example irregular Google Play purchases)
+    # without touching amounts, dates, or provider identities.
+    try:
+        async with SessionLocal() as db:
+            recategorized = await recategorize_bank_transaction_history(db)
+            if recategorized["changed"]:
+                logger.warning("Bank transaction category repair: %s", recategorized)
+    except Exception:
+        logger.exception("Initial bank-transaction recategorization failed")
+    # Re-attach imported statement history to any accounts connected after import,
+    # re-apply current historical categories, and reconcile duplicates against the
+    # live Enable Banking ledger without making any provider call.
+    try:
+        async with SessionLocal() as db:
+            statement_reconciliation = await reconcile_statement_transactions_with_bank(db)
+            if statement_reconciliation["matched"] or statement_reconciliation["attached_accounts"] or statement_reconciliation["recategorized"]:
+                logger.warning("Historical statement reconciliation: %s", statement_reconciliation)
+    except Exception:
+        logger.exception("Initial historical-statement reconciliation failed")
     # Repair any older action flags immediately after an upgrade so the Today cards
     # never show an orphaned counter without a concrete task behind it.
     try:

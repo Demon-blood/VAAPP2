@@ -800,9 +800,11 @@ async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[
         sync_bank_transactions,
     )
     from app.services.financial_reconciliation import reconcile_receipts_with_bank_transactions
+    from app.services.bank_statement_import import reconcile_statement_transactions_with_bank
 
     bank_sync = await sync_all_banks(db)
     transaction_sync = await sync_bank_transactions(db)
+    statement_reconciliation = await reconcile_statement_transactions_with_bank(db)
     receipt_reconciliation = await reconcile_receipts_with_bank_transactions(db)
     refreshed = await refresh_all_payments(db)
     transfer_refresh = await refresh_all_own_account_transfers(db)
@@ -813,6 +815,7 @@ async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[
     return {
         "bank_sync": bank_sync,
         "transaction_sync": transaction_sync,
+        "statement_reconciliation": statement_reconciliation,
         "receipt_reconciliation": receipt_reconciliation,
         "payment_initiation": "delegated_to_durable_bill_lifecycle",
         "payment_refresh": refreshed,

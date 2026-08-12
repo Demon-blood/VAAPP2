@@ -73,6 +73,51 @@ class ApiClient {
 
   Future<dynamic> deleteJson(String path) => _request('DELETE', path);
 
+  Future<dynamic> postFiles(
+    String path,
+    List<String> filePaths, {
+    Map<String, String> fields = const {},
+    String fieldName = 'files',
+  }) async {
+    final base = await serverUrl;
+    final token = await deviceToken;
+    if (base == null || token == null) {
+      throw ApiException('This device is not paired with a VA server.', method: 'POST', path: path);
+    }
+    final request = http.MultipartRequest('POST', Uri.parse('$base$path'))
+      ..headers['Authorization'] = 'Bearer $token'
+      ..headers['Accept'] = 'application/json'
+      ..fields.addAll(fields);
+    for (final filePath in filePaths) {
+      request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
+    }
+    late http.Response response;
+    try {
+      final streamed = await request.send().timeout(const Duration(minutes: 3));
+      response = await http.Response.fromStream(streamed);
+    } catch (requestError) {
+      throw ApiException(
+        'Could not upload financial history to the VA server: $requestError',
+        method: 'POST',
+        path: path,
+      );
+    }
+    final decoded = _decode(response);
+    if (response.statusCode == 401) {
+      await disconnect();
+    }
+    if (response.statusCode >= 300) {
+      throw ApiException(
+        _errorMessage(decoded, fallback: 'The server rejected the statement import.'),
+        statusCode: response.statusCode,
+        method: 'POST',
+        path: path,
+      );
+    }
+    return decoded;
+  }
+
+
   Future<dynamic> _request(
     String method,
     String path, {

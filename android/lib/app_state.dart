@@ -141,11 +141,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.7.0')) {
+        if (!_versionAtLeast(backendVersion, '0.7.2')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.7.0 requires backend 0.7.0 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.7.2 requires backend 0.7.2 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -459,6 +459,25 @@ class AppState extends ChangeNotifier {
       await api.postJson('/api/finance/budgets', values);
       await refreshMoneyData();
     });
+  }
+
+
+  Future<Map<String, dynamic>> importFinancialHistory(
+    List<String> filePaths, {
+    String accountScope = 'personal',
+  }) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postFiles(
+          '/api/finance/statements/import',
+          filePaths,
+          fields: {'account_scope': accountScope},
+        ) as Map,
+      );
+      await refreshMoneyData();
+    });
+    return result;
   }
 
   Future<Map<String, dynamic>> reconcileFinancialRecords() async {

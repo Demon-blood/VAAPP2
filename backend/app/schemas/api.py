@@ -164,7 +164,7 @@ class CreditorUpsertRequest(BaseModel):
 
 
 class AccountPolicyRequest(BaseModel):
-    account_scope: str
+    account_scope: Literal["personal", "pro"]
     safety_reserve: Decimal
     enabled_for_payments: bool
 
@@ -291,7 +291,7 @@ class BankAutopilotPolicyResponse(BaseModel):
 
 
 class BudgetEnvelopeRequest(BaseModel):
-    account_scope: str = Field(default="personal", max_length=30)
+    account_scope: Literal["personal", "pro"] = "personal"
     category: str = Field(min_length=1, max_length=80)
     monthly_limit: Decimal = Decimal("0.00")
     reserve_target: Decimal = Decimal("0.00")

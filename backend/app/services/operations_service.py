@@ -19,7 +19,7 @@ from app.models.entities import (
     SupportCase,
 )
 from app.services.audit import write_audit
-from app.services.document_policy import document_retention_decision
+from app.services.document_policy import document_category_decision, document_retention_decision
 
 settings = get_settings()
 
@@ -85,19 +85,14 @@ async def archive_email_attachments(
 ) -> int:
     archived = 0
     date = received_at or datetime.utcnow()
-    folder_path = [
-        settings.google_drive_archive_folder,
-        "Professional" if account_scope == "pro" else "Personal",
-        category.replace("/", "-")[:80] or "General",
-        str(date.year),
-    ]
     for attachment in attachments:
         content = attachment.get("_content")
         if not isinstance(content, bytes) or not content:
             continue
         filename = str(attachment.get("filename") or "attachment")
         mime_type = str(attachment.get("mime_type") or "application/octet-stream")
-        keep, reason = document_retention_decision(filename, mime_type, len(content))
+        extracted_text = str(attachment.get("extracted_text") or "")
+        keep, reason = document_retention_decision(filename, mime_type, len(content), extracted_text)
         if not keep:
             await write_audit(
                 db,
@@ -121,17 +116,28 @@ async def archive_email_attachments(
         ).scalar_one_or_none()
         if existing is not None:
             continue
+        document_category = document_category_decision(
+            name=filename,
+            extracted_text=extracted_text,
+            parent_category=category,
+        )
+        document_folder_path = [
+            settings.google_drive_archive_folder,
+            "Professional" if account_scope == "pro" else "Personal",
+            document_category.replace("/", "-")[:80] or "General",
+            str(date.year),
+        ]
         uploaded = await upload_drive_file(
             db,
             name=filename,
             mime_type=mime_type,
             content=content,
-            folder_path=folder_path,
+            folder_path=document_folder_path,
             app_properties={
                 "va_managed": "true",
                 "source_type": "email",
                 "source_id": message_id,
-                "category": category[:120],
+                "category": document_category[:120],
                 "account_scope": account_scope,
                 "checksum_sha256": checksum,
             },
@@ -142,7 +148,7 @@ async def archive_email_attachments(
             name=str(uploaded.get("name") or filename),
             mime_type=str(uploaded.get("mimeType") or mime_type),
             size_bytes=int(uploaded.get("size") or len(content)),
-            category=category,
+            category=document_category,
             account_scope=account_scope,
             checksum_sha256=checksum,
             drive_file_id=str(uploaded["id"]),
@@ -155,7 +161,7 @@ async def archive_email_attachments(
             "document_archived",
             entity_type="document",
             entity_id=str(uploaded["id"]),
-            details={"message_id": message_id, "name": record.name, "category": category},
+            details={"message_id": message_id, "name": record.name, "category": document_category},
         )
     return archived
 

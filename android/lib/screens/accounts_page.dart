@@ -175,8 +175,7 @@ class _AccountCard extends StatelessWidget {
                   decoration: const InputDecoration(labelText: 'Account scope'),
                   items: const [
                     DropdownMenuItem(value: 'personal', child: Text('Personal')),
-                    DropdownMenuItem(value: 'pro', child: Text('Revolut Pro')),
-                    DropdownMenuItem(value: 'reserve', child: Text('Reserve only')),
+                    DropdownMenuItem(value: 'pro', child: Text('Pro / business')),
                   ],
                   onChanged: (value) => setState(() => scope = value ?? scope),
                 ),

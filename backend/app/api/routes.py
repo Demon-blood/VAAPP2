@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import json
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,6 +127,13 @@ from app.services.financial_autopilot import (
     refresh_own_account_transfer,
     run_budget_autopilot,
     sync_bank_transactions,
+)
+from app.services.bank_statement_import import (
+    StatementImportError,
+    import_statement_file_bytes,
+    list_statement_imports,
+    reconcile_statement_transactions_with_bank,
+    statement_history_summary,
 )
 from app.services.action_reconciler import reconcile_action_queue
 from app.services.email_processor import sync_gmail
@@ -617,6 +624,65 @@ async def upsert_budget_envelope(
     return row
 
 
+@router.post("/api/finance/statements/import")
+async def import_financial_history_statements(
+    files: list[UploadFile] = File(...),
+    account_scope: str = Form(default="personal"),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if account_scope not in {"personal", "pro"}:
+        raise HTTPException(status_code=422, detail="Statement account scope must be Personal or Pro")
+    if not files or len(files) > 12:
+        raise HTTPException(status_code=422, detail="Select between 1 and 12 bank statements per import")
+    results: list[dict] = []
+    errors: list[dict] = []
+    pending: list[tuple[str, bytes]] = []
+    for upload in files:
+        filename = (upload.filename or "statement.pdf")[:1000]
+        content = await upload.read(15 * 1024 * 1024 + 1)
+        if len(content) > 15 * 1024 * 1024:
+            errors.append({"filename": filename, "error": "File exceeds the 15 MB statement limit"})
+            continue
+        pending.append((filename, content))
+    # Revolut XLSX is the authoritative ledger. Process it before a paired PDF so
+    # the PDF enriches the same canonical statement instead of creating another one.
+    pending.sort(key=lambda item: (0 if item[0].casefold().endswith(".xlsx") else 1, item[0].casefold()))
+    for filename, content in pending:
+        try:
+            results.extend(
+                await import_statement_file_bytes(
+                    db,
+                    filename=filename,
+                    content=content,
+                    fallback_scope=account_scope,
+                )
+            )
+        except StatementImportError as exc:
+            errors.append({"filename": filename, "error": str(exc)})
+    if not results and errors:
+        raise HTTPException(status_code=422, detail={"message": "No statements could be imported", "files": errors})
+    return {
+        "imported": sum(1 for item in results if not item.get("duplicate")),
+        "duplicates": sum(1 for item in results if item.get("duplicate")),
+        "files": results,
+        "errors": errors,
+        "history": await statement_history_summary(db),
+    }
+
+
+@router.get("/api/finance/statements")
+async def get_financial_history_statements(
+    limit: int = Query(default=100, ge=1, le=500),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return {
+        "history": await statement_history_summary(db),
+        "imports": await list_statement_imports(db, limit=limit),
+    }
+
+
 @router.get("/api/finance/overview")
 async def get_finance_overview(
     _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
@@ -652,6 +718,7 @@ async def run_finance_autopilot_now(
     try:
         accounts_synced = await sync_all_banks(db)
         transactions = await sync_bank_transactions(db)
+        statement_reconciliation = await reconcile_statement_transactions_with_bank(db)
         transfer_refresh = await refresh_all_own_account_transfers(db)
         budget = await run_budget_autopilot(
             db, redirect_url=str(request.url_for("own_transfer_authorization_callback"))
@@ -659,6 +726,7 @@ async def run_finance_autopilot_now(
         return {
             "accounts_synced": accounts_synced,
             "transactions": transactions,
+            "statement_reconciliation": statement_reconciliation,
             "transfer_refresh": transfer_refresh,
             "budget": budget,
         }
@@ -972,6 +1040,7 @@ async def run_all_safe_actions(
         try:
             result["accounts_synced"] = await sync_all_banks(db)
             result["bank_transactions"] = await sync_bank_transactions(db)
+            result["statement_reconciliation"] = await reconcile_statement_transactions_with_bank(db)
             result["receipt_reconciliation"] = await reconcile_receipts_with_bank_transactions(db)
             result["auto_pay"] = await auto_pay_eligible_bills(
                 db, redirect_url=str(request.url_for("payment_authorization_callback"))
@@ -1074,11 +1143,13 @@ async def manual_bank_sync(
     try:
         synced = await sync_all_banks(db)
         transactions = await sync_bank_transactions(db)
+        statement_reconciliation = await reconcile_statement_transactions_with_bank(db)
         receipts = await reconcile_receipts_with_bank_transactions(db)
         transfers = await refresh_all_own_account_transfers(db)
         return {
             "accounts_synced": synced,
             "transactions": transactions,
+            "statement_reconciliation": statement_reconciliation,
             "receipt_reconciliation": receipts,
             "internal_transfers_refreshed": transfers,
         }

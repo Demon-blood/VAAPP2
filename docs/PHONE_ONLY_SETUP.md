@@ -10,8 +10,8 @@ From the phone:
 2. Upload the project while preserving `.github/workflows/android-release.yml`, `android/`, and `backend/`.
 3. Open the repository's **Actions** tab.
 4. Open **Build Android APK** and select **Run workflow**.
-5. After the run succeeds, open **Releases** and download `Full-Time-VA-Android-v0.7.0.apk`.
-6. Install the downloaded `Full-Time-VA-Android-v0.7.0.apk`.
+5. After the run succeeds, open **Releases** and download `Full-Time-VA-Android-v0.7.2.apk`.
+6. Install the downloaded `Full-Time-VA-Android-v0.7.2.apk`.
 7. Allow installation from the browser or file manager when Android requests it.
 
 The workflow performs dependency resolution, static analysis, tests, and the release APK build. A failed workflow does not publish an APK as a successful VA update.
@@ -88,9 +88,10 @@ Gmail, Calendar, Drive, and Contacts only become connected after OAuth succeeds.
 6. Run the live test.
 7. Tap **Connect Beobank** and complete the bank's consent flow.
 8. Tap **Connect Revolut** and complete the Revolut consent flow.
-9. After synchronization, assign every returned account as Personal, Pro, Reserve, or another appropriate role.
-10. Set the reserve and payment permission for each account.
-11. Approve creditors by exact IBAN and specify their automatic-payment limits.
+9. After synchronization, set each returned account ownership scope to **Personal** or **Pro** in Money → Accounts.
+10. In Money → Budget, assign the Financial Autopilot role separately: operating, savings, reserve, tax, income, or disabled.
+11. Set the cash reserve/payment permission for source accounts and surplus-receive policy for destination accounts.
+12. Approve creditors by exact IBAN and specify their automatic-payment limits.
 
 The VA never asks for a bank password, PIN, Itsme secret, or one-time bank code. Authentication remains inside the bank or Itsme flow.
 

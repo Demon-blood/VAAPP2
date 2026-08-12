@@ -20,6 +20,7 @@ from app.models.entities import (
     BankTransaction,
     Bill,
     BudgetEnvelope,
+    HistoricalFinancialTransaction,
     OAuthState,
     OwnAccountTransfer,
     Task,
@@ -34,15 +35,24 @@ ACTIVE_TRANSFER_STATUSES = {"creating", "received", "pending", "authorization_re
 
 CATEGORY_TERMS: dict[str, tuple[str, ...]] = {
     "housing": ("rent", "huur", "mortgage", "hypotheek", "syndic", "syndicus"),
-    "groceries": ("delhaize", "colruyt", "carrefour", "aldi", "lidl", "okay", "supermarket", "supermarkt", "grocery"),
+    "groceries": (
+        "delhaize", "colruyt", "carrefour", "aldi", "lidl", "okay", "supermarket", "supermarkt",
+        "grocery", "bakkerij", "bakery", "market", "proxy ",
+    ),
     "utilities": ("engie", "luminus", "water", "electric", "elektr", "gas", "proximus", "orange", "telenet", "telecom"),
-    "transport": ("nmbs", "sncb", "de lijn", "mivb", "stib", "uber", "bolt", "fuel", "benzine", "diesel", "parking"),
-    "subscriptions": ("subscription", "abonnement", "netflix", "spotify", "youtube", "google play", "apple.com/bill", "adobe"),
-    "dining": ("restaurant", "cafe", "café", "bar ", "takeaway", "deliveroo", "ubereats", "uber eats"),
+    "transport": ("nmbs", "sncb", "de lijn", "mivb", "stib", "uber", "bolt", "fuel", "benzine", "diesel", "parking", "lukoil", " q8 ", "total nb"),
+    # Google Play is intentionally digital spending, not automatically a subscription:
+    # Beobank statements can contain many irregular Google Play purchases per day.
+    "digital": ("google play", "google *google pla", "google*google play", "chamet", "powbot", "cleverbridge", "pgsharp", "xsolla", "1global.com"),
+    "cash": ("geldafhaling", "cash withdrawal", " cash "),
+    "money_transfer": ("remitly", "money transfer", "remittance service"),
+    "subscriptions": ("subscription", "abonnement", "netflix", "spotify", "youtube premium", "apple.com/bill", "adobe", "openai *chatgpt", "premium plan fee", "metal plan fee", "uber *one membership"),
+    "family_support": ("onderhoudsbijdrage", "maintenance contribution", "child support"),
+    "dining": ("restaurant", "cafe", "café", "bar ", "takeaway", "deliveroo", "ubereats", "uber eats", "frit "),
     "health": ("pharmacy", "apotheek", "doctor", "arts", "hospital", "ziekenhuis", "mutualiteit"),
     "insurance": ("insurance", "verzekering", "assurance"),
     "tax": ("tax", "belasting", "fiscus", "finance.belgium", "fod financ"),
-    "shopping": ("amazon", "bol.com", "zalando", "ikea", "mediamarkt", "shopping", "winkel"),
+    "shopping": ("amazon", "bol.com", "zalando", "ikea", "mediamarkt", "shopping", "winkel", "temu.com", "coolblue"),
 }
 DEFAULT_BUDGET_CATEGORIES = tuple(CATEGORY_TERMS) + ("other",)
 
@@ -90,6 +100,14 @@ def _counterparty(item: dict[str, Any]) -> tuple[str, str]:
     )
 
 
+def categorize_transaction_text(value: str) -> str:
+    text = f" {value.casefold()} "
+    for category, terms in CATEGORY_TERMS.items():
+        if any(term in text for term in terms):
+            return category
+    return "other"
+
+
 def categorize_transaction(item: dict[str, Any], own_ibans: set[str]) -> tuple[str, bool]:
     counterparty_name, counterparty_iban = _counterparty(item)
     if counterparty_iban and counterparty_iban in own_ibans:
@@ -105,11 +123,8 @@ def categorize_transaction(item: dict[str, Any], own_ibans: set[str]) -> tuple[s
             str(item.get("entry_reference") or ""),
             str((item.get("bank_transaction_code") or {}).get("description") if isinstance(item.get("bank_transaction_code"), dict) else ""),
         ]
-    ).casefold()
-    for category, terms in CATEGORY_TERMS.items():
-        if any(term in text for term in terms):
-            return category, False
-    return "other", False
+    )
+    return categorize_transaction_text(text), False
 
 
 def _transaction_identity(account_id: int, item: dict[str, Any]) -> str:
@@ -118,6 +133,49 @@ def _transaction_identity(account_id: int, item: dict[str, Any]) -> str:
         return explicit[:255]
     material = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(f"{account_id}:{material}".encode()).hexdigest()
+
+
+async def recategorize_bank_transaction_history(db: AsyncSession) -> dict[str, int]:
+    accounts = {account.id: account for account in (await db.execute(select(BankAccount))).scalars()}
+    own_ibans = {_iban(account.iban) for account in accounts.values() if account.iban}
+    connections = {row.id: row for row in (await db.execute(select(BankConnection))).scalars()}
+    revolut_account_ids = {
+        account.id
+        for account in accounts.values()
+        if "revolut" in (account.name or "").casefold()
+        or "revolut" in (connections.get(account.bank_connection_id).institution_name.casefold()
+                            if connections.get(account.bank_connection_id) else "")
+    }
+    rows = list((await db.execute(select(BankTransaction))).scalars())
+    changed = 0
+    internal_marked = 0
+    for row in rows:
+        source = accounts.get(row.bank_account_id)
+        exact_internal = bool(row.counterparty_iban and _iban(row.counterparty_iban) in own_ibans)
+        revolut_alias = bool(
+            source is not None
+            and source.id not in revolut_account_ids
+            and revolut_account_ids
+            and "revolut" in (row.counterparty_name or "").casefold()
+        )
+        revolut_internal = bool(
+            source is not None
+            and source.id in revolut_account_ids
+            and any(term in f"{row.counterparty_name} {row.remittance}".casefold() for term in ("robo portfolio", "exchanged to "))
+        )
+        is_internal = exact_internal or revolut_alias or revolut_internal
+        category = "internal_transfer" if is_internal else categorize_transaction_text(
+            f"{row.counterparty_name} {row.remittance}"
+        )
+        if row.is_internal_transfer != is_internal or row.category != category:
+            row.is_internal_transfer = is_internal
+            row.category = category
+            changed += 1
+            if is_internal:
+                internal_marked += 1
+    if changed:
+        await db.commit()
+    return {"reviewed": len(rows), "changed": changed, "internal_marked": internal_marked}
 
 
 async def sync_bank_transactions(db: AsyncSession, *, lookback_days: int = 90) -> dict[str, int]:
@@ -184,7 +242,8 @@ async def sync_bank_transactions(db: AsyncSession, *, lookback_days: int = 90) -
             if not continuation:
                 break
         await db.commit()
-    return {"created": created, "updated": updated, "pages": pages}
+    recategorized = await recategorize_bank_transaction_history(db)
+    return {"created": created, "updated": updated, "pages": pages, "recategorized": recategorized["changed"]}
 
 
 async def ensure_default_budget_envelopes(db: AsyncSession, account_scope: str = "personal") -> None:
@@ -209,7 +268,43 @@ def _derived_role(account: BankAccount) -> str:
     return "operating"
 
 
+async def repair_legacy_account_scopes(db: AsyncSession) -> int:
+    """Repair the old UI's `reserve` account scope without altering account ownership semantics.
+
+    Scope is Personal/Pro. Reserve is a Financial Autopilot role. Earlier Android builds
+    accidentally exposed `reserve` as a scope, which could make safe own-account transfers
+    impossible because the transfer engine correctly refuses cross-scope movement.
+    """
+    accounts = list((await db.execute(select(BankAccount).where(BankAccount.account_scope == "reserve"))).scalars())
+    if not accounts:
+        return 0
+    policies = {
+        row.bank_account_id: row
+        for row in (await db.execute(select(BankAutopilotPolicy))).scalars()
+    }
+    for account in accounts:
+        account.account_scope = "personal"
+        policy = policies.get(account.id)
+        if policy is None:
+            policy = BankAutopilotPolicy(bank_account_id=account.id)
+            db.add(policy)
+            policies[account.id] = policy
+        policy.role = "reserve"
+        policy.internal_transfers_enabled = False
+        policy.accept_surplus = True
+        policy.target_floor = max(_money(policy.target_floor), _money(account.safety_reserve))
+    await write_audit(
+        db,
+        "legacy_bank_scope_repaired",
+        entity_type="bank_account",
+        details={"count": len(accounts), "old_scope": "reserve", "new_scope": "personal", "role": "reserve"},
+    )
+    await db.commit()
+    return len(accounts)
+
+
 async def ensure_account_autopilot_policies(db: AsyncSession) -> list[BankAutopilotPolicy]:
+    await repair_legacy_account_scopes(db)
     accounts = list((await db.execute(select(BankAccount))).scalars())
     by_account = {
         row.bank_account_id: row
@@ -239,26 +334,100 @@ async def ensure_account_autopilot_policies(db: AsyncSession) -> list[BankAutopi
     return list(by_account.values())
 
 
-async def monthly_spend_by_scope(db: AsyncSession, *, days: int = 90) -> dict[str, Decimal]:
-    since = datetime.utcnow() - timedelta(days=days)
-    rows = list(
+async def _learning_transactions(
+    db: AsyncSession,
+    *,
+    since: datetime,
+) -> list[tuple[str, datetime, str, Decimal, str, bool]]:
+    """Return deduplicated live + statement evidence for budgeting.
+
+    Statement rows that have matched an Enable Banking transaction are excluded so one
+    monetary event is never counted twice. Historical rows remain useful when the live
+    provider no longer exposes the older transaction window.
+    """
+    result: list[tuple[str, datetime, str, Decimal, str, bool]] = []
+    live_rows = list(
         (
             await db.execute(
                 select(BankTransaction, BankAccount)
                 .join(BankAccount, BankTransaction.bank_account_id == BankAccount.id)
                 .where(
                     BankTransaction.booking_date >= since,
-                    BankTransaction.direction == "debit",
                     BankTransaction.is_internal_transfer.is_(False),
                 )
             )
         ).all()
     )
-    totals: dict[str, Decimal] = {}
-    for tx, account in rows:
-        totals[account.account_scope] = totals.get(account.account_scope, Decimal("0.00")) + _money(tx.amount)
-    multiplier = Decimal("30") / Decimal(str(max(1, days)))
-    return {scope: (value * multiplier).quantize(Decimal("0.01")) for scope, value in totals.items()}
+    for tx, account in live_rows:
+        if tx.booking_date is None:
+            continue
+        refund_text = f"{tx.counterparty_name} {tx.remittance}".casefold()
+        result.append((
+            account.account_scope,
+            tx.booking_date,
+            tx.category,
+            _money(tx.amount),
+            tx.direction,
+            tx.direction == "credit" and any(term in refund_text for term in ("refund", "reversal", "reverted")),
+        ))
+
+    historical_rows = list(
+        (
+            await db.execute(
+                select(HistoricalFinancialTransaction).where(
+                    HistoricalFinancialTransaction.booking_date >= since,
+                    HistoricalFinancialTransaction.matched_bank_transaction_id.is_(None),
+                    HistoricalFinancialTransaction.is_internal_transfer.is_(False),
+                )
+            )
+        ).scalars()
+    )
+    for tx in historical_rows:
+        result.append((
+            tx.account_scope,
+            tx.booking_date,
+            tx.category,
+            _money(tx.amount),
+            tx.direction,
+            tx.income_kind == "refund" or "refund" in tx.transaction_type.casefold(),
+        ))
+    return result
+
+
+async def _learned_monthly_spend(
+    db: AsyncSession,
+    *,
+    days: int = 180,
+) -> tuple[dict[str, Decimal], dict[tuple[str, str], Decimal]]:
+    since = datetime.utcnow() - timedelta(days=max(30, days))
+    rows = await _learning_transactions(db, since=since)
+    scope_months: dict[str, set[tuple[int, int]]] = {}
+    scope_totals: dict[str, Decimal] = {}
+    category_totals: dict[tuple[str, str], Decimal] = {}
+    for scope, booked, category, amount, direction, is_refund in rows:
+        scope_months.setdefault(scope, set()).add((booked.year, booked.month))
+        key = (scope, category)
+        if direction == "debit":
+            scope_totals[scope] = scope_totals.get(scope, Decimal("0.00")) + amount
+            category_totals[key] = category_totals.get(key, Decimal("0.00")) + amount
+        elif is_refund:
+            scope_totals[scope] = max(Decimal("0.00"), scope_totals.get(scope, Decimal("0.00")) - amount)
+            category_totals[key] = max(Decimal("0.00"), category_totals.get(key, Decimal("0.00")) - amount)
+
+    monthly_scope: dict[str, Decimal] = {}
+    monthly_category: dict[tuple[str, str], Decimal] = {}
+    for scope, total in scope_totals.items():
+        months = Decimal(max(1, len(scope_months.get(scope, set()))))
+        monthly_scope[scope] = (total / months).quantize(Decimal("0.01"))
+    for key, total in category_totals.items():
+        months = Decimal(max(1, len(scope_months.get(key[0], set()))))
+        monthly_category[key] = (total / months * Decimal("1.05")).quantize(Decimal("0.01"))
+    return monthly_scope, monthly_category
+
+
+async def monthly_spend_by_scope(db: AsyncSession, *, days: int = 180) -> dict[str, Decimal]:
+    monthly_scope, _ = await _learned_monthly_spend(db, days=days)
+    return monthly_scope
 
 
 async def upcoming_bill_totals(db: AsyncSession, *, days: int = 30) -> dict[str, Decimal]:
@@ -281,21 +450,12 @@ async def upcoming_bill_totals(db: AsyncSession, *, days: int = 30) -> dict[str,
 
 async def current_month_income_by_scope(db: AsyncSession) -> dict[str, Decimal]:
     month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    rows = list(
-        (
-            await db.execute(
-                select(BankAccount.account_scope, func.coalesce(func.sum(BankTransaction.amount), 0))
-                .join(BankAccount, BankTransaction.bank_account_id == BankAccount.id)
-                .where(
-                    BankTransaction.booking_date >= month_start,
-                    BankTransaction.direction == "credit",
-                    BankTransaction.is_internal_transfer.is_(False),
-                )
-                .group_by(BankAccount.account_scope)
-            )
-        ).all()
-    )
-    return {str(scope): _money(value) for scope, value in rows}
+    rows = await _learning_transactions(db, since=month_start)
+    totals: dict[str, Decimal] = {}
+    for scope, _, _, amount, direction, is_refund in rows:
+        if direction == "credit" and not is_refund:
+            totals[scope] = totals.get(scope, Decimal("0.00")) + amount
+    return totals
 
 
 async def budget_cash_plan_by_scope(
@@ -303,49 +463,24 @@ async def budget_cash_plan_by_scope(
 ) -> tuple[dict[str, Decimal], dict[str, Decimal], dict[str, Decimal]]:
     """Return monthly budget plan, reserve targets, and income-allocation percentages.
 
-    Explicit monthly limits win. Categories without a configured limit learn a
-    conservative 105% monthly allowance from the last 90 days. Reserve targets are
-    treated as a separate cash-safety floor. Income allocation percentages are used
-    for destination funding (for example, reserving 15% of income for tax).
+    Explicit monthly limits win. Categories left at zero learn a conservative 105%
+    allowance from up to six months of deduplicated Enable Banking + imported statement
+    history. Reserve targets remain a separate cash-safety floor.
     """
     await ensure_default_budget_envelopes(db, "personal")
     await ensure_default_budget_envelopes(db, "pro")
     envelopes = list(
         (await db.execute(select(BudgetEnvelope).where(BudgetEnvelope.enabled.is_(True)))).scalars()
     )
-    since = datetime.utcnow() - timedelta(days=90)
-    history_rows = list(
-        (
-            await db.execute(
-                select(
-                    BankAccount.account_scope,
-                    BankTransaction.category,
-                    func.coalesce(func.sum(BankTransaction.amount), 0),
-                )
-                .join(BankAccount, BankTransaction.bank_account_id == BankAccount.id)
-                .where(
-                    BankTransaction.booking_date >= since,
-                    BankTransaction.direction == "debit",
-                    BankTransaction.is_internal_transfer.is_(False),
-                )
-                .group_by(BankAccount.account_scope, BankTransaction.category)
-            )
-        ).all()
-    )
-    history = {(str(scope), str(category)): _money(value) for scope, category, value in history_rows}
+    _, learned_categories = await _learned_monthly_spend(db, days=180)
     monthly_plan: dict[str, Decimal] = {}
     reserve_targets: dict[str, Decimal] = {}
     allocation_percent: dict[str, Decimal] = {}
     for envelope in envelopes:
         configured = _money(envelope.monthly_limit)
-        if configured > 0:
-            effective = configured
-        else:
-            effective = (
-                history.get((envelope.account_scope, envelope.category), Decimal("0.00"))
-                / Decimal("3")
-                * Decimal("1.05")
-            ).quantize(Decimal("0.01"))
+        effective = configured if configured > 0 else learned_categories.get(
+            (envelope.account_scope, envelope.category), Decimal("0.00")
+        )
         monthly_plan[envelope.account_scope] = monthly_plan.get(envelope.account_scope, Decimal("0.00")) + effective
         reserve_targets[envelope.account_scope] = (
             reserve_targets.get(envelope.account_scope, Decimal("0.00")) + _money(envelope.reserve_target)
@@ -872,46 +1007,23 @@ async def finance_overview(db: AsyncSession) -> dict[str, Any]:
     policies = await ensure_account_autopilot_policies(db)
     accounts = list((await db.execute(select(BankAccount).order_by(BankAccount.id))).scalars())
     month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    rows = list(
-        (
-            await db.execute(
-                select(BankTransaction, BankAccount)
-                .join(BankAccount, BankTransaction.bank_account_id == BankAccount.id)
-                .where(BankTransaction.booking_date >= month_start, BankTransaction.is_internal_transfer.is_(False))
-            )
-        ).all()
-    )
+    current_rows = await _learning_transactions(db, since=month_start)
     spent: dict[tuple[str, str], Decimal] = {}
     income: dict[str, Decimal] = {}
-    for tx, account in rows:
-        if tx.direction == "debit":
-            key = (account.account_scope, tx.category)
-            spent[key] = spent.get(key, Decimal("0.00")) + _money(tx.amount)
+    for scope, _, category, amount, direction in current_rows:
+        if direction == "debit":
+            key = (scope, category)
+            spent[key] = spent.get(key, Decimal("0.00")) + amount
         else:
-            income[account.account_scope] = income.get(account.account_scope, Decimal("0.00")) + _money(tx.amount)
+            income[scope] = income.get(scope, Decimal("0.00")) + amount
 
-    history_spend = await monthly_spend_by_scope(db)
+    history_spend, learned_categories = await _learned_monthly_spend(db, days=180)
     envelopes = list((await db.execute(select(BudgetEnvelope).where(BudgetEnvelope.enabled.is_(True)))).scalars())
     envelope_rows = []
     for envelope in envelopes:
         actual = spent.get((envelope.account_scope, envelope.category), Decimal("0.00"))
         configured = _money(envelope.monthly_limit)
-        suggested = configured
-        if configured <= 0:
-            category_90 = (
-                await db.execute(
-                    select(func.coalesce(func.sum(BankTransaction.amount), 0))
-                    .join(BankAccount, BankTransaction.bank_account_id == BankAccount.id)
-                    .where(
-                        BankAccount.account_scope == envelope.account_scope,
-                        BankTransaction.category == envelope.category,
-                        BankTransaction.direction == "debit",
-                        BankTransaction.is_internal_transfer.is_(False),
-                        BankTransaction.booking_date >= datetime.utcnow() - timedelta(days=90),
-                    )
-                )
-            ).scalar_one()
-            suggested = (_money(category_90) / Decimal("3") * Decimal("1.05")).quantize(Decimal("0.01"))
+        suggested = learned_categories.get((envelope.account_scope, envelope.category), Decimal("0.00"))
         limit = configured if configured > 0 else suggested
         envelope_rows.append(
             {
@@ -921,6 +1033,7 @@ async def finance_overview(db: AsyncSession) -> dict[str, Any]:
                 "spent": str(actual),
                 "monthly_limit": str(configured),
                 "effective_limit": str(limit),
+                "learned_limit": str(suggested),
                 "remaining": str(max(Decimal("0.00"), limit - actual)),
                 "overspent": bool(limit > 0 and actual > limit),
                 "reserve_target": str(envelope.reserve_target),
@@ -941,6 +1054,9 @@ async def finance_overview(db: AsyncSession) -> dict[str, Any]:
             )
         )
     ).scalar_one()
+    from app.services.bank_statement_import import statement_history_summary
+
+    statement_history = await statement_history_summary(db)
     return {
         "generated_at": datetime.utcnow().isoformat(),
         "total_available": str(total_available),
@@ -949,6 +1065,7 @@ async def finance_overview(db: AsyncSession) -> dict[str, Any]:
         "monthly_spend_forecast": {scope: str(value) for scope, value in history_spend.items()},
         "upcoming_30_day_obligations": {scope: str(value) for scope, value in obligations.items()},
         "pending_internal_transfers": int(pending_transfers),
+        "statement_history": statement_history,
         "envelopes": envelope_rows,
         "account_policies": [
             {
@@ -965,3 +1082,4 @@ async def finance_overview(db: AsyncSession) -> dict[str, Any]:
             for policy in policies
         ],
     }
+

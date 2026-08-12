@@ -347,6 +347,84 @@ class BankTransaction(Base):
     )
 
 
+class BankStatementImport(Base):
+    __tablename__ = "bank_statement_imports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(80), default="beobank", index=True)
+    statement_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    source_checksum_sha256: Mapped[str] = mapped_column(String(64), index=True)
+    original_filename: Mapped[str] = mapped_column(Text, default="")
+    account_iban: Mapped[str] = mapped_column(String(34), index=True)
+    account_scope: Mapped[str] = mapped_column(String(30), default="personal", index=True)
+    matched_bank_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bank_accounts.id"), nullable=True, index=True
+    )
+    statement_number: Mapped[int] = mapped_column(Integer, default=0)
+    statement_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    total_credits: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    total_debits: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    closing_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    transaction_count: Mapped[int] = mapped_column(Integer, default=0)
+    validation_status: Mapped[str] = mapped_column(String(40), default="verified", index=True)
+    validation_json: Mapped[str] = mapped_column(Text, default="{}")
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class HistoricalFinancialTransaction(Base):
+    __tablename__ = "historical_financial_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    statement_import_id: Mapped[int] = mapped_column(
+        ForeignKey("bank_statement_imports.id", ondelete="CASCADE"), index=True
+    )
+    transaction_fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    sequence_number: Mapped[int] = mapped_column(Integer)
+    account_iban: Mapped[str] = mapped_column(String(34), index=True)
+    account_scope: Mapped[str] = mapped_column(String(30), default="personal", index=True)
+    booking_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    value_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    direction: Mapped[str] = mapped_column(String(10), index=True)
+    transaction_type: Mapped[str] = mapped_column(String(120), default="")
+    counterparty_name: Mapped[str] = mapped_column(String(255), default="", index=True)
+    counterparty_iban: Mapped[str] = mapped_column(String(34), default="")
+    remittance: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(80), default="other", index=True)
+    income_kind: Mapped[str] = mapped_column(String(40), default="", index=True)
+    is_internal_transfer: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    merchant_occurred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    original_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    original_currency: Mapped[str] = mapped_column(String(3), default="")
+    exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 8), nullable=True)
+    fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    matched_bank_transaction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bank_transactions.id"), nullable=True, unique=True, index=True
+    )
+    match_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
+    raw_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "statement_import_id",
+            "sequence_number",
+            name="uq_historical_statement_sequence",
+        ),
+        Index(
+            "ix_historical_budget_window",
+            "account_scope",
+            "booking_date",
+            "direction",
+        ),
+    )
+
+
 class BudgetEnvelope(Base):
     __tablename__ = "budget_envelopes"
 

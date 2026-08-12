@@ -78,7 +78,7 @@ class _DocumentsViewState extends State<_DocumentsView> {
       final matchesFilter = switch (filter) {
         'Finance' => category.contains('financ') || category.contains('geld') || category.contains('bill'),
         'Purchase' => category.contains('purchase') || category.contains('order') || category.contains('receipt'),
-        'Important' => category.contains('legal') || category.contains('contract') || category.contains('tax') || category.contains('medical'),
+        'Important' => category.contains('important') || category.contains('legal') || category.contains('contract') || category.contains('tax') || category.contains('medical'),
         _ => true,
       };
       return matchesQuery && matchesFilter;
@@ -254,7 +254,7 @@ class _DocumentCard extends StatelessWidget {
     final value = category.toLowerCase();
     if (value.contains('financ') || value.contains('bill')) return VaTheme.success;
     if (value.contains('purchase') || value.contains('order') || value.contains('receipt')) return VaTheme.warning;
-    if (value.contains('legal') || value.contains('contract') || value.contains('tax')) return VaTheme.primary;
+    if (value.contains('important') || value.contains('legal') || value.contains('contract') || value.contains('tax')) return VaTheme.primary;
     return VaTheme.secondary;
   }
 
