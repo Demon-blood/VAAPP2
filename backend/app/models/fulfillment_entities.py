@@ -8,6 +8,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
+# FulfillmentAction references telephony_calls. Register the additive telephony
+# tables whenever fulfillment models are imported so Base.metadata.create_all()
+# is valid even in isolated test/worker import paths.
+import app.models.telephony_entities  # noqa: F401
+
 
 def utcnow() -> datetime:
     return datetime.utcnow()
