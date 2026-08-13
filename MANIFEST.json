@@ -1,12 +1,12 @@
 {
-  "release": "0.9.3",
-  "android_version": "0.9.3+36",
+  "release": "0.9.4",
+  "android_version": "0.9.4+37",
   "baseline_repository": "Demon-blood/VAAPP2",
-  "baseline_commit": "fba21f29c7a6ccc7beb54c2d395c2ef78293ca76",
-  "purpose": "Cumulative Phase 1 + Phase 2 + Phase 3 + Phase 4: autonomous objectives, communications ownership, verified calendar scheduling, and provenance-backed cross-channel CRM / relationship memory",
+  "baseline_commit": "bf57e7bdc59e2e72534d2a8fa11a35c5fed0cde9",
+  "purpose": "Cumulative Phase 1 + Phase 2 + Phase 3 + Phase 4 + Phase 5: autonomous objectives, communications ownership, verified calendar scheduling, provenance-backed relationship memory, and a durable secure Chromium portal operator",
   "database_strategy": "additive_tables_only",
-  "phase": 4,
-  "phase_name": "CRM / Relationship Memory",
-  "next_phase": "Secure Browser / Portal Operator",
-  "version": "0.9.3"
+  "phase": 5,
+  "phase_name": "Secure Browser / Portal Operator",
+  "next_phase": "Documents / Forms / Deadlines",
+  "version": "0.9.4"
 }

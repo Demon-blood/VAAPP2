@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import get_settings
-from app.models.entities import BankAccount, BankConnection, Device, OAuthConnection, ServiceConnector
+from app.models.entities import BankAccount, BankConnection, BrowserPortal, Device, OAuthConnection, ServiceConnector
 from app.services.runtime_config import get_runtime_value
 
 
@@ -71,6 +71,13 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
                     ServiceConnector.enabled.is_(True),
                     ServiceConnector.status.in_(["live", "configured"]),
                 )
+            )
+        ).scalar_one()
+    )
+    browser_portal = bool(
+        (
+            await db.execute(
+                select(func.count(BrowserPortal.id)).where(BrowserPortal.enabled.is_(True))
             )
         ).scalar_one()
     )
@@ -166,6 +173,14 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "VAAPP service connector runtime",
             resolution="user_connect" if not generic_connector else "automatic",
             detail="At least one live/configured service connector required",
+        ),
+        _cap(
+            "browser_portal",
+            "Secure browser portal execution",
+            browser_portal,
+            "Playwright Chromium portal operator",
+            resolution="user_connect" if not browser_portal else "automatic",
+            detail="Configure at least one allowlisted browser portal" if not browser_portal else "Encrypted portal/session executor configured",
         ),
         _cap(
             "sms_send",

@@ -13,6 +13,7 @@ from app.models.entities import (
     AuditLog,
     CommunicationAction,
     CommunicationDeliveryEvidence,
+    BrowserOperation,
     CalendarMutation,
     GmailOutboundMessage,
     OwnAccountTransfer,
@@ -38,6 +39,7 @@ TERMINAL_OBJECTIVE_STATES = {"completed", "cancelled", "failed"}
 _JOB_CAPABILITY = {
     "gmail.sync": "email",
     "calendar.sync": "calendar",
+    "browser.operation.run": "browser_portal",
     "banking.autopilot": "banking_read",
     "google.contacts.sync": "contacts",
     "connectors.rules.run": "service_connectors",
@@ -947,6 +949,39 @@ async def objective_from_event(db: AsyncSession, event: VAEvent) -> VAObjective:
         })
     elif event.event_type == "calendar_attendee_response_received":
         return await _handle_calendar_response_event(db, event, payload)
+    elif event.event_type == "browser_portal_operation_planned":
+        operation_id = int(payload.get("browser_operation_id") or 0)
+        portal_id = int(payload.get("portal_id") or 0)
+        material_commitment = bool(payload.get("material_commitment"))
+        objective, _ = await _create_objective(
+            db,
+            event,
+            title=event.title,
+            goal=str(payload.get("goal") or event.title),
+            category="browser_portal",
+            priority=str(payload.get("priority") or "normal"),
+            risk_level="critical" if material_commitment else str(payload.get("risk_level") or "low"),
+            status="planned",
+        )
+        await _ensure_step(
+            db,
+            objective,
+            position=1,
+            action_type="browser_operation",
+            parameters={
+                "browser_operation_id": operation_id,
+                "portal_id": portal_id,
+                "material_commitment": material_commitment,
+            },
+            verification_type="browser_operation_verified",
+        )
+        objective.plan_json = _dump({
+            "steps": 1,
+            "source": "secure_browser_operator",
+            "browser_operation_id": operation_id,
+            "portal_id": portal_id,
+            "material_commitment": material_commitment,
+        })
     elif event.event_type == "device_reply_planned":
         protected = bool(payload.get("protected"))
         objective, _ = await _create_objective(
@@ -1247,6 +1282,68 @@ async def _execute_step(db: AsyncSession, objective: VAObjective, step: VAObject
                 step.status = "verifying"
                 step.run_after = max(mutation.verify_after, utcnow() + timedelta(seconds=2))
                 await _transition_objective(db, objective, "verifying")
+        elif step.action_type == "browser_operation":
+            from app.services.browser_operator import enqueue_browser_operation
+
+            operation_id = int(params.get("browser_operation_id") or 0)
+            operation = await db.get(BrowserOperation, operation_id) if operation_id > 0 else None
+            if operation is None:
+                raise RuntimeError("Persisted browser operation no longer exists")
+            operation.objective_id = objective.id
+            operation.step_id = step.id
+            step.external_ref = f"browser-operation:{operation.id}"
+            step.outcome_json = _dump({"browser_operation_id": operation.id, "status": operation.status})
+            await db.commit()
+
+            if operation.status == "verified":
+                step.status = "verifying"
+                step.run_after = utcnow()
+                await _transition_objective(db, objective, "verifying")
+            elif operation.status == "needs_user_auth":
+                step.status = "blocked_user"
+                step.last_error = operation.challenge_prompt or operation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "needs_user",
+                    reason=operation.challenge_prompt or "Portal authentication is required",
+                )
+            elif operation.status == "creation_uncertain":
+                step.status = "failed"
+                step.finished_at = utcnow()
+                step.last_error = operation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_system",
+                    reason=operation.last_error or "Browser side-effect outcome is ambiguous; VAAPP will not risk a duplicate submission",
+                )
+            elif operation.status == "blocked_capability":
+                step.status = "blocked_capability"
+                step.last_error = operation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_capability",
+                    reason=operation.last_error or "Secure browser executor is unavailable",
+                )
+            elif operation.status == "failed":
+                step.status = "failed"
+                step.finished_at = utcnow()
+                step.last_error = operation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_system",
+                    reason=operation.last_error or "Browser operation failed without a verified provider outcome",
+                )
+            else:
+                if operation.status in {"pending", "retry"}:
+                    await enqueue_browser_operation(db, operation)
+                step.status = "verifying"
+                step.run_after = utcnow() + timedelta(seconds=10)
+                await _transition_objective(db, objective, "verifying")
+
         elif step.action_type == "record_only":
             step.status = "completed"
             step.outcome_json = _dump({"recorded": True})
@@ -1513,6 +1610,88 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
                 )
             else:
                 await _finish_if_all_steps_complete(db, objective)
+            continue
+
+        if step.verification_type == "browser_operation_verified":
+            operation_id = int(params.get("browser_operation_id") or 0)
+            operation = await db.get(BrowserOperation, operation_id) if operation_id > 0 else None
+            if operation is None:
+                step.status = "failed"
+                step.finished_at = now
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_system",
+                    reason="Persisted browser operation intent is missing",
+                )
+                continue
+            step.outcome_json = _dump({"browser_operation_id": operation.id, "status": operation.status})
+            if operation.status == "needs_user_auth":
+                step.status = "blocked_user"
+                step.last_error = operation.challenge_prompt or operation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "needs_user",
+                    reason=operation.challenge_prompt or "Portal authentication is required",
+                )
+                continue
+            if operation.status == "creation_uncertain":
+                step.status = "failed"
+                step.finished_at = now
+                step.last_error = operation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_system",
+                    reason=operation.last_error or "Browser side-effect outcome is ambiguous; VAAPP will not blindly replay it",
+                )
+                continue
+            if operation.status == "blocked_capability":
+                step.status = "blocked_capability"
+                step.last_error = operation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_capability",
+                    reason=operation.last_error or "Secure browser executor is unavailable",
+                )
+                continue
+            if operation.status == "failed":
+                step.status = "failed"
+                step.finished_at = now
+                step.last_error = operation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_system",
+                    reason=operation.last_error or "Browser provider postcondition could not be verified",
+                )
+                continue
+            if operation.status != "verified":
+                step.run_after = max(operation.verify_after, now + timedelta(seconds=10))
+                await _transition_objective(db, objective, "verifying")
+                continue
+
+            step.status = "completed"
+            step.finished_at = now
+            step.last_error = ""
+            step.external_ref = f"browser-operation:{operation.id}"
+            await _add_evidence(
+                db,
+                objective,
+                step=step,
+                evidence_type="browser_postcondition_verified",
+                provider="playwright_chromium",
+                external_ref=str(operation.id),
+                details={
+                    "portal_id": operation.portal_id,
+                    "url": operation.last_url,
+                    "page_title": operation.page_title,
+                    "browser_operation_id": operation.id,
+                },
+            )
+            await _finish_if_all_steps_complete(db, objective)
             continue
 
         if step.verification_type == "calendar_mutation_verified":

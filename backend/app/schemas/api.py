@@ -152,6 +152,39 @@ class CalendarObjectiveRequest(BaseModel):
     priority: str = "normal"
 
 
+
+
+class BrowserPortalRequest(BaseModel):
+    slug: str = Field(min_length=2, max_length=120, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    name: str = Field(min_length=1, max_length=255)
+    base_url: str = Field(min_length=8, max_length=2000)
+    login_url: str = Field(default="", max_length=2000)
+    allowed_hosts: list[str] = Field(default_factory=list, max_length=25)
+    login_recipe: dict[str, Any] = Field(default_factory=dict)
+    account_scope: Literal["personal", "pro"] = "personal"
+    enabled: bool = True
+
+
+class BrowserCredentialRequest(BaseModel):
+    username: str = Field(default="", max_length=1000)
+    password: str = Field(default="", max_length=4000)
+
+
+class BrowserOperationRequest(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=255)
+    portal_id: int
+    title: str = Field(min_length=1, max_length=500)
+    goal: str = Field(min_length=1, max_length=4000)
+    steps: list[dict[str, Any]] = Field(min_length=1, max_length=50)
+    verification: dict[str, Any]
+    priority: str = Field(default="normal", max_length=20)
+    risk_level: Literal["low", "medium", "high", "critical"] = "low"
+
+
+class BrowserAuthCodeRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=200)
+
+
 class AutomationDecision(BaseModel):
     category: str
     financial_document_type: Literal["none", "payable_invoice", "paid_receipt", "statement_or_notice"] = "none"

@@ -54,6 +54,9 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> calendarEvents = [];
   Map<String, dynamic> relationshipStatus = {};
   List<Map<String, dynamic>> relationships = [];
+  Map<String, dynamic> browserStatus = {};
+  List<Map<String, dynamic>> browserPortals = [];
+  List<Map<String, dynamic>> browserOperations = [];
   Map<String, dynamic> financeOverview = {};
   Map<String, dynamic> financeInvestments = {};
   List<Map<String, dynamic>> financeAccountPolicies = [];
@@ -135,6 +138,9 @@ class AppState extends ChangeNotifier {
     calendarEvents = [];
     relationshipStatus = {};
     relationships = [];
+    browserStatus = {};
+    browserPortals = [];
+    browserOperations = [];
     financeOverview = {};
     financeInvestments = {};
     financeAccountPolicies = [];
@@ -163,11 +169,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.9.3')) {
+        if (!_versionAtLeast(backendVersion, '0.9.4')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.9.3 requires backend 0.9.3 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.9.4 requires backend 0.9.4 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -216,6 +222,9 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/calendar/events?days=60', optional: true),
         _safeGet('/api/relationships/status', optional: true),
         _safeGet('/api/relationships?limit=250', optional: true),
+        _safeGet('/api/browser/status', optional: true),
+        _safeGet('/api/browser/portals', optional: true),
+        _safeGet('/api/browser/operations?limit=100', optional: true),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -260,6 +269,9 @@ class AppState extends ChangeNotifier {
       if (results[35] is List) calendarEvents = _list(results[35]);
       if (results[36] is Map) relationshipStatus = Map<String, dynamic>.from(results[36] as Map);
       if (results[37] is List) relationships = _list(results[37]);
+      if (results[38] is Map) browserStatus = Map<String, dynamic>.from(results[38] as Map);
+      if (results[39] is List) browserPortals = _list(results[39]);
+      if (results[40] is List) browserOperations = _list(results[40]);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -623,6 +635,90 @@ class AppState extends ChangeNotifier {
   Future<Map<String, dynamic>> relationshipDetail(int relationshipId) async {
     return Map<String, dynamic>.from(
       await api.getJson('/api/relationships/$relationshipId') as Map,
+    );
+  }
+
+  Future<Map<String, dynamic>> addBrowserPortal({
+    required String slug,
+    required String name,
+    required String baseUrl,
+    String loginUrl = '',
+    List<String> allowedHosts = const <String>[],
+    String username = '',
+    String password = '',
+  }) async {
+    late Map<String, dynamic> portal;
+    await _run(() async {
+      portal = Map<String, dynamic>.from(
+        await api.postJson('/api/browser/portals', {
+          'slug': slug,
+          'name': name,
+          'base_url': baseUrl,
+          'login_url': loginUrl,
+          'allowed_hosts': allowedHosts,
+          'login_recipe': <String, dynamic>{},
+          'account_scope': 'personal',
+          'enabled': true,
+        }) as Map,
+      );
+      final portalId = (portal['id'] as num?)?.toInt() ?? 0;
+      if (portalId > 0 && (username.isNotEmpty || password.isNotEmpty)) {
+        await api.putJson('/api/browser/portals/$portalId/credentials', {
+          'username': username,
+          'password': password,
+        });
+      }
+      await refreshAll(showBusy: false);
+    });
+    return portal;
+  }
+
+  Future<void> updateBrowserCredentials(int portalId, String username, String password) async {
+    await _run(() async {
+      await api.putJson('/api/browser/portals/$portalId/credentials', {
+        'username': username,
+        'password': password,
+      });
+      await refreshAll(showBusy: false);
+    });
+  }
+
+  Future<Map<String, dynamic>> submitBrowserAuthCode(int operationId, String code) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/browser/operations/$operationId/auth-code', {'code': code}) as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> resumeBrowserOperation(int operationId) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/browser/operations/$operationId/resume') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> approveBrowserOperation(int operationId) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/browser/operations/$operationId/approve') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> browserOperationDetail(int operationId) async {
+    return Map<String, dynamic>.from(
+      await api.getJson('/api/browser/operations/$operationId') as Map,
     );
   }
 

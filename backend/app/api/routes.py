@@ -4,7 +4,7 @@ import html
 import json
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,6 +74,10 @@ from app.schemas.api import (
     BankAutopilotPolicyResponse,
     BudgetEnvelopeRequest,
     BudgetEnvelopeResponse,
+    BrowserAuthCodeRequest,
+    BrowserCredentialRequest,
+    BrowserOperationRequest,
+    BrowserPortalRequest,
     CalendarObjectiveRequest,
     CommunicationActionResultRequest,
     CommunicationBatchRequest,
@@ -170,6 +174,22 @@ from app.services.relationship_memory import (
     relationship_detail,
     relationship_memory_status,
 )
+from app.services.browser_operator import (
+    approve_material_operation,
+    browser_status,
+    evidence_png as browser_evidence_png,
+    list_operations as list_browser_operations,
+    list_portals as list_browser_portals,
+    operation_detail as browser_operation_detail,
+    operation_public as browser_operation_public,
+    operation_requires_material_decision,
+    portal_public as browser_portal_public,
+    prepare_browser_operation,
+    resume_browser_operation,
+    set_portal_credentials,
+    submit_auth_code,
+    upsert_portal as upsert_browser_portal,
+)
 from app.services.runtime_config import CONFIG_SECTIONS, get_runtime_value, section_status, set_runtime_values
 from app.services.automation_engine import run_connector_automation_rules
 from app.services.connector_service import (
@@ -206,6 +226,7 @@ async def system_info() -> dict:
             "calendar",
             "calendar_scheduling_agent",
             "relationship_memory",
+            "secure_browser_portal_operator",
             "tasks",
             "documents",
             "orders",
@@ -1778,6 +1799,188 @@ async def relationship_reconcile_route(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     return await reconcile_relationship_memory(db)
+
+
+@router.get("/api/browser/status")
+async def browser_operator_status_route(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await browser_status(db)
+
+
+@router.get("/api/browser/portals")
+async def browser_portal_list_route(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    return await list_browser_portals(db)
+
+
+@router.post("/api/browser/portals")
+async def browser_portal_upsert_route(
+    payload: BrowserPortalRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        portal = await upsert_browser_portal(db, **payload.model_dump())
+        return browser_portal_public(portal)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/api/browser/portals/{portal_id}/credentials")
+async def browser_portal_credentials_route(
+    portal_id: int,
+    payload: BrowserCredentialRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        row = await set_portal_credentials(
+            db,
+            portal_id=portal_id,
+            username=payload.username,
+            password=payload.password,
+        )
+        return {
+            "portal_id": row.portal_id,
+            "username_configured": bool(row.username_encrypted),
+            "password_configured": bool(row.password_encrypted),
+        }
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/api/browser/operations")
+async def browser_operation_list_route(
+    limit: int = Query(default=100, ge=1, le=500),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    return await list_browser_operations(db, limit=limit)
+
+
+@router.post("/api/browser/operations")
+async def browser_operation_create_route(
+    payload: BrowserOperationRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        operation = await prepare_browser_operation(
+            db,
+            idempotency_key=payload.idempotency_key,
+            portal_id=payload.portal_id,
+            title=payload.title,
+            steps=payload.steps,
+            verification=payload.verification,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    material_commitment = operation_requires_material_decision(operation)
+    event, created = await record_va_event(
+        db,
+        event_key=f"browser-request:{payload.idempotency_key}",
+        source_type="browser_request",
+        source_id=str(operation.id),
+        event_type="browser_portal_operation_planned",
+        title=payload.title,
+        payload={
+            "browser_operation_id": operation.id,
+            "portal_id": operation.portal_id,
+            "goal": payload.goal,
+            "priority": payload.priority,
+            "risk_level": payload.risk_level,
+            "material_commitment": material_commitment,
+        },
+    )
+    await db.commit()
+    return {
+        "operation": browser_operation_public(operation),
+        "event_id": event.id,
+        "event_created": created,
+        "material_approval_required": material_commitment,
+    }
+
+
+@router.get("/api/browser/operations/{operation_id}")
+async def browser_operation_detail_route(
+    operation_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        return await browser_operation_detail(db, operation_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/api/browser/operations/{operation_id}/auth-code")
+async def browser_operation_auth_code_route(
+    operation_id: int,
+    payload: BrowserAuthCodeRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        row = await submit_auth_code(db, operation_id, payload.code)
+        return browser_operation_public(row)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/api/browser/operations/{operation_id}/resume")
+async def browser_operation_resume_route(
+    operation_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        row = await resume_browser_operation(db, operation_id)
+        return browser_operation_public(row)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/api/browser/operations/{operation_id}/approve")
+async def browser_operation_approve_route(
+    operation_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        row = await approve_material_operation(db, operation_id)
+        return browser_operation_public(row)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/api/browser/evidence/{evidence_id}.png")
+async def browser_evidence_png_route(
+    evidence_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    try:
+        content = await browser_evidence_png(db, evidence_id)
+        return Response(
+            content=content,
+            media_type="image/png",
+            headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/api/orders")

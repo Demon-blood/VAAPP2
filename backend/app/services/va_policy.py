@@ -141,6 +141,65 @@ async def authorize_step(
             "capability": capability,
         }
 
+    if action_type == "browser_operation":
+        capability = await capability_for_key(db, "browser_portal")
+        if capability is None or not capability.get("available"):
+            return {
+                "allowed": False,
+                "needs_user": bool(capability and capability.get("resolution") == "user_connect"),
+                "resolution": (capability or {}).get("resolution") or "capability_unavailable",
+                "reason": "Secure browser execution requires a configured allowlisted portal",
+                "capability": capability,
+            }
+        operation_id = int(parameters.get("browser_operation_id") or 0)
+        if operation_id <= 0 or int(parameters.get("portal_id") or 0) <= 0:
+            return {
+                "allowed": False,
+                "needs_user": False,
+                "resolution": "invalid_parameters",
+                "reason": "A persisted browser operation and portal are required",
+                "capability": capability,
+            }
+        from app.models.entities import BrowserOperation
+        operation = await db.get(BrowserOperation, operation_id)
+        if operation is None:
+            return {
+                "allowed": False,
+                "needs_user": False,
+                "resolution": "invalid_parameters",
+                "reason": "Persisted browser operation no longer exists",
+                "capability": capability,
+            }
+        try:
+            import json
+            summary = json.loads(operation.plan_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            summary = {}
+        material = bool(isinstance(summary, dict) and summary.get("material_commitment"))
+        if material and operation.material_approved_at is None:
+            return {
+                "allowed": False,
+                "needs_user": True,
+                "resolution": "material_decision",
+                "reason": "This browser workflow would create a material payment/contract/security commitment and requires the account holder's decision",
+                "capability": capability,
+            }
+        if objective.risk_level == "critical" and not material:
+            return {
+                "allowed": False,
+                "needs_user": True,
+                "resolution": "material_decision",
+                "reason": "Critical-risk browser work requires the account holder's material decision",
+                "capability": capability,
+            }
+        return {
+            "allowed": True,
+            "needs_user": False,
+            "resolution": "automatic",
+            "reason": "The operation is constrained to an allowlisted portal with encrypted session state and explicit postcondition verification",
+            "capability": capability,
+        }
+
     if action_type in {"device_communication_action", "device_followup_action"}:
         capability = await capability_for_key(db, "android_device")
         if capability is None or not capability.get("available"):

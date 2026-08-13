@@ -18,7 +18,7 @@ class WorkPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-        length: 9,
+        length: 10,
         child: Column(
           children: [
             const TabBar(
@@ -27,6 +27,7 @@ class WorkPage extends StatelessWidget {
                 Tab(text: 'Operations'),
                 Tab(text: 'Tasks'),
                 Tab(text: 'Calendar'),
+                Tab(text: 'Portals'),
                 Tab(text: 'Documents'),
                 Tab(text: 'Orders'),
                 Tab(text: 'Subscriptions'),
@@ -41,6 +42,7 @@ class WorkPage extends StatelessWidget {
                   const VaOperationsPage(),
                   TasksPage(onOpenBills: onOpenBills, onOpenPayments: onOpenPayments),
                   const _CalendarView(),
+                  const _PortalsView(),
                   const _DocumentsView(),
                   const _OrdersView(),
                   const _SubscriptionsView(),
@@ -241,6 +243,457 @@ class _CalendarEventCard extends StatelessWidget {
     final local = parsed.toLocal();
     if (raw.length == 10) return DateFormat('EEE d MMM').format(local);
     return DateFormat(compact ? 'HH:mm' : 'EEE d MMM · HH:mm').format(local);
+  }
+}
+
+
+class _PortalsView extends StatelessWidget {
+  const _PortalsView();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final status = state.browserStatus;
+    final portals = state.browserPortals;
+    final operations = state.browserOperations;
+    final configured = (status['configured_portals'] as num?)?.toInt() ?? portals.length;
+    final authRequired = (status['needs_user_auth'] as num?)?.toInt() ?? 0;
+    final ambiguous = (status['ambiguous_outcomes'] as num?)?.toInt() ?? 0;
+    final verified = (status['verified'] as num?)?.toInt() ?? 0;
+
+    return RefreshIndicator(
+      onRefresh: () => context.read<AppState>().refreshAll(),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Material(
+            color: VaTheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.public_rounded, color: VaTheme.primary),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text('Secure portal operator', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                      ),
+                      FilledButton.icon(
+                        onPressed: state.busy ? null : () => _showAddPortalDialog(context),
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        label: const Text('Add portal'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'VAAPP uses a real Chromium session for allowlisted portals. Credentials and cookies stay encrypted on the backend; CAPTCHA and MFA are never bypassed.',
+                    style: TextStyle(color: VaTheme.textMuted),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _PortalMetric(label: 'Portals', value: '$configured'),
+                      _PortalMetric(label: 'Verified runs', value: '$verified'),
+                      _PortalMetric(label: 'Auth needed', value: '$authRequired'),
+                      _PortalMetric(label: 'Ambiguous', value: '$ambiguous'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Configured portals', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+          const SizedBox(height: 8),
+          if (portals.isEmpty)
+            const _PortalEmpty(
+              icon: Icons.vpn_key_off_rounded,
+              message: 'No browser portals are configured yet. Add a portal so the VA can own routine web workflows instead of handing them back to you.',
+            )
+          else
+            ...portals.map((row) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _PortalCard(row: row),
+                )),
+          const SizedBox(height: 18),
+          const Text('Portal operations', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+          const SizedBox(height: 8),
+          if (operations.isEmpty)
+            const _PortalEmpty(
+              icon: Icons.travel_explore_rounded,
+              message: 'No portal work has been queued yet. Browser operations created by the VA objective engine will appear here with real provider evidence.',
+            )
+          else
+            ...operations.map((row) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _BrowserOperationCard(row: row),
+                )),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddPortalDialog(BuildContext context) async {
+    final name = TextEditingController();
+    final baseUrl = TextEditingController();
+    final loginUrl = TextEditingController();
+    final allowedHosts = TextEditingController();
+    final username = TextEditingController();
+    final password = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add secure portal'),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: name,
+                  decoration: const InputDecoration(labelText: 'Portal name'),
+                  validator: (value) => (value ?? '').trim().isEmpty ? 'Enter a portal name' : null,
+                ),
+                TextFormField(
+                  controller: baseUrl,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(labelText: 'Base URL', hintText: 'https://portal.example.com'),
+                  validator: (value) {
+                    final uri = Uri.tryParse((value ?? '').trim());
+                    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return 'Enter a valid HTTPS portal URL';
+                    return null;
+                  },
+                ),
+                TextField(
+                  controller: loginUrl,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(labelText: 'Login URL (optional)'),
+                ),
+                TextField(
+                  controller: allowedHosts,
+                  decoration: const InputDecoration(
+                    labelText: 'Extra login hosts (optional)',
+                    hintText: 'login.microsoftonline.com, accounts.example.com',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: username,
+                  decoration: const InputDecoration(labelText: 'Username/email (optional)'),
+                  autocorrect: false,
+                ),
+                TextField(
+                  controller: password,
+                  decoration: const InputDecoration(labelText: 'Password (optional)'),
+                  obscureText: true,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Only username/password can be stored. One-time codes remain one-time and are cleared after use.',
+                  style: TextStyle(fontSize: 12, color: VaTheme.textMuted),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(dialogContext, true);
+            },
+            child: const Text('Save portal'),
+          ),
+        ],
+      ),
+    );
+    if (result != true || !context.mounted) return;
+    final rawName = name.text.trim();
+    var slug = rawName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+    slug = slug.replaceAll(RegExp(r'^-+|-+$'), '');
+    if (slug.length < 2) slug = 'portal-${DateTime.now().millisecondsSinceEpoch}';
+    try {
+      await context.read<AppState>().addBrowserPortal(
+            slug: slug,
+            name: rawName,
+            baseUrl: baseUrl.text.trim(),
+            loginUrl: loginUrl.text.trim(),
+            allowedHosts: allowedHosts.text
+                .split(',')
+                .map((value) => value.trim())
+                .where((value) => value.isNotEmpty)
+                .toList(),
+            username: username.text,
+            password: password.text,
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Secure portal configured.')));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Portal setup failed: $error')));
+      }
+    }
+  }
+}
+
+class _PortalMetric extends StatelessWidget {
+  const _PortalMetric({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: VaTheme.border),
+        ),
+        child: Text('$label · $value', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+      );
+}
+
+class _PortalEmpty extends StatelessWidget {
+  const _PortalEmpty({required this.icon, required this.message});
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: VaTheme.surface,
+          border: Border.all(color: VaTheme.border),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: VaTheme.textMuted),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message, style: const TextStyle(color: VaTheme.textMuted))),
+          ],
+        ),
+      );
+}
+
+class _PortalCard extends StatelessWidget {
+  const _PortalCard({required this.row});
+  final Map<String, dynamic> row;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = (row['id'] as num?)?.toInt() ?? 0;
+    final name = '${row['name'] ?? 'Portal'}';
+    final baseUrl = '${row['base_url'] ?? ''}';
+    final session = '${row['session_status'] ?? 'empty'}';
+    final credentials = row['credentials_configured'] == true;
+    final error = '${row['last_error'] ?? ''}'.trim();
+    return Material(
+      color: VaTheme.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.language_rounded, color: VaTheme.primary),
+                const SizedBox(width: 10),
+                Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w900))),
+                Text(session, style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+              ],
+            ),
+            if (baseUrl.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(baseUrl, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: VaTheme.textMuted)),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(credentials ? Icons.lock_rounded : Icons.lock_open_rounded, size: 16, color: credentials ? VaTheme.primary : VaTheme.textMuted),
+                const SizedBox(width: 6),
+                Expanded(child: Text(credentials ? 'Encrypted credentials configured' : 'No stored credentials', style: const TextStyle(fontSize: 12))),
+                TextButton(
+                  onPressed: id <= 0 ? null : () => _showCredentials(context, id, name),
+                  child: Text(credentials ? 'Replace' : 'Add login'),
+                ),
+              ],
+            ),
+            if (error.isNotEmpty)
+              Text(error, style: const TextStyle(fontSize: 12, color: Colors.orangeAccent)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCredentials(BuildContext context, int portalId, String portalName) async {
+    final username = TextEditingController();
+    final password = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Login for $portalName'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: username, decoration: const InputDecoration(labelText: 'Username/email'), autocorrect: false),
+            TextField(controller: password, decoration: const InputDecoration(labelText: 'Password'), obscureText: true, enableSuggestions: false, autocorrect: false),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save encrypted login')),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await context.read<AppState>().updateBrowserCredentials(portalId, username.text, password.text);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Portal login updated.')));
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Credential update failed: $error')));
+    }
+  }
+}
+
+class _BrowserOperationCard extends StatelessWidget {
+  const _BrowserOperationCard({required this.row});
+  final Map<String, dynamic> row;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = (row['id'] as num?)?.toInt() ?? 0;
+    final title = '${row['title'] ?? 'Portal operation'}';
+    final status = '${row['status'] ?? 'pending'}';
+    final challenge = '${row['challenge_type'] ?? ''}';
+    final prompt = '${row['challenge_prompt'] ?? row['last_error'] ?? ''}'.trim();
+    final approval = row['material_approval_required'] == true;
+    final url = '${row['last_url'] ?? ''}';
+    final verified = status == 'verified';
+
+    return Material(
+      color: VaTheme.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(verified ? Icons.verified_rounded : Icons.web_asset_rounded, color: verified ? VaTheme.primary : VaTheme.textMuted),
+                const SizedBox(width: 10),
+                Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w900))),
+                Text(status.replaceAll('_', ' '), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+              ],
+            ),
+            if (url.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(url, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+            ],
+            if (prompt.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(prompt, style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+            ],
+            if (id > 0 && (approval || status == 'needs_user_auth')) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (approval)
+                    FilledButton.icon(
+                      onPressed: () => _approve(context, id),
+                      icon: const Icon(Icons.verified_user_rounded, size: 18),
+                      label: const Text('Approve material action'),
+                    ),
+                  if (status == 'needs_user_auth' && challenge == 'otp')
+                    OutlinedButton.icon(
+                      onPressed: () => _enterCode(context, id),
+                      icon: const Icon(Icons.password_rounded, size: 18),
+                      label: const Text('Enter code'),
+                    ),
+                  if (status == 'needs_user_auth' && challenge != 'otp' && challenge != 'captcha')
+                    OutlinedButton.icon(
+                      onPressed: () => _resume(context, id),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Recheck authentication'),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _enterCode(BuildContext context, int id) async {
+    final code = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('One-time authentication code'),
+        content: TextField(
+          controller: code,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'Code'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, code.text.trim().isNotEmpty), child: const Text('Continue')),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await context.read<AppState>().submitBrowserAuthCode(id, code.text.trim());
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Authentication failed: $error')));
+    }
+  }
+
+  Future<void> _resume(BuildContext context, int id) async {
+    try {
+      await context.read<AppState>().resumeBrowserOperation(id);
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Portal resume failed: $error')));
+    }
+  }
+
+  Future<void> _approve(BuildContext context, int id) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Approve material portal action?'),
+        content: const Text('This action may create a payment, contractual commitment, or security/account change. Approval is intentionally required before the browser can continue.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Do not approve')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Approve once')),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await context.read<AppState>().approveBrowserOperation(id);
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Approval failed: $error')));
+    }
   }
 }
 

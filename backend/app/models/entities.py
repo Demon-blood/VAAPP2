@@ -1220,3 +1220,108 @@ class RelationshipFact(Base):
             name="uq_relationship_fact_provenance",
         ),
     )
+
+
+# v0.9.4 Secure Browser / Portal Operator -----------------------------------
+# Browser state, credentials and execution evidence are additive. Secrets and
+# browser storage state are encrypted before persistence; raw credentials never
+# enter audit payloads, plans, screenshots metadata or API responses.
+
+
+class BrowserPortal(Base):
+    __tablename__ = "browser_portals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    base_url: Mapped[str] = mapped_column(Text)
+    login_url: Mapped[str] = mapped_column(Text, default="")
+    allowed_hosts_json: Mapped[str] = mapped_column(Text, default="[]")
+    login_recipe_json: Mapped[str] = mapped_column(Text, default="{}")
+    account_scope: Mapped[str] = mapped_column(String(30), default="personal", index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BrowserCredential(Base):
+    __tablename__ = "browser_credentials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portal_id: Mapped[int] = mapped_column(ForeignKey("browser_portals.id", ondelete="CASCADE"), unique=True, index=True)
+    username_encrypted: Mapped[str] = mapped_column(Text, default="")
+    password_encrypted: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BrowserSessionState(Base):
+    __tablename__ = "browser_session_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portal_id: Mapped[int] = mapped_column(ForeignKey("browser_portals.id", ondelete="CASCADE"), unique=True, index=True)
+    storage_state_encrypted: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="empty", index=True)
+    last_authenticated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class BrowserOperation(Base):
+    __tablename__ = "browser_operations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    portal_id: Mapped[int] = mapped_column(ForeignKey("browser_portals.id", ondelete="CASCADE"), index=True)
+    objective_id: Mapped[int | None] = mapped_column(ForeignKey("va_objectives.id"), nullable=True, index=True)
+    step_id: Mapped[int | None] = mapped_column(ForeignKey("va_objective_steps.id"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    plan_json: Mapped[str] = mapped_column(Text, default="{}")
+    plan_encrypted: Mapped[str] = mapped_column(Text, default="")
+    verification_json: Mapped[str] = mapped_column(Text, default="{}")
+    verification_encrypted: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    current_step: Mapped[int] = mapped_column(Integer, default=0)
+    resume_sequence: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=4)
+    last_url: Mapped[str] = mapped_column(Text, default="")
+    resume_url_encrypted: Mapped[str] = mapped_column(Text, default="")
+    page_title: Mapped[str] = mapped_column(Text, default="")
+    challenge_type: Mapped[str] = mapped_column(String(40), default="", index=True)
+    challenge_prompt: Mapped[str] = mapped_column(Text, default="")
+    challenge_selector: Mapped[str] = mapped_column(Text, default="")
+    pending_auth_value_encrypted: Mapped[str] = mapped_column(Text, default="")
+    material_approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    side_effect_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    side_effect_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    verify_after: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_browser_operations_queue", "status", "verify_after", "portal_id"),
+    )
+
+
+class BrowserEvidence(Base):
+    __tablename__ = "browser_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    browser_operation_id: Mapped[int] = mapped_column(ForeignKey("browser_operations.id", ondelete="CASCADE"), index=True)
+    evidence_type: Mapped[str] = mapped_column(String(80), index=True)
+    step_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    url: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(Text, default="")
+    sha256: Mapped[str] = mapped_column(String(64), default="", index=True)
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    payload_encrypted: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_browser_evidence_operation_step", "browser_operation_id", "step_index"),
+    )

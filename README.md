@@ -1,6 +1,6 @@
-# Full-Time VA v0.9.3 — CRM / Relationship Memory
+# Full-Time VA v0.9.4 — Secure Browser / Portal Operator
 
-v0.9.3 is the cumulative Phase 1 + Phase 2 + Phase 3 + Phase 4 release candidate. It keeps the autonomous core, communications ownership, and Calendar agent, and adds CRM / Relationship Memory: canonical people built from verified identities, provenance-backed facts, cross-channel interaction history, follow-up state, safe identity merging, and an Android Relationships workspace.
+v0.9.4 is the cumulative Phase 1–5 release candidate. It keeps the autonomous core, communications ownership, Calendar agent, and relationship memory, and adds a real secure Chromium portal operator with encrypted sessions, allowlisted navigation, MFA/CAPTCHA handoff, ambiguity-safe submissions, provider postcondition verification, and an Android Portals workspace.
 
 ## Cash structure
 
@@ -23,7 +23,7 @@ v0.9.3 is the cumulative Phase 1 + Phase 2 + Phase 3 + Phase 4 release candidate
 
 ## Release identity
 
-Backend `0.9.3` · Android `0.9.3+36` · APK `Full-Time-VA-Android-v0.9.3.apk`.
+Backend `0.9.4` · Android `0.9.4+37` · APK `Full-Time-VA-Android-v0.9.4.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -93,3 +93,16 @@ See `docs/V0.9.2_CALENDAR_SCHEDULING_AGENT.md` for the Phase-3 execution and ver
 
 See `docs/V0.9.3_CRM_RELATIONSHIP_MEMORY.md` for the Phase-4 identity, provenance and reconciliation contract.
 
+## v0.9.4 Secure Browser / Portal Operator — Phase 5
+
+- Portal automation runs through real headless Playwright Chromium in the durable workflow worker; there is no paper-mode browser success path.
+- Portal definitions require HTTPS and explicit host allowlists. Direct private/local targets and DNS-resolved private-network destinations are blocked, and main-frame redirects cannot escape the portal allowlist.
+- Usernames/passwords, browser storage state, exact operation plans, verification values, resume URLs, OTP resume values, and screenshot payloads are encrypted at rest.
+- Every operation has a stable idempotency key and an explicit provider postcondition. A successful click is not completion; VAAPP verifies the resulting provider page state first.
+- Potentially mutating submissions are persisted before dispatch. If the outcome is ambiguous, VAAPP reconciles the postcondition and refuses to blindly replay the action.
+- CAPTCHA is detected but never bypassed. OTP/MFA/external approval challenges become Needs You while the encrypted browser session is preserved for resume.
+- Payment, purchase, contract-signing/acceptance, credential/security changes, account closure/deletion, and comparable material commitments require a specific one-time approval.
+- Browser work is owned by the Autonomous Core as `browser_operation` steps and completes only with `browser_postcondition_verified` evidence.
+- Work → **Portals** exposes secure portal configuration, operation status, MFA resume, material approval, and browser evidence without exposing stored credentials.
+
+See `docs/V0.9.4_SECURE_BROWSER_PORTAL_OPERATOR.md` for the Phase-5 security, execution, ambiguity and verification contract.

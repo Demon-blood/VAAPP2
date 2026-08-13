@@ -827,6 +827,16 @@ async def _relationship_reconcile(db: AsyncSession, payload: dict[str, Any]) -> 
     return await reconcile_relationship_memory(db)
 
 
+@job_handler("browser.operation.run")
+async def _browser_operation_run(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.browser_operator import execute_browser_operation
+
+    operation_id = int(payload.get("browser_operation_id") or 0)
+    if operation_id <= 0:
+        raise ValueError("browser_operation_id is required")
+    return await execute_browser_operation(db, operation_id)
+
+
 @job_handler("banking.autopilot")
 async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     from app.core.settings import get_settings
