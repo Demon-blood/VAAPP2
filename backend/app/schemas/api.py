@@ -185,6 +185,11 @@ class BrowserAuthCodeRequest(BaseModel):
     code: str = Field(min_length=1, max_length=200)
 
 
+class UserProfileFactRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9 _-]*$")
+    value: str = Field(min_length=1, max_length=16000)
+
+
 class AutomationDecision(BaseModel):
     category: str
     financial_document_type: Literal["none", "payable_invoice", "paid_receipt", "statement_or_notice"] = "none"

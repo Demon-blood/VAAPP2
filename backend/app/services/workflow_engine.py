@@ -894,16 +894,33 @@ async def _connector_rules(db: AsyncSession, payload: dict[str, Any]) -> dict[st
     return await run_connector_automation_rules(db)
 
 
+@job_handler("documents.reconcile")
+async def _documents_reconcile(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.document_ownership import reconcile_document_ownership
+
+    return await reconcile_document_ownership(
+        db,
+        limit=max(1, min(int(payload.get("limit") or 100), 250)),
+    )
+
+
 @job_handler("housekeeping.documents")
 async def _document_housekeeping(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     from app.services.action_reconciler import reconcile_action_queue
+    from app.services.document_ownership import reconcile_document_ownership
     from app.services.financial_reconciliation import reclassify_existing_nonpayable_bills
     from app.services.operations_service import cleanup_low_value_documents
 
     result = await cleanup_low_value_documents(db)
+    ownership = await reconcile_document_ownership(db, limit=100)
     financial = await reclassify_existing_nonpayable_bills(db)
     reconciled = await reconcile_action_queue(db)
-    return {"documents": result, "financial_reclassification": financial, "actions": reconciled}
+    return {
+        "documents": result,
+        "document_ownership": ownership,
+        "financial_reclassification": financial,
+        "actions": reconciled,
+    }
 
 
 @job_handler("bill.lifecycle")

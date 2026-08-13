@@ -103,6 +103,7 @@ from app.schemas.api import (
     OwnAccountTransferResponse,
     StartBankAuthRequest,
     TaskResponse,
+    UserProfileFactRequest,
 )
 from app.services.audit import write_audit
 from app.services.autonomous_core import (
@@ -190,6 +191,14 @@ from app.services.browser_operator import (
     submit_auth_code,
     upsert_portal as upsert_browser_portal,
 )
+from app.services.document_ownership import (
+    document_obligation_detail,
+    document_ownership_status,
+    list_document_obligations,
+    list_user_profile_facts,
+    reconcile_document_ownership,
+    set_user_profile_fact,
+)
 from app.services.runtime_config import CONFIG_SECTIONS, get_runtime_value, section_status, set_runtime_values
 from app.services.automation_engine import run_connector_automation_rules
 from app.services.connector_service import (
@@ -227,6 +236,7 @@ async def system_info() -> dict:
             "calendar_scheduling_agent",
             "relationship_memory",
             "secure_browser_portal_operator",
+            "document_forms_deadlines",
             "tasks",
             "documents",
             "orders",
@@ -1799,6 +1809,63 @@ async def relationship_reconcile_route(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     return await reconcile_relationship_memory(db)
+
+
+@router.get("/api/documents/ownership/status")
+async def document_ownership_status_route(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await document_ownership_status(db)
+
+
+@router.get("/api/documents/obligations")
+async def document_obligations_route(
+    limit: int = Query(default=250, ge=1, le=1000),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    return await list_document_obligations(db, limit=limit)
+
+
+@router.get("/api/documents/obligations/{obligation_id}")
+async def document_obligation_detail_route(
+    obligation_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        return await document_obligation_detail(db, obligation_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/api/documents/reconcile")
+async def document_reconcile_route(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await reconcile_document_ownership(db, limit=100)
+
+
+@router.get("/api/documents/profile-facts")
+async def document_profile_facts_route(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    return await list_user_profile_facts(db)
+
+
+@router.put("/api/documents/profile-facts")
+async def document_profile_fact_update_route(
+    payload: UserProfileFactRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        return await set_user_profile_fact(db, key=payload.key, value=payload.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/api/browser/status")

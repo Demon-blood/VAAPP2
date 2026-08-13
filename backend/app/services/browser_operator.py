@@ -206,7 +206,7 @@ def _material_commitment_from_plan(steps: list[dict[str, Any]]) -> bool:
 def validate_operation_plan(portal: BrowserPortal, steps: list[dict[str, Any]], verification: dict[str, Any]) -> dict[str, Any]:
     if not steps or len(steps) > 50:
         raise ValueError("Browser operation must contain between 1 and 50 steps")
-    allowed_kinds = {"goto", "click", "fill", "select", "check", "uncheck", "press", "wait_for", "extract"}
+    allowed_kinds = {"goto", "click", "fill", "select", "check", "uncheck", "press", "wait_for", "extract", "autofill_form", "click_action"}
     normalized_steps: list[dict[str, Any]] = []
     for index, raw in enumerate(steps):
         if not isinstance(raw, dict):
@@ -225,6 +225,24 @@ def validate_operation_plan(portal: BrowserPortal, steps: list[dict[str, Any]], 
             if not selector:
                 raise ValueError(f"Browser step {index + 1} requires a selector")
             step["selector"] = selector[:2000]
+        if kind == "autofill_form":
+            raw_fields = step.get("fields") or []
+            if not isinstance(raw_fields, list) or len(raw_fields) > 50:
+                raise ValueError("autofill_form fields must be a list of at most 50 verified values")
+            fields: list[dict[str, Any]] = []
+            for raw_field in raw_fields:
+                if not isinstance(raw_field, dict):
+                    raise ValueError("autofill_form field entries must be objects")
+                key = str(raw_field.get("key") or "").strip()[:120]
+                aliases = raw_field.get("aliases") or []
+                if not key or not isinstance(aliases, list) or not aliases:
+                    raise ValueError("autofill_form fields require a key and aliases")
+                fields.append({
+                    "key": key,
+                    "aliases": [str(item)[:160] for item in aliases[:12] if str(item).strip()],
+                    "value": str(raw_field.get("value") or "")[:16000],
+                })
+            step["fields"] = fields
         if kind == "fill":
             value_from = str(step.get("value_from") or "")
             if value_from and value_from not in {"credential.username", "credential.password", "auth_code"}:
@@ -233,6 +251,11 @@ def validate_operation_plan(portal: BrowserPortal, steps: list[dict[str, Any]], 
                 raise ValueError("Browser fill may use value or value_from, not both")
             if not value_from:
                 step["value"] = str(step.get("value") or "")[:16000]
+        if kind == "click_action":
+            labels = step.get("labels") or ["Submit", "Send", "Continue"]
+            if not isinstance(labels, list) or not labels:
+                raise ValueError("click_action labels must be a non-empty list")
+            step["labels"] = [str(item)[:120] for item in labels[:12] if str(item).strip()]
         if kind == "select":
             step["value"] = str(step.get("value") or "")[:4000]
         if kind == "press":
@@ -240,7 +263,7 @@ def validate_operation_plan(portal: BrowserPortal, steps: list[dict[str, Any]], 
             selector = str(step.get("selector") or "").strip()
             if selector:
                 step["selector"] = selector[:2000]
-        if kind in {"click", "press"}:
+        if kind in {"click", "press", "click_action"}:
             # Clicks/Enter can submit forms. Fail closed unless the plan explicitly
             # says the action is replay-safe.
             step["side_effect"] = bool(step.get("side_effect", True))
@@ -256,6 +279,7 @@ def validate_operation_plan(portal: BrowserPortal, steps: list[dict[str, Any]], 
         "url_contains",
         "title_contains",
         "text_contains",
+        "text_any_contains",
         "selector",
         "selector_absent",
     }
@@ -574,8 +598,9 @@ async def verify_page(page: Page, portal: BrowserPortal, verification: dict[str,
         passed = passed and matched
 
     text_needles = _as_list(verification.get("text_contains"))
+    text_any_needles = _as_list(verification.get("text_any_contains"))
     body_text = ""
-    if text_needles:
+    if text_needles or text_any_needles:
         try:
             body_text = (await page.locator("body").inner_text(timeout=2000))[:200000]
         except Exception:
@@ -584,6 +609,15 @@ async def verify_page(page: Page, portal: BrowserPortal, verification: dict[str,
         matched = needle.casefold() in body_text.casefold()
         results.setdefault("text_contains", []).append({"matched": matched, "sha256": hashlib.sha256(needle.encode()).hexdigest()})
         passed = passed and matched
+    if text_any_needles:
+        any_match = False
+        rows = []
+        for needle in text_any_needles:
+            matched = needle.casefold() in body_text.casefold()
+            rows.append({"matched": matched, "sha256": hashlib.sha256(needle.encode()).hexdigest()})
+            any_match = any_match or matched
+        results["text_any_contains"] = rows
+        passed = passed and any_match
 
     for selector in _as_list(verification.get("selector")):
         matched = await _visible(page, selector)
@@ -614,6 +648,109 @@ async def _resolve_fill_value(
     if source == "auth_code":
         return auth_code
     return str(step.get("value") or "")
+
+
+async def _candidate_field_locator(page: Page, aliases: list[str]):
+    for alias in aliases:
+        for locator in (
+            page.get_by_label(alias, exact=False),
+            page.get_by_placeholder(alias, exact=False),
+        ):
+            try:
+                first = locator.first
+                if await first.is_visible(timeout=250):
+                    return first
+            except Exception:
+                pass
+        token = re.sub(r"[^a-z0-9]+", "", alias.casefold())
+        if token:
+            css = f'input[name*="{token}" i], textarea[name*="{token}" i], select[name*="{token}" i], input[id*="{token}" i], textarea[id*="{token}" i], select[id*="{token}" i]'
+            try:
+                first = page.locator(css).first
+                if await first.is_visible(timeout=250):
+                    return first
+            except Exception:
+                pass
+    return None
+
+
+async def _required_form_fields_missing(page: Page) -> list[str]:
+    missing: list[str] = []
+    locator = page.locator('input[required], textarea[required], select[required]')
+    try:
+        count = min(await locator.count(), 100)
+    except Exception:
+        return missing
+    for index in range(count):
+        item = locator.nth(index)
+        try:
+            if not await item.is_visible(timeout=100):
+                continue
+            tag = await item.evaluate("el => el.tagName.toLowerCase()")
+            input_type = (await item.get_attribute("type") or "").lower()
+            if input_type in {"checkbox", "radio"}:
+                empty = not await item.is_checked()
+            else:
+                empty = not str(await item.input_value()).strip()
+            if not empty:
+                continue
+            label = (await item.get_attribute("aria-label") or await item.get_attribute("placeholder") or await item.get_attribute("name") or await item.get_attribute("id") or tag or "required field")
+            missing.append(str(label)[:120])
+        except Exception:
+            continue
+    return missing[:12]
+
+
+async def _perform_autofill_form(page: Page, step: dict[str, Any], timeout: int) -> dict[str, Any]:
+    filled: list[str] = []
+    for field in step.get("fields") or []:
+        aliases = [str(item) for item in field.get("aliases") or [] if str(item)]
+        locator = await _candidate_field_locator(page, aliases)
+        if locator is None:
+            continue
+        value = str(field.get("value") or "")
+        try:
+            tag = await locator.evaluate("el => el.tagName.toLowerCase()")
+            input_type = (await locator.get_attribute("type") or "").lower()
+            if tag == "select":
+                try:
+                    await locator.select_option(label=value, timeout=timeout)
+                except Exception:
+                    await locator.select_option(value=value, timeout=timeout)
+            elif input_type in {"checkbox", "radio"}:
+                if value.casefold() in {"1", "true", "yes", "y", "ja"}:
+                    await locator.check(timeout=timeout)
+            else:
+                await locator.fill(value, timeout=timeout)
+            filled.append(str(field.get("key") or "")[:120])
+        except Exception:
+            continue
+
+    missing = await _required_form_fields_missing(page)
+    if missing:
+        raise BrowserNeedsUserAuth(
+            "form_input",
+            "The form needs verified information that VAAPP does not have yet: " + ", ".join(missing),
+        )
+    return {"filled_keys": filled, "required_fields_satisfied": True}
+
+
+async def _perform_click_action(page: Page, step: dict[str, Any], timeout: int) -> dict[str, Any]:
+    for label in [str(item) for item in step.get("labels") or [] if str(item)]:
+        candidates = [page.get_by_role("button", name=label, exact=False), page.get_by_text(label, exact=False)]
+        for candidate in candidates:
+            try:
+                first = candidate.first
+                if await first.is_visible(timeout=250):
+                    await first.click(timeout=timeout)
+                    try:
+                        await page.wait_for_load_state("domcontentloaded", timeout=timeout)
+                    except Exception:
+                        pass
+                    return {"action_label_sha256": hashlib.sha256(label.encode()).hexdigest(), "clicked": True}
+            except Exception:
+                continue
+    raise BrowserConfigurationError("No recognizable submit/continue action was found on the form")
 
 
 async def _perform_step(
@@ -653,6 +790,10 @@ async def _perform_step(
         locator = page.locator(str(step["selector"])).first
         text = (await locator.inner_text(timeout=timeout))[:50000]
         return {"sha256": hashlib.sha256(text.encode()).hexdigest(), "length": len(text)}
+    elif kind == "autofill_form":
+        return await _perform_autofill_form(page, step, timeout)
+    elif kind == "click_action":
+        return await _perform_click_action(page, step, timeout)
     await page.wait_for_timeout(150)
     assert_portal_url(portal, page.url)
     return {"url": _safe_url_for_log(page.url)}

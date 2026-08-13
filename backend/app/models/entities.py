@@ -1325,3 +1325,90 @@ class BrowserEvidence(Base):
     __table_args__ = (
         Index("ix_browser_evidence_operation_step", "browser_operation_id", "step_index"),
     )
+
+
+# v0.9.5 Documents / Forms / Deadlines --------------------------------------
+# Document intelligence is additive: archived source documents remain immutable,
+# while extracted text, obligations and form values are stored in dedicated
+# ledgers. Sensitive extracted/form values are encrypted by the service layer.
+
+
+class DocumentIntelligence(Base):
+    __tablename__ = "document_intelligence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), unique=True, index=True)
+    source_checksum_sha256: Mapped[str] = mapped_column(String(64), default="", index=True)
+    text_sha256: Mapped[str] = mapped_column(String(64), default="", index=True)
+    extracted_text_encrypted: Mapped[str] = mapped_column(Text, default="")
+    document_type: Mapped[str] = mapped_column(String(80), default="record", index=True)
+    deadline_candidates_json: Mapped[str] = mapped_column(Text, default="[]")
+    form_urls_json: Mapped[str] = mapped_column(Text, default="[]")
+    protected: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class UserProfileFact(Base):
+    __tablename__ = "user_profile_facts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fact_key: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    value_encrypted: Mapped[str] = mapped_column(Text, default="")
+    value_sha256: Mapped[str] = mapped_column(String(64), default="", index=True)
+    source: Mapped[str] = mapped_column(String(80), default="explicit", index=True)
+    verified: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class DocumentObligation(Base):
+    __tablename__ = "document_obligations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    correlation_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_message_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    title: Mapped[str] = mapped_column(Text)
+    issuer: Mapped[str] = mapped_column(Text, default="")
+    obligation_type: Mapped[str] = mapped_column(String(60), default="deadline", index=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    form_url: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="detected", index=True)
+    priority: Mapped[str] = mapped_column(String(20), default="normal", index=True)
+    protected: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    material_commitment: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    portal_id: Mapped[int | None] = mapped_column(ForeignKey("browser_portals.id"), nullable=True, index=True)
+    objective_id: Mapped[int | None] = mapped_column(ForeignKey("va_objectives.id"), nullable=True, index=True)
+    browser_operation_id: Mapped[int | None] = mapped_column(ForeignKey("browser_operations.id"), nullable=True, index=True)
+    form_submission_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        Index("ix_document_obligations_due", "status", "due_at", "priority"),
+    )
+
+
+class FormSubmission(Base):
+    __tablename__ = "form_submissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    obligation_id: Mapped[int] = mapped_column(ForeignKey("document_obligations.id", ondelete="CASCADE"), index=True)
+    portal_id: Mapped[int | None] = mapped_column(ForeignKey("browser_portals.id"), nullable=True, index=True)
+    browser_operation_id: Mapped[int | None] = mapped_column(ForeignKey("browser_operations.id"), nullable=True, index=True)
+    field_keys_json: Mapped[str] = mapped_column(Text, default="[]")
+    fields_encrypted: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="prepared", index=True)
+    requires_material_approval: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

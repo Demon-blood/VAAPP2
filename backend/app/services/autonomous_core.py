@@ -949,6 +949,25 @@ async def objective_from_event(db: AsyncSession, event: VAEvent) -> VAObjective:
         })
     elif event.event_type == "calendar_attendee_response_received":
         return await _handle_calendar_response_event(db, event, payload)
+    elif event.event_type == "document_obligation_blocked":
+        reason = str(payload.get("reason") or "No safe executable action is currently available for this document obligation")
+        objective, _ = await _create_objective(
+            db,
+            event,
+            title=event.title,
+            goal=str(payload.get("goal") or "Ensure this document obligation is resolved before its deadline."),
+            category="documents_forms_deadlines",
+            priority=str(payload.get("priority") or "normal"),
+            risk_level="high" if bool(payload.get("protected")) else "low",
+            status="blocked_capability",
+            reason=reason,
+        )
+        objective.plan_json = _dump({
+            "steps": 0,
+            "source": "document_ownership",
+            "blocked_capability": True,
+            "document_obligation_id": payload.get("document_obligation_id"),
+        })
     elif event.event_type == "browser_portal_operation_planned":
         operation_id = int(payload.get("browser_operation_id") or 0)
         portal_id = int(payload.get("portal_id") or 0)

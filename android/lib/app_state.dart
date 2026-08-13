@@ -57,6 +57,9 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic> browserStatus = {};
   List<Map<String, dynamic>> browserPortals = [];
   List<Map<String, dynamic>> browserOperations = [];
+  Map<String, dynamic> documentOwnershipStatus = {};
+  List<Map<String, dynamic>> documentObligations = [];
+  List<Map<String, dynamic>> documentProfileFacts = [];
   Map<String, dynamic> financeOverview = {};
   Map<String, dynamic> financeInvestments = {};
   List<Map<String, dynamic>> financeAccountPolicies = [];
@@ -141,6 +144,9 @@ class AppState extends ChangeNotifier {
     browserStatus = {};
     browserPortals = [];
     browserOperations = [];
+    documentOwnershipStatus = {};
+    documentObligations = [];
+    documentProfileFacts = [];
     financeOverview = {};
     financeInvestments = {};
     financeAccountPolicies = [];
@@ -169,11 +175,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.9.4')) {
+        if (!_versionAtLeast(backendVersion, '0.9.5')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.9.4 requires backend 0.9.4 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.9.5 requires backend 0.9.5 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -225,6 +231,9 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/browser/status', optional: true),
         _safeGet('/api/browser/portals', optional: true),
         _safeGet('/api/browser/operations?limit=100', optional: true),
+        _safeGet('/api/documents/ownership/status', optional: true),
+        _safeGet('/api/documents/obligations?limit=250', optional: true),
+        _safeGet('/api/documents/profile-facts', optional: true),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -272,6 +281,9 @@ class AppState extends ChangeNotifier {
       if (results[38] is Map) browserStatus = Map<String, dynamic>.from(results[38] as Map);
       if (results[39] is List) browserPortals = _list(results[39]);
       if (results[40] is List) browserOperations = _list(results[40]);
+      if (results[41] is Map) documentOwnershipStatus = Map<String, dynamic>.from(results[41] as Map);
+      if (results[42] is List) documentObligations = _list(results[42]);
+      if (results[43] is List) documentProfileFacts = _list(results[43]);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -557,6 +569,25 @@ class AppState extends ChangeNotifier {
       await refreshMoneyData();
     });
     return result;
+  }
+
+  Future<Map<String, dynamic>> reconcileDocumentsNow() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/documents/reconcile') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<void> setDocumentProfileFact(String key, String value) async {
+    await _run(() async {
+      await api.putJson('/api/documents/profile-facts', {'key': key, 'value': value});
+      await api.postJson('/api/documents/reconcile');
+      await refreshAll(showBusy: false);
+    });
   }
 
   Future<Map<String, dynamic>> cleanupDocuments() async {

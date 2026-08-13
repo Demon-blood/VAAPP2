@@ -183,6 +183,18 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             detail="Configure at least one allowlisted browser portal" if not browser_portal else "Encrypted portal/session executor configured",
         ),
         _cap(
+            "document_form_automation",
+            "Document forms and deadline ownership",
+            google,
+            "Drive document intelligence + VAAPP workflow engine + secure browser",
+            resolution="user_connect" if not google else "automatic",
+            detail="Google OAuth is required to read VA-managed Drive documents" if not google else (
+                "Document/deadline extraction is active; matching configured portals are used for form execution"
+                if browser_portal
+                else "Document/deadline extraction is active; forms wait for a matching allowlisted portal"
+            ),
+        ),
+        _cap(
             "sms_send",
             "Android SMS send",
             device,

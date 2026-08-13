@@ -6,63 +6,73 @@ Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–4 are complete on GitHub. Verified Phase-4 commit: `bf57e7bdc59e2e72534d2a8fa11a35c5fed0cde9`. GitHub Actions run #32 completed successfully, including backend tests, Flutter analysis/tests, Android release build, signing and prerelease publishing.
+Phases 1–5 are complete on GitHub. Verified Phase-5 commit: `2271d599bc11e2e4c17e5ca5a1fe6c6a59428df3`. GitHub Actions run #33 completed successfully, including backend tests, Flutter analysis/tests, Android release build, signing and prerelease publishing.
 
-Verified baseline release: backend `0.9.3` / Android `0.9.3+36`.
+Verified baseline release: backend `0.9.4` / Android `0.9.4+37`.
 
 ## Current local candidate
 
-Backend `0.9.4` / Android `0.9.4+37`.
+Backend `0.9.5` / Android `0.9.5+38`.
 
-Current phase: **Phase 5 — Secure Browser / Portal Operator**.  
-Status: **implemented as a cumulative overlay from the verified Phase-4 baseline; awaiting GitHub upload and full CI**.
+Current phase: **Phase 6 — Documents / Forms / Deadlines**.  
+Status: **implemented as a cumulative overlay from the verified Phase-5 baseline; awaiting GitHub upload and full CI**.
 
 ## Product objective
 
-VAAPP must operate as a real autonomous full-time virtual assistant, not a chatbot, approval queue, paper-mode simulator, or placeholder executor.
+VAAPP is a real autonomous full-time virtual assistant, not a chatbot, approval queue, paper-mode simulator, or placeholder executor.
 
 Operating lifecycle:
 
 `Observe -> Understand -> Own objective -> Check policy/capability -> Plan -> Execute -> Verify -> Follow up/recover -> Reconcile -> Complete -> Learn`
 
-Routine reversible work executes automatically. **Needs You** is reserved for unavoidable authentication/security, genuinely material decisions without safe pre-authorization, or physical/manual work with no real executor.
+Routine reversible work executes automatically. **Needs You** is reserved for unavoidable authentication/security, genuinely material decisions without safe pre-authorization, or information only the account holder can provide. Missing executors/providers remain VA-owned capability blocks.
 
 ## Completed phases
 
 1. **Autonomous Core** — durable objectives, steps, evidence, policy/capability decisions, workflow execution and recovery.
 2. **Inbox & Communications Ownership** — durable Gmail ownership, ambiguity-safe sends, SMS/RemoteInput evidence, persistent conversation follow-up.
-3. **Calendar & Scheduling Agent** — durable Google Calendar mirror/mutations, conflict checks, deterministic create IDs, provider verification, attendee response ownership. CI green on run #31.
-4. **CRM / Relationship Memory** — canonical source-backed people, identity-safe merging, provenance facts, cross-channel interaction timelines and follow-up projection. CI green on run #32.
+3. **Calendar & Scheduling Agent** — durable Calendar mirror/mutations, conflict checks, deterministic creation and provider verification. CI green run #31.
+4. **CRM / Relationship Memory** — canonical source-backed people, provenance facts, cross-channel interaction timelines and follow-up projection. CI green run #32.
+5. **Secure Browser / Portal Operator** — real Chromium execution, encrypted sessions/plans/evidence, allowlisted navigation, authentication handoff and no-blind-replay side effects. CI green run #33.
 
-## Phase 5 implementation
+## Phase 6 implementation
 
-### Real Chromium executor
+### Source-backed document intelligence
 
-`browser.operation.run` executes inside the existing durable workflow worker with Playwright Chromium. Portal work is not marked complete because a click returned successfully: the operation has an explicit provider postcondition and remains unfinished until that postcondition is observed.
+VA-managed Drive documents are read through the real Google Drive API. PDF extraction uses PyMuPDF native text; HTML/text documents use deterministic parsing. Gmail-origin documents can also use the real source message body. Extracted document text is encrypted at rest and is not copied into audit payloads.
 
-### Durable portal state
+Only exact dates that appear next to deadline language such as `due`, `submit by`, `uiterlijk`, or `vervaldatum` become durable deadlines. VAAPP deliberately does not invent a year for partial dates.
 
-Additive tables persist portal definitions, encrypted credentials, encrypted browser storage state, durable operations and encrypted evidence. The exact operation plan and verification values are encrypted at rest; public summaries avoid reproducing secrets. Stable operation idempotency keys prevent duplicate ownership records.
+### Durable obligations
 
-### Navigation / SSRF boundary
+`DocumentObligation` is the ownership record for a form or deadline. It carries the source document/message, issuer, due date, priority, protected/material flags, secure portal link, objective/browser operation link, execution state, error and verified completion timestamp.
 
-Portal base/login URLs must be HTTPS. Every portal has an explicit host allowlist. Direct localhost/private/link-local targets are rejected and the executor additionally resolves request hostnames at runtime so an allowlisted-looking hostname cannot resolve into a private network target. Main-frame redirects outside the portal allowlist are blocked.
+A deadline with no safe executable action does not disappear into an informational list: the Autonomous Core receives a `document_obligation_blocked` event and owns a `blocked_capability` objective with the actual deadline attached.
 
-### Side-effect ambiguity
+### Forms and verified profile facts
 
-Potentially mutating clicks/Enter submissions are persisted as `dispatching` before execution. If the worker/provider outcome becomes ambiguous, the operation reconciles the explicit postcondition first and does not blindly replay the side effect. An unverified ambiguous outcome becomes `creation_uncertain` / system-blocked for investigation rather than a duplicate submission.
+Verified reusable facts such as name/email/phone/address are stored in `UserProfileFact`; values are Fernet-encrypted. Google OAuth seeds verified name/email when available, while facts that only the account holder knows can be added explicitly.
 
-### Authentication and material decisions
+`FormSubmission` persists an encrypted field intent before execution. Stable idempotency keys include a hash of the verified field set so adding missing facts creates a new safe preparation rather than mutating or replaying an old ambiguous submission.
 
-CAPTCHA is detected and never bypassed. OTP/MFA and external approval challenges become **Needs You** while preserving the encrypted browser session for resume. A submitted OTP is encrypted as a one-time resume value and cleared after use. Portal actions that pay, purchase, sign/accept a contract, change security credentials, close/delete accounts, or perform comparable material commitments require a specific one-time user approval before execution.
+### Safe browser execution
 
-### Autonomous Core / evidence
+Phase 6 extends the Phase-5 browser operator with two explicit operations:
 
-A browser request is recorded as `browser_portal_operation_planned`, producing a normal VA objective with a `browser_operation` step. The objective can complete only when the underlying `BrowserOperation` reaches `verified`; at that point the core records `browser_postcondition_verified` evidence.
+- `autofill_form` fills recognized fields and verifies required fields **without** a side effect.
+- `click_action` performs the mutating submit/continue action and is persisted as a side effect before dispatch.
 
-### API / Android
+This separation matters: if required information is missing, VAAPP can request the missing verified data before any submit occurs. A worker failure after the submit step still follows Phase-5 `creation_uncertain` no-blind-replay handling.
 
-New browser APIs expose status, portal configuration, encrypted credential updates, operation list/detail, OTP submission, authentication resume, material approval, and authenticated screenshot evidence. Work now includes **Portals**, where the user can configure allowlisted portals and handle only the genuinely unavoidable MFA/CAPTCHA/material-decision handoffs.
+Completion requires the provider page to satisfy an explicit postcondition. Form attempts are not counted as success.
+
+### Material/protected forms
+
+The existing central browser policy remains authoritative. Contract/signature/payment/security-changing submissions are marked material and require the one-time material decision before the side-effect step can run. Authentication/MFA/CAPTCHA continues to use the secure browser handoff; CAPTCHA is never bypassed.
+
+### Background ownership and Android
+
+`documents.reconcile` is a durable workflow handler and the existing document housekeeping cycle also reconciles document intelligence/obligations. Work → **Documents** now shows the archive together with owned obligations, deadlines, portal/form status, blocked reasons and verified profile facts.
 
 ## Finance constraints remain mandatory
 
@@ -86,8 +96,8 @@ New browser APIs expose status, portal configuration, encrypted credential updat
 2. Inbox & Communications Ownership — complete
 3. Calendar & Scheduling Agent — complete, CI green run #31
 4. CRM / Relationship Memory — complete, CI green run #32
-5. Secure Browser / Portal Operator — current local candidate
-6. Documents / Forms / Deadlines
+5. Secure Browser / Portal Operator — complete, CI green run #33
+6. Documents / Forms / Deadlines — current local candidate
 7. Financial Allocation & Forecasting
 8. Calls / Telephony
 9. Purchasing / Travel / Logistics / Customer Service
@@ -99,4 +109,4 @@ A phase is complete only when real execution, policy, durable state, idempotency
 
 ## Exact next action
 
-Apply the v0.9.4 Phase-5 overlay to GitHub `main`, run Actions, fix failures until green, then mark Phase 5 complete and begin Phase 6 — Documents / Forms / Deadlines.
+Apply the v0.9.5 Phase-6 overlay to GitHub `main`, run Actions, fix failures until green, then mark Phase 6 complete and begin Phase 7 — Financial Allocation & Forecasting.

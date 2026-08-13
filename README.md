@@ -1,6 +1,6 @@
-# Full-Time VA v0.9.4 — Secure Browser / Portal Operator
+# Full-Time VA v0.9.5 — Documents / Forms / Deadlines
 
-v0.9.4 is the cumulative Phase 1–5 release candidate. It keeps the autonomous core, communications ownership, Calendar agent, and relationship memory, and adds a real secure Chromium portal operator with encrypted sessions, allowlisted navigation, MFA/CAPTCHA handoff, ambiguity-safe submissions, provider postcondition verification, and an Android Portals workspace.
+v0.9.5 is the cumulative Phase 1–6 release candidate. It keeps the autonomous core, communications ownership, Calendar agent, relationship memory, and secure Chromium portal operator, and adds source-backed document intelligence, exact deadline ownership, verified profile facts, durable form submission, and provider-evidence completion.
 
 ## Cash structure
 
@@ -23,7 +23,7 @@ v0.9.4 is the cumulative Phase 1–5 release candidate. It keeps the autonomous 
 
 ## Release identity
 
-Backend `0.9.4` · Android `0.9.4+37` · APK `Full-Time-VA-Android-v0.9.4.apk`.
+Backend `0.9.5` · Android `0.9.5+38` · APK `Full-Time-VA-Android-v0.9.5.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -106,3 +106,19 @@ See `docs/V0.9.3_CRM_RELATIONSHIP_MEMORY.md` for the Phase-4 identity, provenanc
 - Work → **Portals** exposes secure portal configuration, operation status, MFA resume, material approval, and browser evidence without exposing stored credentials.
 
 See `docs/V0.9.4_SECURE_BROWSER_PORTAL_OPERATOR.md` for the Phase-5 security, execution, ambiguity and verification contract.
+
+## v0.9.5 Documents / Forms / Deadlines — Phase 6
+
+- Archived Drive documents are analyzed from their real provider bytes; Gmail-origin records can also reconcile against the real source message. PDF intelligence uses native PDF text extraction and deliberately does not claim OCR.
+- Extracted document text and reusable profile facts are encrypted at rest. Audits and user-facing status expose references, states and provenance rather than copying sensitive document bodies.
+- Deadlines are promoted only from exact source dates with nearby deadline language. VAAPP does not invent a year or turn every date appearing in a document into an obligation.
+- `DocumentIntelligence`, `DocumentObligation`, `FormSubmission`, and `UserProfileFact` form an additive durable ownership ledger. Documents with actionable deadlines remain VA-owned even when no executor is currently available.
+- Form automation reuses the Phase-5 secure browser. The VA may only target an already configured HTTPS portal whose allowlist covers the form host; document links never silently expand the browser trust boundary.
+- Known verified facts are filled before any submit action. If a required value is missing, the browser stops before side effects and the obligation becomes Needs You for the missing account-holder information.
+- Form submission itself is a separately persisted non-replay-safe browser action. Ambiguous provider outcomes are never blindly resubmitted, and material commitments continue to use the Phase-5 one-time approval policy.
+- A form or deadline is not complete because VAAPP attempted it. Completion requires the downstream browser operation to reach and verify its provider postcondition; the document obligation then records the provider-verified completion time.
+- If a deadline exists but no safe executor can be matched, the Autonomous Core creates a `blocked_capability` objective carrying that exact deadline instead of leaving the obligation unowned.
+- Work → **Documents** now combines the archive with obligation state, due dates, blocked reasons and verified profile facts, plus an explicit reconcile action.
+
+See `docs/V0.9.5_DOCUMENTS_FORMS_DEADLINES.md` for the Phase-6 extraction, ownership, execution and completion contract.
+

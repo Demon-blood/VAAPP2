@@ -718,6 +718,8 @@ class _DocumentsViewState extends State<_DocumentsView> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final obligations = state.documentObligations;
+    final ownership = state.documentOwnershipStatus;
     final query = searchController.text.trim().toLowerCase();
     final rows = state.documents.where((row) {
       final name = '${row['name'] ?? ''}'.toLowerCase();
@@ -777,6 +779,53 @@ class _DocumentsViewState extends State<_DocumentsView> {
             ),
           ),
           const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: VaTheme.surface,
+              border: Border.all(color: VaTheme.primary.withValues(alpha: .24)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.fact_check_outlined, color: VaTheme.primary),
+                    const SizedBox(width: 9),
+                    const Expanded(child: Text('Document ownership', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                    IconButton.filledTonal(
+                      tooltip: 'Reconcile documents, forms and deadlines now',
+                      onPressed: state.busy ? null : () => _reconcileOwnership(context),
+                      icon: const Icon(Icons.sync_rounded),
+                    ),
+                    IconButton.filledTonal(
+                      tooltip: 'Add verified profile fact for form filling',
+                      onPressed: state.busy ? null : () => _addProfileFact(context),
+                      icon: const Icon(Icons.person_add_alt_1_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  '${ownership['total_obligations'] ?? obligations.length} obligation${(ownership['total_obligations'] ?? obligations.length) == 1 ? '' : 's'} · ${state.documentProfileFacts.length} verified profile fact${state.documentProfileFacts.length == 1 ? '' : 's'}',
+                  style: const TextStyle(color: VaTheme.textMuted),
+                ),
+                if ('${ownership['next_due_at'] ?? ''}'.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text('Next due ${_formatDocumentDue('${ownership['next_due_at']}')}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                ],
+              ],
+            ),
+          ),
+          if (obligations.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final obligation in obligations.take(8)) ...[
+              _DocumentObligationCard(row: obligation),
+              const SizedBox(height: 8),
+            ],
+          ],
+          const SizedBox(height: 12),
           if (rows.isEmpty)
             SizedBox(
               height: MediaQuery.sizeOf(context).height * .48,
@@ -796,6 +845,62 @@ class _DocumentsViewState extends State<_DocumentsView> {
         ],
       ),
     );
+  }
+
+  static String _formatDocumentDue(String raw) {
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    return DateFormat('d MMM yyyy').format(parsed.toLocal());
+  }
+
+  Future<void> _reconcileOwnership(BuildContext context) async {
+    try {
+      final result = await context.read<AppState>().reconcileDocumentsNow();
+      if (!context.mounted) return;
+      final analyzed = (result['documents_analyzed'] as num?)?.toInt() ?? 0;
+      final completed = (result['completed'] as num?)?.toInt() ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Document ownership reconciled · $analyzed analyzed · $completed completed.')),
+      );
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _addProfileFact(BuildContext context) async {
+    final keyController = TextEditingController();
+    final valueController = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add verified profile fact'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Used only for form filling. Examples: phone, address, postal_code, city, date_of_birth.'),
+            const SizedBox(height: 12),
+            TextField(controller: keyController, decoration: const InputDecoration(labelText: 'Fact key')),
+            const SizedBox(height: 8),
+            TextField(controller: valueController, decoration: const InputDecoration(labelText: 'Value')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    final key = keyController.text.trim();
+    final value = valueController.text.trim();
+    keyController.dispose();
+    valueController.dispose();
+    if (key.isEmpty || value.isEmpty) return;
+    try {
+      await context.read<AppState>().setDocumentProfileFact(key, value);
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
   }
 
   Future<void> _cleanup(BuildContext context) async {
@@ -820,6 +925,64 @@ class _DocumentsViewState extends State<_DocumentsView> {
     }
   }
 }
+
+class _DocumentObligationCard extends StatelessWidget {
+  const _DocumentObligationCard({required this.row});
+
+  final Map<String, dynamic> row;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = '${row['status'] ?? 'detected'}';
+    final dueRaw = '${row['due_at'] ?? ''}'.trim();
+    final due = DateTime.tryParse(dueRaw);
+    final dueText = due == null ? '' : DateFormat('d MMM yyyy').format(due.toLocal());
+    final error = '${row['last_error'] ?? ''}'.trim();
+    final form = '${row['obligation_type'] ?? ''}' == 'form';
+    final material = row['material_commitment'] == true;
+    final protected = row['protected'] == true;
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: VaTheme.surface,
+        border: Border.all(color: status == 'completed' ? VaTheme.success.withValues(alpha: .35) : VaTheme.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(form ? Icons.assignment_turned_in_outlined : Icons.event_note_outlined, color: status == 'completed' ? VaTheme.success : VaTheme.primary),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${row['title'] ?? 'Document obligation'}', style: const TextStyle(fontWeight: FontWeight.w900)),
+                const SizedBox(height: 4),
+                Text(
+                  '${form ? 'Form' : 'Deadline'} · ${status.replaceAll('_', ' ')}${dueText.isEmpty ? '' : ' · due $dueText'}',
+                  style: const TextStyle(color: VaTheme.textMuted),
+                ),
+                if (material || protected) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    [if (protected) 'Protected', if (material) 'Material decision'].join(' · '),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ],
+                if (error.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Text(error, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: VaTheme.warning, fontSize: 12)),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class _DocumentCard extends StatelessWidget {
   const _DocumentCard({required this.row});

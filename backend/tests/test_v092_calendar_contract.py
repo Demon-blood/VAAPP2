@@ -7,9 +7,9 @@ def _root() -> Path:
 
 def test_v092_release_identity_and_calendar_ledger() -> None:
     root = _root()
-    assert 'APP_VERSION = "0.9.4"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version = "0.9.4"' in (root / "backend/pyproject.toml").read_text()
-    assert 'version: 0.9.4+37' in (root / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "0.9.5"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version = "0.9.5"' in (root / "backend/pyproject.toml").read_text()
+    assert 'version: 0.9.5+38' in (root / "android/pubspec.yaml").read_text()
     models = (root / "backend/app/models/entities.py").read_text()
     assert "class CalendarSyncState" in models
     assert "class CalendarEventMirror" in models
