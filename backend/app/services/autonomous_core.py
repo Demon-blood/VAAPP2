@@ -462,6 +462,22 @@ async def _handle_response_event(db: AsyncSession, event: VAEvent, payload: dict
         objective.finished_at = objective.finished_at or utcnow()
         return objective
 
+    # A real counterparty response satisfies any pending chase for this objective.
+    # Keep this cancellation in the autonomous core as the final ownership boundary,
+    # so every response-event path (not only Gmail thread registration) is safe.
+    pending_followups = list(
+        (
+            await db.execute(
+                select(VAFollowUp).where(
+                    VAFollowUp.objective_id == prior.id,
+                    VAFollowUp.status.in_(["pending", "due"]),
+                )
+            )
+        ).scalars()
+    )
+    for followup in pending_followups:
+        followup.status = "cancelled"
+
     waiting_steps = list(
         (
             await db.execute(

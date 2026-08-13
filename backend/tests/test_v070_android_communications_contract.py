@@ -25,7 +25,13 @@ def test_native_bridge_has_direct_reply_call_screening_and_durable_backend_resul
     assert "RemoteInput.addResultsToIntent" in notification
     assert "postActionResult" in notification
     assert "respondToCall" in calls
-    assert "VaSms.send(context, sender, text)" in sms
+    # Phase 2 requires every automatic SMS to stay correlated to its durable
+    # CommunicationAction so carrier SENT/DELIVERED callbacks can be reconciled
+    # without an unsafe blind resend.
+    assert "VaSms.send(context, sender, text, actionId)" in sms
+    assert "SmsStatusReceiver reports real carrier send/delivery callbacks" in sms
+    assert "SmsStatusReceiver::class.java" in sms_sender
+    assert "statusIntent(context, actionId" in sms_sender
     assert "sendMultipartTextMessage" in sms_sender
     assert "Telephony.Sms.Sent.CONTENT_URI" in sms_sender
     assert "RoleManager.ROLE_SMS" in main
