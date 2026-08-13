@@ -6,18 +6,18 @@ Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–8 are complete on GitHub. Phase 8 is commit `7432e5dbae1cf4d3b8085931eb491da7d9ca6437`. GitHub Actions run #38 completed successfully on 2026-08-13, including backend tests, Flutter analysis/tests, the signed Android release build, and prerelease publication.
+Phases 1–9 are complete on GitHub. The verified Phase-9 baseline is commit `7e8be1f82cb86c66ae07b2b90fe2173858757aa7` (`Phase 9 CI fix`). GitHub Actions run #40 completed successfully on 2026-08-13, including the full backend test suite, Flutter analysis/tests, persistent-signing Android release build, and GitHub prerelease publication.
 
-Verified baseline release: backend `0.9.7` / Android `0.9.7+40`.
+Verified baseline release: backend `0.9.8` / Android `0.9.8+41`.
 
 ## Current local candidate
 
-Backend `0.9.8` / Android `0.9.8+41`.
+Backend `1.0.0` / Android `1.0.0+42`.
 
-Current phase: **Phase 9 — Purchasing / Travel / Logistics / Customer Service**.  
-Status: **implemented as a cumulative delta from the verified Phase-8 baseline; awaiting GitHub upload and full CI**.
+Current phase: **Phase 10 — Professional Product Cleanup / v1.0**.  
+Status: **implemented locally from the verified Phase-9 baseline; awaiting upload and full GitHub CI**.
 
-Next phase after the Phase-9 gate is green: **Phase 10 — Professional Product Cleanup / v1.0**.
+Next work after the v1.0 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 
@@ -38,48 +38,26 @@ Routine reversible work executes automatically. **Needs You** is reserved for un
 5. **Secure Browser / Portal Operator** — allowlisted Chromium execution, encrypted sessions/credentials, MFA/CAPTCHA handoff, ambiguity-safe side effects and postcondition evidence.
 6. **Documents / Forms / Deadlines** — source-backed document intelligence, exact deadlines, encrypted facts, durable form intents and provider-verified completion.
 7. **Financial Allocation & Forecasting** — conservative cash forecasts, protected floors, same-scope surplus allocations and real bank-transfer verification.
-8. **Calls / Telephony** — real Twilio PSTN calls, signed callbacks, encrypted call/turn/evidence ledgers, ambiguity-safe creation, bounded voice interaction and counterparty-verified objective completion. CI green on run #38.
+8. **Calls / Telephony** — real Twilio PSTN calls, signed callbacks, encrypted call/turn/evidence ledgers, ambiguity-safe creation, bounded voice interaction and counterparty-verified objective completion.
+9. **Purchasing / Travel / Logistics / Customer Service** — durable fulfillment ledger, allowlisted browser/Twilio execution, bounded standing payment authority, order/support reconciliation, and provider-verified terminal evidence. CI green on run #40 after the metadata import-order compatibility fix.
 
-## Phase 9 implementation
+## Phase 10 v1.0 hardening
 
-### One fulfillment ownership layer
+### Stable compatibility contract
 
-Phase 9 introduces additive `FulfillmentProvider`, `FulfillmentRequest`, `FulfillmentAction`, and `FulfillmentEvidence` tables. The same ledger owns purchase, travel, logistics/tracking, return, refund, provider cancellation and customer-service work.
+Backend and Android move to `1.0.0` / `1.0.0+42`. The backend reports `REQUIRED_ANDROID_VERSION = 1.0.0`, and Android uses one `release_contract.dart` source for the app release and minimum backend version. AppState, Product Status, phone provisioning, and deployment health verification use the same minimum.
 
-Existing Gmail-derived `OrderRecord` and `SupportCase` rows are reconciled into fulfillment objectives with stable idempotency keys. Terminal order/support state can supply source-backed completion evidence; otherwise the objective remains owned and due for reconciliation/follow-up.
+### Phone deployment correctness
 
-### Real provider execution only
+The Render deployment verifier and onboarding flow no longer use the historical `0.4.16` floor. A newly deployed/repaired backend must expose `/health` and `/api/system/info` with backend `1.0.0` or newer before pairing continues. Existing database and encryption-key preservation behavior remains unchanged.
 
-Fulfillment reuses existing executors rather than inventing a paper-mode provider layer:
+### Product status / diagnostics
 
-- Secure Browser for configured allowlisted merchant/travel/carrier/service portals with provider-specific recipes and explicit postconditions.
-- Twilio telephony for configured verified support numbers when a browser support recipe is unavailable.
+Android exposes **Product Status** from the main app bar. It reports release compatibility, Autopilot health, endpoint failures, Needs You count, verified executor availability, and unresolved capability/setup gaps. A configured provider or dispatched operation is never displayed as proof that an objective completed.
 
-No provider/recipe/executor means `blocked_capability`. A browser click or completed telephone call is not treated as objective completion without downstream verification.
+### Completion contract
 
-### Payment authority
-
-Purchase/travel browser workflows remain material commitments. Phase 9 adds configurable standing preauthorization:
-
-- purchase enable + maximum single purchase EUR;
-- travel enable + maximum single travel EUR;
-- combined monthly purchase/travel commitment limit EUR.
-
-Standing authority applies only when the request has a known positive EUR amount and fits both the relevant single limit and the monthly envelope. Unknown/over-limit commitments become `needs_user` before provider dispatch.
-
-A specific one-off payment authorization also requires a known positive EUR amount and is recorded as fulfillment evidence. Provider SCA/MFA/OTP remains a separate `needs_user` authentication step even after payment authority exists.
-
-### Ambiguity-safe execution
-
-`FulfillmentAction` is committed before provider-specific browser preparation or telephony call creation. The linked browser/call ledger is reused across restart. Browser `creation_uncertain` becomes `blocked_system` and is never blindly replayed.
-
-### Continuous logistics/customer-service ownership
-
-A five-minute reconciliation loop imports newly detected orders/support cases, attaches newly configured providers, refreshes active actions, owns follow-up, and records verified terminal evidence. A support call that ends without verified counterparty outcome remains waiting rather than being marked complete.
-
-### Android
-
-The main app bar exposes a **Fulfillment** workspace. It shows ownership/provider status, allows provider recipe configuration and fulfillment-objective creation, triggers reconciliation, and surfaces one-off payment authorization only when required. The UI states explicitly that browser/payment intent is not proof of completion.
+No Phase-10 feature relaxes the core evidence rule. Provider/browser/call/payment intent can be `initiated`, `dispatching`, `creation_uncertain`, `needs_user`, `blocked_capability`, or `blocked_system`; terminal completion still requires the relevant domain's independent provider/source postcondition.
 
 ## Finance constraints remain mandatory
 
@@ -96,14 +74,12 @@ The main app bar exposes a **Fulfillment** workspace. It shows ownership/provide
 - Kraken auto funding/trading remains off until explicitly configured.
 - Kraken withdrawals remain disabled/not implemented.
 
-## Phase 9 release gate
+## v1.0 release gate
 
-Before Phase 10 source changes:
+1. Overlay the Phase-10 package at repository root.
+2. Commit the extracted files, not the ZIP.
+3. Push to `main`.
+4. Confirm the full GitHub Actions workflow is green.
+5. If CI fails, fix v1.0 before declaring the roadmap complete.
 
-1. overlay the Phase-9 package at repository root;
-2. commit the extracted files, not the ZIP;
-3. push to `main`;
-4. confirm the full GitHub Actions workflow is green;
-5. if CI fails, fix Phase 9 first and do not start Phase 10 source modifications.
-
-Suggested commit message: `Phase 9 — Purchasing / Travel / Logistics / Customer Service`.
+Suggested commit message: `Phase 10 — Professional Product Cleanup / v1.0`.

@@ -7,6 +7,7 @@ import 'dashboard_page.dart';
 import 'fulfillment_page.dart';
 import 'inbox_page.dart';
 import 'money_page.dart';
+import 'product_status_page.dart';
 import 'services_page.dart';
 import 'settings_page.dart';
 import 'telephony_page.dart';
@@ -103,6 +104,13 @@ class _HomeShellState extends State<HomeShell> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Product status',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ProductStatusPage()),
+            ),
+            icon: const Icon(Icons.verified_user_outlined),
+          ),
           IconButton(
             tooltip: 'Purchasing, travel & support',
             onPressed: () => Navigator.of(context).push(

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
+import '../release_contract.dart';
 import '../services/mobile_deployment_service.dart';
 
 class OnboardingPage extends StatefulWidget {
@@ -327,9 +328,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
         );
       }
       if (!mounted) return;
-      setState(() => deploymentStatus = 'New server instance is Live. Verifying backend 0.4.16…');
-      final healthy = await deployment.waitUntilHealthy(result.serverUrl);
-      if (!healthy) throw Exception('Render did not expose backend 0.4.16 after deployment. Confirm the repository contains the current backend folder and inspect the latest Render deploy logs.');
+      setState(() => deploymentStatus = 'New server instance is Live. Verifying backend $minimumBackendVersion…');
+      final healthy = await deployment.waitUntilHealthy(result.serverUrl, requiredVersion: minimumBackendVersion);
+      if (!healthy) throw Exception('Render did not expose backend $minimumBackendVersion after deployment. Confirm the repository contains the current backend folder and inspect the latest Render deploy logs.');
       if (!mounted) return;
       setState(() => deploymentStatus = 'Backend verified. Pairing this phone with the newly deployed secret…');
       Object? lastPairingError;

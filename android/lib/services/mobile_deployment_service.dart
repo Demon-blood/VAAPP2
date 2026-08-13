@@ -3,6 +3,8 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
+import '../release_contract.dart';
+
 class RenderWorkspace {
   const RenderWorkspace({required this.id, required this.name, this.email = ''});
 
@@ -524,7 +526,7 @@ class MobileDeploymentService {
     return value;
   }
 
-  Future<bool> waitUntilHealthy(String serverUrl, {String requiredVersion = '0.4.16'}) async {
+  Future<bool> waitUntilHealthy(String serverUrl, {String requiredVersion = minimumBackendVersion}) async {
     for (var attempt = 0; attempt < 90; attempt++) {
       try {
         final health = await http.get(Uri.parse('$serverUrl/health')).timeout(const Duration(seconds: 20));

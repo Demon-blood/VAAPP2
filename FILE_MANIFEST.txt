@@ -22,6 +22,7 @@
 ./android/lib/app_state.dart
 ./android/lib/main.dart
 ./android/lib/models/view_models.dart
+./android/lib/release_contract.dart
 ./android/lib/screens/accounts_page.dart
 ./android/lib/screens/bills_page.dart
 ./android/lib/screens/communications_page.dart
@@ -35,6 +36,7 @@
 ./android/lib/screens/money_page.dart
 ./android/lib/screens/onboarding_page.dart
 ./android/lib/screens/payments_page.dart
+./android/lib/screens/product_status_page.dart
 ./android/lib/screens/receipts_page.dart
 ./android/lib/screens/services_page.dart
 ./android/lib/screens/settings_page.dart
@@ -189,6 +191,7 @@
 ./backend/tests/test_v096_financial_allocation_forecasting_contract.py
 ./backend/tests/test_v097_telephony_contract.py
 ./backend/tests/test_v098_fulfillment_contract.py
+./backend/tests/test_v100_product_release_contract.py
 ./backend/tests/test_version_and_routes.py
 ./backend/tests/test_workflow_engine.py
 ./build_android.ps1
@@ -228,6 +231,7 @@
 ./docs/V0.9.6_FINANCIAL_ALLOCATION_FORECASTING.md
 ./docs/V0.9.7_CALLS_TELEPHONY.md
 ./docs/V0.9.8_PURCHASING_TRAVEL_LOGISTICS_CUSTOMER_SERVICE.md
+./docs/V1.0.0_PRODUCT_RELEASE.md
 ./generate_enable_banking_keys.ps1
 ./render.yaml
 ./start_backend.ps1

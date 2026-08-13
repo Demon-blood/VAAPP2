@@ -107,7 +107,7 @@ jobs:
           for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
             if [ -z "${!name:-}" ]; then
               echo "Missing GitHub Actions secret: $name" >&2
-              echo "Open https://<your-va-server>/setup/android-signing from your phone after deploying backend 0.9.8, or configure the four Android signing secrets manually." >&2
+              echo "Open https://<your-va-server>/setup/android-signing from your phone after deploying backend 1.0.0, or configure the four Android signing secrets manually." >&2
               exit 1
             fi
           done
@@ -167,9 +167,9 @@ jobs:
 
           test -s build/app/outputs/flutter-apk/app-release.apk
           cp build/app/outputs/flutter-apk/app-release.apk \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.8.apk"
-          sha256sum "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.8.apk" \
-            | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.8.apk.sha256"
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v1.0.0.apk"
+          sha256sum "$GITHUB_WORKSPACE/Full-Time-VA-Android-v1.0.0.apk" \
+            | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v1.0.0.apk.sha256"
 
       - name: Publish the APK as a GitHub prerelease
         env:
@@ -177,11 +177,11 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$RELEASE_TAG" \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.8.apk" \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.8.apk.sha256" \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v1.0.0.apk" \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v1.0.0.apk.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Full-Time VA Android v0.9.8 · run ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
+            --title "Full-Time VA Android v1.0.0 · run ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
             --notes "Automated Android release build for commit ${GITHUB_SHA}." \
             --prerelease
           {

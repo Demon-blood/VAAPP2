@@ -1,6 +1,10 @@
-# Full-Time VA v0.9.7 — Calls / Telephony
+# Full-Time VA v1.0.0 — Production Release
 
-v0.9.7 is the cumulative Phase 1–8 release candidate. It keeps the verified financial forecasting/allocation engine and adds real provider-backed PSTN calling through Twilio Programmable Voice, signed call-control webhooks, encrypted conversation turns, bounded recovery, and source-backed objective verification.
+Full-Time VA v1.0.0 is the cumulative Phase 1–10 production release. It combines the autonomous core with provider-verified communications, calendar ownership, relationship memory, secure browser operations, document/form/deadline ownership, conservative financial allocation, real PSTN telephony, and fulfillment ownership for purchasing/travel/logistics/customer service.
+
+The v1.0 release does not add a simulated executor. Its cleanup work aligns backend/Android compatibility, phone deployment verification, release metadata, diagnostics, and product-readiness reporting around one stable release contract.
+
+**Completion rule:** external work is complete only when the relevant domain ledger contains independent provider/source evidence for the requested postcondition. A local button press, dispatched browser action, initiated payment, placed call, or configured provider is not completion evidence.
 
 ## Cash structure
 
@@ -23,7 +27,9 @@ v0.9.7 is the cumulative Phase 1–8 release candidate. It keeps the verified fi
 
 ## Release identity
 
-Backend `0.9.7` · Android `0.9.7+40` · APK `Full-Time-VA-Android-v0.9.7.apk`.
+Backend `1.0.0` · Android `1.0.0+42` · APK `Full-Time-VA-Android-v1.0.0.apk`.
+
+Verified Phase-9 baseline: commit `7e8be1f82cb86c66ae07b2b90fe2173858757aa7`, GitHub Actions run #40 successful.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -164,3 +170,15 @@ See `docs/V0.9.7_CALLS_TELEPHONY.md` for the Phase-8 execution, safety, recovery
 - Android exposes a dedicated **Fulfillment** workspace from the top bar for provider setup, purchasing/travel objectives, logistics/support ownership, reconciliation, and specific payment authorization.
 
 See `docs/V0.9.8_PURCHASING_TRAVEL_LOGISTICS_CUSTOMER_SERVICE.md` for the Phase-9 execution, spending-authority and verification contract.
+
+
+## v1.0.0 Professional Product Cleanup — Phase 10
+
+- One semantic release contract now drives Android backend compatibility checks, Render deployment verification, repair flows, Product Status, backend metadata, APK naming, and tests.
+- The phone deployment wizard no longer accepts the legacy `0.4.16` backend floor; v1.0 requires backend `1.0.0` or newer.
+- **Product Status** reports backend compatibility, Autopilot health, endpoint failures, Needs You count, verified executor availability, and setup/capability gaps.
+- Missing credentials/executors remain capability/setup gaps. They are never represented as completed work.
+- Release metadata and phone-only setup documentation are aligned to the verified Phase-9 baseline and v1.0 candidate.
+- No new paper-mode, mock-money, fake-call, or simulated browser completion path is introduced.
+
+See `docs/V1.0.0_PRODUCT_RELEASE.md` for the v1.0 release and completion contract.

@@ -273,6 +273,7 @@ async def system_info() -> dict:
             "telephony_calls",
             "fulfillment_automation",
             "phone_deployment",
+            "v1_product_status",
         ],
     }
 

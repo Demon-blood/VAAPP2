@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'models/view_models.dart';
+import 'release_contract.dart';
 import 'services/api_client.dart';
 import 'services/device_bridge.dart';
 import 'services/local_connector_catalog.dart';
@@ -177,11 +178,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.9.8')) {
+        if (!_versionAtLeast(backendVersion, minimumBackendVersion)) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.9.8 requires backend 0.9.8 or newer.';
+              : 'The connected server is running backend $backendVersion. App $appRelease requires backend $minimumBackendVersion or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
