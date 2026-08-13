@@ -8,11 +8,6 @@ import '../theme/va_theme.dart';
 class FinancialForecastPage extends StatelessWidget {
   const FinancialForecastPage({super.key});
 
-  String _money(dynamic value) {
-    final amount = double.tryParse('$value') ?? 0;
-    return '${amount.toStringAsFixed(2)} EUR';
-  }
-
   String _date(dynamic value) {
     final parsed = DateTime.tryParse('$value');
     if (parsed == null) return '—';
