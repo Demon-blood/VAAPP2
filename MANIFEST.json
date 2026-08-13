@@ -1,12 +1,12 @@
 {
-  "release": "0.9.7",
-  "android_version": "0.9.7+40",
+  "release": "0.9.8",
+  "android_version": "0.9.8+41",
   "baseline_repository": "Demon-blood/VAAPP2",
-  "baseline_commit": "c00d70ee4dd20f84f05272de89b09faf953c5c3b",
-  "purpose": "Cumulative Phase 1-8 release: autonomous objectives, communications ownership, verified calendar scheduling, provenance-backed relationship memory, secure Chromium portal execution, document/form/deadline ownership, conservative financial allocation forecasting, and real provider-backed autonomous PSTN telephony",
+  "baseline_commit": "7432e5dbae1cf4d3b8085931eb491da7d9ca6437",
+  "purpose": "Cumulative Phase 1-9 release: autonomous objectives, communications, calendar, relationship memory, secure browser execution, documents/forms/deadlines, financial forecasting/allocation, real PSTN telephony, and durable provider-verified purchasing/travel/logistics/customer-service ownership",
   "database_strategy": "additive_tables_only",
-  "phase": 8,
-  "phase_name": "Calls / Telephony",
-  "next_phase": "Purchasing / Travel / Logistics / Customer Service",
-  "version": "0.9.7"
+  "phase": 9,
+  "phase_name": "Purchasing / Travel / Logistics / Customer Service",
+  "next_phase": "Professional Product Cleanup / v1.0",
+  "version": "0.9.8"
 }

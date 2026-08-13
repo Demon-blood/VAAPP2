@@ -28,6 +28,7 @@
 ./android/lib/screens/dashboard_page.dart
 ./android/lib/screens/finance_autopilot_page.dart
 ./android/lib/screens/financial_forecast_page.dart
+./android/lib/screens/fulfillment_page.dart
 ./android/lib/screens/home_shell.dart
 ./android/lib/screens/inbox_page.dart
 ./android/lib/screens/investments_page.dart
@@ -64,6 +65,7 @@
 ./backend/Dockerfile
 ./backend/app/__init__.py
 ./backend/app/api/__init__.py
+./backend/app/api/fulfillment_routes.py
 ./backend/app/api/routes.py
 ./backend/app/api/telephony_routes.py
 ./backend/app/api_autopilot.py
@@ -84,6 +86,7 @@
 ./backend/app/main.py
 ./backend/app/models/__init__.py
 ./backend/app/models/entities.py
+./backend/app/models/fulfillment_entities.py
 ./backend/app/models/telephony_entities.py
 ./backend/app/schemas/__init__.py
 ./backend/app/schemas/api.py
@@ -118,6 +121,7 @@
 ./backend/app/services/financial_forecasting.py
 ./backend/app/services/financial_learning.py
 ./backend/app/services/financial_reconciliation.py
+./backend/app/services/fulfillment_service.py
 ./backend/app/services/gmail_delivery.py
 ./backend/app/services/gmail_sync_service.py
 ./backend/app/services/investment_autopilot.py
@@ -184,6 +188,7 @@
 ./backend/tests/test_v095_documents_forms_deadlines_contract.py
 ./backend/tests/test_v096_financial_allocation_forecasting_contract.py
 ./backend/tests/test_v097_telephony_contract.py
+./backend/tests/test_v098_fulfillment_contract.py
 ./backend/tests/test_version_and_routes.py
 ./backend/tests/test_workflow_engine.py
 ./build_android.ps1
@@ -222,6 +227,7 @@
 ./docs/V0.9.5_DOCUMENTS_FORMS_DEADLINES.md
 ./docs/V0.9.6_FINANCIAL_ALLOCATION_FORECASTING.md
 ./docs/V0.9.7_CALLS_TELEPHONY.md
+./docs/V0.9.8_PURCHASING_TRAVEL_LOGISTICS_CUSTOMER_SERVICE.md
 ./generate_enable_banking_keys.ps1
 ./render.yaml
 ./start_backend.ps1

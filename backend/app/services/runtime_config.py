@@ -85,6 +85,20 @@ CONFIG_SECTIONS: dict[str, dict[str, Any]] = {
             {"key": "telephony_max_attempts", "label": "Maximum bounded outbound attempts", "type": "number", "required": True, "default": "3"},
         ],
     },
+    "fulfillment": {
+        "title": "Purchasing, travel, logistics & customer service",
+        "description": "Durable fulfillment ownership. Standing purchase/travel limits act as explicit preauthorization; unknown or over-limit monetary commitments still require the account holder before provider execution.",
+        "fields": [
+            {"key": "fulfillment_auto_purchase_enabled", "label": "Allow purchases within my standing limit", "type": "choice", "choices": ["false", "true"], "required": True, "default": "false"},
+            {"key": "fulfillment_max_single_purchase_eur", "label": "Maximum one automatically authorized purchase (EUR)", "type": "number", "required": True, "default": "0"},
+            {"key": "fulfillment_auto_travel_enabled", "label": "Allow travel bookings within my standing limit", "type": "choice", "choices": ["false", "true"], "required": True, "default": "false"},
+            {"key": "fulfillment_max_single_travel_eur", "label": "Maximum one automatically authorized travel booking (EUR)", "type": "number", "required": True, "default": "0"},
+            {"key": "fulfillment_monthly_purchase_limit_eur", "label": "Monthly purchasing/travel commitment limit (EUR)", "type": "number", "required": True, "default": "0"},
+            {"key": "fulfillment_tracking_enabled", "label": "Own order and delivery tracking", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+            {"key": "fulfillment_auto_returns_enabled", "label": "Handle routine returns, refunds and cancellations", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+            {"key": "fulfillment_auto_service_enabled", "label": "Handle routine customer-service cases", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+        ],
+    },
     "enable_banking": {
         "title": "Open Banking - Beobank and Revolut",
         "description": "Enable Banking application credentials for account information and payment initiation.",

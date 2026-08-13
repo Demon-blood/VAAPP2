@@ -5,16 +5,16 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_v097_release_identity() -> None:
-    assert 'APP_VERSION = "0.9.7"' in (ROOT / "backend/app/core/version.py").read_text()
+    assert 'APP_VERSION = "0.9.8"' in (ROOT / "backend/app/core/version.py").read_text()
     pyproject = (ROOT / "backend/pyproject.toml").read_text()
-    assert 'version = "0.9.7"' in pyproject
+    assert 'version = "0.9.8"' in pyproject
     assert '"twilio>=9,<10"' in pyproject
-    assert "version: 0.9.7+40" in (ROOT / "android/pubspec.yaml").read_text()
+    assert "version: 0.9.8+41" in (ROOT / "android/pubspec.yaml").read_text()
     app_state = (ROOT / "android/lib/app_state.dart").read_text()
-    assert "_versionAtLeast(backendVersion, '0.9.7')" in app_state
-    assert "App 0.9.7 requires backend 0.9.7 or newer." in app_state
+    assert "_versionAtLeast(backendVersion, '0.9.8')" in app_state
+    assert "App 0.9.8 requires backend 0.9.8 or newer." in app_state
     workflow = (ROOT / ".github/workflows/android-release.yml").read_text()
-    assert "Full-Time-VA-Android-v0.9.7.apk" in workflow
+    assert "Full-Time-VA-Android-v0.9.8.apk" in workflow
 
 
 def test_telephony_ledger_is_additive_encrypted_and_idempotent() -> None:

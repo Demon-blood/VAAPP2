@@ -150,3 +150,17 @@ See `docs/V0.9.6_FINANCIAL_ALLOCATION_FORECASTING.md` for the Phase-7 forecast, 
 
 See `docs/V0.9.7_CALLS_TELEPHONY.md` for the Phase-8 execution, safety, recovery and verification contract.
 
+
+## v0.9.8 Purchasing / Travel / Logistics / Customer Service — Phase 9
+
+- `FulfillmentProvider`, `FulfillmentRequest`, `FulfillmentAction`, and `FulfillmentEvidence` add one durable ownership layer for purchases, travel bookings, order/delivery tracking, returns, refunds, provider cancellations, and customer-service cases.
+- Existing Gmail-derived `OrderRecord` and `SupportCase` rows are promoted into owned fulfillment objectives. Terminal order/support ledger state can complete the objective only as source-backed evidence; otherwise VAAPP keeps following up.
+- External execution reuses the real Phase-5 Secure Browser and Phase-8 Twilio executors. A provider must be configured with an allowlisted browser portal and provider-specific recipe and/or a verified support phone; absence is `blocked_capability`, not simulated success.
+- Fulfillment actions are persisted before provider preparation/dispatch. Browser `creation_uncertain` becomes `blocked_system` and is never blindly repeated.
+- Purchases and travel bookings require a known positive EUR amount. Optional standing purchase/travel limits are explicit preauthorization; the amount must remain within both the configured single-transaction and monthly commitment limits. Unknown or over-limit monetary commitments become **Needs You**.
+- A one-off payment authorization is stored as explicit fulfillment evidence and is accepted only for a known positive EUR amount. Provider SCA/MFA remains a separate unavoidable authentication handoff.
+- Routine logistics, returns/refunds/cancellations, and customer-service work can execute unattended when a real provider recipe exists. Telephone support uses the verified telephony objective contract, so a completed call is not enough without counterparty outcome evidence.
+- A five-minute reconciliation loop owns provider state, newly detected orders/support cases, follow-ups, ambiguity quarantine, and terminal evidence.
+- Android exposes a dedicated **Fulfillment** workspace from the top bar for provider setup, purchasing/travel objectives, logistics/support ownership, reconciliation, and specific payment authorization.
+
+See `docs/V0.9.8_PURCHASING_TRAVEL_LOGISTICS_CUSTOMER_SERVICE.md` for the Phase-9 execution, spending-authority and verification contract.

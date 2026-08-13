@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../theme/va_theme.dart';
 import 'dashboard_page.dart';
+import 'fulfillment_page.dart';
 import 'inbox_page.dart';
 import 'money_page.dart';
 import 'services_page.dart';
@@ -102,6 +103,13 @@ class _HomeShellState extends State<HomeShell> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Purchasing, travel & support',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const FulfillmentPage()),
+            ),
+            icon: const Icon(Icons.local_shipping_outlined),
+          ),
           IconButton(
             tooltip: 'Refresh live data',
             onPressed: state.busy ? null : () => context.read<AppState>().refreshAll(),

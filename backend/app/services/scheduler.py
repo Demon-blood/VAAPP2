@@ -262,6 +262,18 @@ async def telephony_reconcile_job() -> None:
             logger.exception("Failed to reconcile autonomous telephony calls")
 
 
+async def fulfillment_reconcile_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            from app.services.fulfillment_service import reconcile_fulfillment
+
+            await reconcile_fulfillment(db, limit=100)
+        except Exception:
+            logger.exception("Failed to reconcile purchasing/travel/logistics/customer-service ownership")
+
+
 async def workflow_worker_job() -> None:
     if not settings.automation_enabled:
         return
@@ -426,6 +438,16 @@ def start_scheduler() -> None:
         "interval",
         minutes=1,
         id="telephony_reconcile",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        fulfillment_reconcile_job,
+        "interval",
+        minutes=5,
+        id="fulfillment_reconcile",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

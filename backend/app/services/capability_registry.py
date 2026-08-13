@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import get_settings
 from app.models.entities import BankAccount, BankConnection, BrowserPortal, Device, OAuthConnection, ServiceConnector
+from app.models.fulfillment_entities import FulfillmentProvider
 from app.services.runtime_config import get_runtime_value
 
 
@@ -98,6 +99,13 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
     enable_banking_configured = bool(
         await get_runtime_value(db, "enable_banking_application_id", "")
         and (runtime_bank_key or settings.enable_banking_key_exists)
+    )
+    fulfillment_provider = bool(
+        (
+            await db.execute(
+                select(func.count(FulfillmentProvider.id)).where(FulfillmentProvider.enabled.is_(True))
+            )
+        ).scalar_one()
     )
     telephony_enabled = (await get_runtime_value(db, "telephony_enabled", "true")).lower() == "true"
     twilio_configured = bool(
@@ -210,6 +218,24 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
                 "Document/deadline extraction is active; matching configured portals are used for form execution"
                 if browser_portal
                 else "Document/deadline extraction is active; forms wait for a matching allowlisted portal"
+            ),
+        ),
+        _cap(
+            "fulfillment_automation",
+            "Purchasing, travel, logistics and customer-service ownership",
+            fulfillment_provider and (browser_portal or (telephony_enabled and twilio_configured and ai)),
+            "VAAPP fulfillment ledger + secure browser/telephony executors",
+            resolution=(
+                "user_connect"
+                if fulfillment_provider and not (browser_portal or (telephony_enabled and twilio_configured and ai))
+                else "automatic" if fulfillment_provider else "user_connect"
+            ),
+            detail=(
+                "Configure at least one fulfillment provider and its allowlisted browser portal or verified support phone executor"
+                if not fulfillment_provider
+                else "A fulfillment provider exists but no real browser/telephony executor is currently available"
+                if not (browser_portal or (telephony_enabled and twilio_configured and ai))
+                else "Orders/support are durably owned; configured providers execute with explicit postconditions and standing-limit payment policy"
             ),
         ),
         _cap(

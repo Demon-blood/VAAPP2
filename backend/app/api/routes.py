@@ -271,6 +271,7 @@ async def system_info() -> dict:
             "messaging_notification_management",
             "call_screening",
             "telephony_calls",
+            "fulfillment_automation",
             "phone_deployment",
         ],
     }
