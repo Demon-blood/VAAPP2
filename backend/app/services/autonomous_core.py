@@ -11,9 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.entities import (
     AuditLog,
+    CommunicationAction,
+    CommunicationDeliveryEvidence,
+    GmailOutboundMessage,
     OwnAccountTransfer,
     Payment,
     Task,
+    VACommunicationThread,
     VAEvent,
     VAFollowUp,
     VAObjective,
@@ -413,6 +417,253 @@ async def _ensure_step(
     return step
 
 
+
+async def _max_step_position(db: AsyncSession, objective_id: int) -> int:
+    value = (
+        await db.execute(
+            select(func.max(VAObjectiveStep.position)).where(VAObjectiveStep.objective_id == objective_id)
+        )
+    ).scalar_one_or_none()
+    return int(value or 0)
+
+
+def _followup_body(previous_body: str) -> str:
+    lower = (previous_body or "").casefold()
+    if any(word in lower for word in (" graag ", " bedankt", " vriendelijke groet", "met vriendelijke", "kun je", "kunt u")):
+        return "Even een korte opvolging van mijn vorige bericht. Laat je me weten wanneer je de kans hebt?"
+    if any(word in lower for word in (" cordialement", " merci", " pouvez-vous", " pourriez-vous")):
+        return "Petit suivi de mon message précédent. Pourriez-vous me tenir au courant lorsque vous en aurez l'occasion ?"
+    if any(word in lower for word in (" vielen dank", " freundliche grüße", " können sie", " könntest du")):
+        return "Kurze Nachfrage zu meiner vorherigen Nachricht. Gib mir bitte Bescheid, sobald du Gelegenheit dazu hast."
+    return "Just following up on my previous message. Please let me know when you have a chance."
+
+
+async def _handle_response_event(db: AsyncSession, event: VAEvent, payload: dict[str, Any]) -> VAObjective:
+    prior_id = int(payload.get("prior_objective_id") or 0)
+    prior = await db.get(VAObjective, prior_id) if prior_id > 0 else None
+    if prior is None:
+        objective, _ = await _create_objective(
+            db,
+            event,
+            title=event.title,
+            goal="Record the received counterparty response.",
+            category="communication_response",
+            status="completed",
+        )
+        await _add_evidence(
+            db,
+            objective,
+            step=None,
+            evidence_type="counterparty_response",
+            provider=str(payload.get("provider") or payload.get("channel") or "communication"),
+            external_ref=str(payload.get("message_id") or payload.get("communication_event_id") or event.source_id),
+            details=payload,
+        )
+        objective.finished_at = objective.finished_at or utcnow()
+        return objective
+
+    waiting_steps = list(
+        (
+            await db.execute(
+                select(VAObjectiveStep).where(
+                    VAObjectiveStep.objective_id == prior.id,
+                    VAObjectiveStep.action_type == "wait",
+                    VAObjectiveStep.status.in_(["pending", "waiting", "retry"]),
+                )
+            )
+        ).scalars()
+    )
+    await _add_evidence(
+        db,
+        prior,
+        step=None,
+        evidence_type="counterparty_response",
+        provider=str(payload.get("provider") or payload.get("channel") or "communication"),
+        external_ref=str(payload.get("message_id") or payload.get("communication_event_id") or event.source_id),
+        details=payload,
+    )
+    for step in waiting_steps:
+        step.status = "completed"
+        step.finished_at = utcnow()
+        step.outcome_json = _dump({"counterparty_response": True, "event_id": event.id})
+    await _finish_if_all_steps_complete(db, prior)
+    if prior.status != "completed":
+        remaining_non_wait = int(
+            (
+                await db.execute(
+                    select(func.count(VAObjectiveStep.id)).where(
+                        VAObjectiveStep.objective_id == prior.id,
+                        VAObjectiveStep.action_type != "wait",
+                        VAObjectiveStep.status != "completed",
+                    )
+                )
+            ).scalar_one()
+        )
+        if remaining_non_wait:
+            await _transition_objective(
+                db,
+                prior,
+                "verifying",
+                reason="Counterparty responded; remaining provider postconditions are still being verified",
+            )
+        else:
+            await _transition_objective(db, prior, "completed", reason="Counterparty response received and the waiting objective was satisfied")
+
+    thread_id = int(payload.get("thread_record_id") or 0)
+    if thread_id > 0:
+        thread = await db.get(VACommunicationThread, thread_id)
+        if thread is not None and thread.objective_id == prior.id:
+            thread.objective_id = None
+            thread.waiting_on = "va"
+            thread.status = "open"
+            thread.next_follow_up_at = None
+
+    event.status = "processed"
+    event.processed_at = utcnow()
+    await db.commit()
+    return prior
+
+
+async def _handle_followup_event(db: AsyncSession, event: VAEvent, payload: dict[str, Any]) -> VAObjective:
+    followup = await db.get(VAFollowUp, int(event.source_id)) if event.source_id.isdigit() else None
+    objective_id = int(payload.get("objective_id") or (followup.objective_id if followup else 0) or 0)
+    objective = await db.get(VAObjective, objective_id) if objective_id > 0 else None
+    if objective is None or followup is None:
+        created, _ = await _create_objective(
+            db,
+            event,
+            title=event.title,
+            goal=str(payload.get("purpose") or event.title),
+            category="follow_up",
+            status="blocked_system",
+            reason="The persisted follow-up no longer references a valid objective.",
+        )
+        return created
+
+    # Reaching the follow-up deadline satisfies the previous waiting step; the same
+    # objective continues to own the conversation through the chase and next wait.
+    waiting_steps = list(
+        (
+            await db.execute(
+                select(VAObjectiveStep).where(
+                    VAObjectiveStep.objective_id == objective.id,
+                    VAObjectiveStep.action_type == "wait",
+                    VAObjectiveStep.status.in_(["pending", "waiting"]),
+                )
+            )
+        ).scalars()
+    )
+    for waiting in waiting_steps:
+        waiting.status = "completed"
+        waiting.finished_at = utcnow()
+        waiting.outcome_json = _dump({"follow_up_due": followup.id, "attempt": followup.attempts})
+
+    channel = str(followup.channel or payload.get("channel") or "").lower()
+    saved = _loads(followup.payload_json, {})
+    saved = saved if isinstance(saved, dict) else {}
+    position = await _max_step_position(db, objective.id) + 1
+    if channel == "email":
+        body = str(saved.get("follow_up_body") or _followup_body(str(saved.get("previous_body") or "")))
+        await _ensure_step(
+            db,
+            objective,
+            position=position,
+            action_type="gmail_send_followup",
+            parameters={
+                "thread_record_id": int(saved.get("thread_record_id") or payload.get("thread_record_id") or 0),
+                "recipient": followup.target,
+                "subject": str(saved.get("subject") or "Re: Follow-up"),
+                "body": body,
+                "gmail_thread_id": str(saved.get("gmail_thread_id") or ""),
+                "source_message_id": str(saved.get("source_message_id") or ""),
+                "source_rfc_message_id": str(saved.get("source_rfc_message_id") or ""),
+                "expect_reply": True,
+                "follow_up_hours": int(followup.recurrence_hours or 48),
+                "follow_up_id": followup.id,
+                "follow_up_attempt": followup.attempts,
+                "max_follow_up_attempts": followup.max_attempts,
+            },
+            verification_type="gmail_outbound_verified",
+        )
+        await _ensure_step(
+            db,
+            objective,
+            position=position + 1,
+            action_type="wait",
+            parameters={"reason": "counterparty_response", "thread_record_id": int(saved.get("thread_record_id") or 0)},
+            verification_type="counterparty_response",
+        )
+        followup.status = "dispatching"
+        await _transition_objective(db, objective, "planned", reason="Follow-up deadline reached; automatic email chase queued")
+    elif channel == "sms":
+        # SMS can be initiated from the paired Android device even without an active
+        # notification.  Persist a CommunicationAction first; the device worker owns
+        # actual carrier dispatch and sent/delivery evidence.
+        text = str(saved.get("follow_up_body") or _followup_body(str(saved.get("previous_body") or "")))
+        action_key = f"followup:{followup.id}:attempt:{followup.attempts}:sms"
+        action = (
+            await db.execute(
+                select(CommunicationAction).where(CommunicationAction.idempotency_key == action_key).limit(1)
+            )
+        ).scalar_one_or_none()
+        if action is None:
+            action = CommunicationAction(
+                event_id=int(saved.get("communication_event_id") or 0),
+                action_type="reply",
+                target=followup.target,
+                payload_json=_dump({"text": text, "channel": "sms", "follow_up_id": followup.id}),
+                idempotency_key=action_key,
+                status="pending",
+                requires_user_action=False,
+            )
+            db.add(action)
+            await db.flush()
+        await _ensure_step(
+            db,
+            objective,
+            position=position,
+            action_type="device_followup_action",
+            parameters={
+                "communication_action_id": action.id,
+                "channel": "sms",
+                "thread_record_id": int(saved.get("thread_record_id") or 0),
+                "target": followup.target,
+                "expect_reply": True,
+                "follow_up_hours": int(followup.recurrence_hours or 48),
+                "follow_up_id": followup.id,
+                "follow_up_attempt": followup.attempts,
+                "max_follow_up_attempts": followup.max_attempts,
+            },
+            verification_type="device_action_verified",
+        )
+        await _ensure_step(
+            db,
+            objective,
+            position=position + 1,
+            action_type="wait",
+            parameters={"reason": "counterparty_response", "thread_record_id": int(saved.get("thread_record_id") or 0)},
+            verification_type="counterparty_response",
+        )
+        followup.status = "dispatching"
+        await _transition_objective(db, objective, "planned", reason="Follow-up deadline reached; automatic SMS chase queued")
+    else:
+        # Android RemoteInput is a reply to an extant notification. It cannot safely
+        # initiate a future WhatsApp/Signal/Telegram/Messenger message once that
+        # notification action no longer exists. Do not pretend otherwise.
+        followup.status = "blocked_capability"
+        await _transition_objective(
+            db,
+            objective,
+            "blocked_capability",
+            reason=f"Automatic future {channel or 'notification-app'} follow-up requires an initiator API/browser executor; RemoteInput only replies to a live notification.",
+        )
+
+    event.status = "processed"
+    event.processed_at = utcnow()
+    await db.commit()
+    return objective
+
+
 async def objective_from_event(db: AsyncSession, event: VAEvent) -> VAObjective:
     payload = _loads(event.payload_json, {})
     payload = payload if isinstance(payload, dict) else {}
@@ -493,17 +744,113 @@ async def objective_from_event(db: AsyncSession, event: VAEvent) -> VAObjective:
             status="blocked_capability",
             reason="The task is now durably owned by the VA, but its domain executor has not yet been migrated into the unified objective engine.",
         )
-    elif event.event_type == "followup_due":
+    elif event.event_type == "email_reply_planned":
         objective, _ = await _create_objective(
             db,
             event,
             title=event.title,
-            goal=str(payload.get("purpose") or event.title),
-            category="follow_up",
-            priority="normal",
-            status="blocked_capability",
-            reason="Follow-up persistence is active; channel execution is implemented in the communications phase.",
+            goal=f"Send and verify the safe Gmail reply to {payload.get('recipient') or payload.get('sender') or 'the counterparty'}.",
+            category="email_reply",
+            priority=str(payload.get("priority") or "normal"),
+            status="planned",
         )
+        thread_record_id = int(payload.get("thread_record_id") or 0)
+        if thread_record_id > 0:
+            from app.services.communication_ownership import link_thread_objective
+            await link_thread_objective(db, thread_record_id=thread_record_id, objective_id=objective.id)
+        await _ensure_step(
+            db,
+            objective,
+            position=1,
+            action_type="gmail_send_reply",
+            parameters={
+                "thread_record_id": thread_record_id,
+                "recipient": str(payload.get("recipient") or payload.get("sender") or ""),
+                "subject": str(payload.get("subject") or ""),
+                "body": str(payload.get("body") or ""),
+                "gmail_thread_id": str(payload.get("gmail_thread_id") or ""),
+                "source_message_id": str(payload.get("source_message_id") or event.source_id),
+                "source_rfc_message_id": str(payload.get("source_rfc_message_id") or ""),
+                "expect_reply": bool(payload.get("expect_reply")),
+                "follow_up_hours": int(payload.get("follow_up_hours") or 48),
+                "policy": str(payload.get("policy") or "safe_autonomous_reply"),
+            },
+            verification_type="gmail_outbound_verified",
+        )
+        if bool(payload.get("expect_reply")):
+            await _ensure_step(
+                db,
+                objective,
+                position=2,
+                action_type="wait",
+                parameters={"reason": "counterparty_response", "thread_record_id": thread_record_id},
+                verification_type="counterparty_response",
+            )
+        objective.plan_json = _dump({"steps": 2 if payload.get("expect_reply") else 1, "source": "communications_ownership", "expect_reply": bool(payload.get("expect_reply"))})
+    elif event.event_type == "device_reply_planned":
+        protected = bool(payload.get("protected"))
+        objective, _ = await _create_objective(
+            db,
+            event,
+            title=event.title,
+            goal=f"Send and verify the safe {payload.get('channel') or 'device'} reply through the paired Android device.",
+            category="communication_reply",
+            priority=str(payload.get("priority") or "normal"),
+            risk_level="high" if protected else "low",
+            status="needs_user" if protected else "planned",
+            reason="Protected communication requires a material user decision." if protected else "",
+        )
+        if not protected:
+            thread_record_id = int(payload.get("thread_record_id") or 0)
+            if thread_record_id > 0:
+                from app.services.communication_ownership import link_thread_objective
+                await link_thread_objective(db, thread_record_id=thread_record_id, objective_id=objective.id)
+            await _ensure_step(
+                db,
+                objective,
+                position=1,
+                action_type="device_communication_action",
+                parameters={
+                    "communication_action_id": int(payload.get("communication_action_id") or 0),
+                    "communication_event_id": int(payload.get("communication_event_id") or 0),
+                    "thread_record_id": thread_record_id,
+                    "channel": str(payload.get("channel") or ""),
+                    "provider": str(payload.get("provider") or ""),
+                    "target": str(payload.get("target") or ""),
+                    "expect_reply": bool(payload.get("expect_reply")),
+                    "follow_up_hours": int(payload.get("follow_up_hours") or 48),
+                },
+                verification_type="device_action_verified",
+            )
+            if bool(payload.get("expect_reply")):
+                await _ensure_step(
+                    db,
+                    objective,
+                    position=2,
+                    action_type="wait",
+                    parameters={"reason": "counterparty_response", "thread_record_id": thread_record_id},
+                    verification_type="counterparty_response",
+                )
+            objective.plan_json = _dump({"steps": 2 if payload.get("expect_reply") else 1, "source": "communications_ownership", "expect_reply": bool(payload.get("expect_reply"))})
+    elif event.event_type == "communication_response_received":
+        return await _handle_response_event(db, event, payload)
+    elif event.event_type in {"email_actionable", "communication_actionable"}:
+        objective, _ = await _create_objective(
+            db,
+            event,
+            title=event.title,
+            goal=str(payload.get("reasoning_summary") or event.title),
+            category=str(payload.get("category") or event.event_type),
+            priority=str(payload.get("priority") or "normal"),
+            status="blocked_capability",
+            reason="The message is durably owned by the VA, but its requested domain action belongs to a later executor phase; it is not a user approval request.",
+        )
+        thread_record_id = int(payload.get("thread_record_id") or 0)
+        if thread_record_id > 0:
+            from app.services.communication_ownership import link_thread_objective
+            await link_thread_objective(db, thread_record_id=thread_record_id, objective_id=objective.id)
+    elif event.event_type == "followup_due":
+        return await _handle_followup_event(db, event, payload)
     else:
         objective, _ = await _create_objective(
             db,
@@ -629,6 +976,60 @@ async def _execute_step(db: AsyncSession, objective: VAObjective, step: VAObject
                 entity_id=str(objective.id),
                 details={"step_id": step.id, "action_type": step.action_type, "workflow_run_id": workflow_id},
             )
+        elif step.action_type in {"gmail_send_reply", "gmail_send_followup"}:
+            from app.services.gmail_delivery import prepare_gmail_outbound, send_or_reconcile_gmail_outbound
+
+            outbound = await prepare_gmail_outbound(
+                db,
+                idempotency_key=step.idempotency_key,
+                recipient=str(params.get("recipient") or ""),
+                subject=str(params.get("subject") or ""),
+                body=str(params.get("body") or ""),
+                objective_id=objective.id,
+                step_id=step.id,
+                source_message_id=str(params.get("source_message_id") or ""),
+                gmail_thread_id=str(params.get("gmail_thread_id") or ""),
+                in_reply_to=str(params.get("source_rfc_message_id") or ""),
+                references=str(params.get("source_rfc_message_id") or ""),
+            )
+            step.external_ref = f"gmail-outbound:{outbound.id}"
+            outbound = await send_or_reconcile_gmail_outbound(db, outbound)
+            step.outcome_json = _dump({"gmail_outbound_id": outbound.id, "status": outbound.status})
+            if outbound.status == "failed_user":
+                step.status = "blocked_user"
+                step.last_error = outbound.last_error
+                await _transition_objective(db, objective, "needs_user", reason=outbound.last_error or "Gmail authorization is required")
+            elif outbound.status == "failed":
+                step.status = "failed"
+                step.finished_at = utcnow()
+                step.last_error = outbound.last_error
+                await _transition_objective(db, objective, "blocked_system", reason=outbound.last_error or "Gmail send failed without a verified outcome")
+            else:
+                step.status = "verifying"
+                step.run_after = utcnow() if outbound.status == "verified" else max(outbound.verify_after, utcnow() + timedelta(seconds=5))
+                await _transition_objective(db, objective, "verifying")
+        elif step.action_type in {"device_communication_action", "device_followup_action"}:
+            action_id = int(params.get("communication_action_id") or 0)
+            action = await db.get(CommunicationAction, action_id) if action_id > 0 else None
+            if action is None:
+                raise RuntimeError("Persisted Android communication action no longer exists")
+            step.external_ref = f"communication-action:{action.id}"
+            step.outcome_json = _dump({"communication_action_id": action.id, "status": action.status})
+            if action.status == "failed":
+                step.status = "retry" if step.attempts < step.max_attempts else "failed"
+                step.last_error = action.failure_reason or "Device communication action failed"
+                step.run_after = utcnow() + timedelta(seconds=30)
+                await _transition_objective(db, objective, "waiting" if step.status == "retry" else "blocked_system", reason=step.last_error)
+            elif action.status == "cancelled":
+                step.status = "failed"
+                step.finished_at = utcnow()
+                await _transition_objective(db, objective, "blocked_system", reason="Device communication action was cancelled before verified dispatch")
+            else:
+                # Backend never impersonates the device. The persisted action is
+                # observed until the Android bridge posts real carrier/RemoteInput evidence.
+                step.status = "verifying"
+                step.run_after = utcnow() + timedelta(seconds=10)
+                await _transition_objective(db, objective, "verifying")
         elif step.action_type == "record_only":
             step.status = "completed"
             step.outcome_json = _dump({"recorded": True})
@@ -753,6 +1154,247 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
         if objective is None:
             continue
         checked += 1
+        params = _loads(step.parameters_json, {})
+        params = params if isinstance(params, dict) else {}
+
+        if step.verification_type == "gmail_outbound_verified":
+            from app.integrations.google_api import modify_gmail_message
+            from app.services.autonomy_policy import learn_successful_reply
+            from app.services.communication_ownership import mark_thread_waiting_for_counterparty
+            from app.services.gmail_delivery import ensure_gmail_outbound_verified
+
+            outbound = (
+                await db.execute(
+                    select(GmailOutboundMessage).where(GmailOutboundMessage.step_id == step.id).limit(1)
+                )
+            ).scalar_one_or_none()
+            if outbound is None:
+                step.status = "failed"
+                step.finished_at = now
+                await _transition_objective(db, objective, "blocked_system", reason="Persisted Gmail outbound intent is missing")
+                continue
+            if outbound.status == "failed_user":
+                step.status = "blocked_user"
+                step.last_error = outbound.last_error
+                await _transition_objective(db, objective, "needs_user", reason=outbound.last_error or "Gmail authorization is required")
+                continue
+            if outbound.status in {"failed", "failed_uncertain"}:
+                step.status = "failed"
+                step.finished_at = now
+                step.last_error = outbound.last_error
+                reason = (
+                    "Gmail provider outcome is ambiguous; automatic duplicate send is disabled"
+                    if outbound.status == "failed_uncertain"
+                    else (outbound.last_error or "Gmail send failed without a verified outcome")
+                )
+                await _transition_objective(db, objective, "blocked_system", reason=reason, error=outbound.last_error)
+                continue
+            verified = await ensure_gmail_outbound_verified(db, outbound)
+            if not verified:
+                step.run_after = max(outbound.verify_after, now + timedelta(seconds=15))
+                await _transition_objective(db, objective, "verifying")
+                continue
+
+            step.status = "completed"
+            step.finished_at = now
+            step.last_error = ""
+            step.external_ref = f"gmail:{outbound.external_message_id}"
+            step.outcome_json = _dump({"gmail_outbound_id": outbound.id, "gmail_message_id": outbound.external_message_id, "status": "verified"})
+            await _add_evidence(
+                db,
+                objective,
+                step=step,
+                evidence_type="gmail_sent_message",
+                provider="gmail",
+                external_ref=outbound.external_message_id or outbound.rfc_message_id,
+                details={
+                    "gmail_thread_id": outbound.external_thread_id or outbound.gmail_thread_id,
+                    "rfc_message_id": outbound.rfc_message_id,
+                    "recipient": outbound.recipient,
+                },
+            )
+            source_message_id = str(params.get("source_message_id") or "")
+            if source_message_id:
+                try:
+                    await modify_gmail_message(db, source_message_id, remove_labels=["INBOX", "UNREAD"])
+                except Exception as exc:
+                    # Sending is already verified; archival is a secondary housekeeping
+                    # action and must never create a duplicate reply.
+                    await write_audit(
+                        db,
+                        "gmail_reply_archive_deferred",
+                        entity_type="email",
+                        entity_id=source_message_id,
+                        result="deferred",
+                        details={"error": str(exc)},
+                    )
+                message = (
+                    await db.execute(select(Task).where(Task.source_type == "email_reply", Task.source_id == source_message_id, Task.status.in_(["open", "waiting"])).limit(1))
+                ).scalar_one_or_none()
+                if message is not None:
+                    message.status = "completed"
+                    message.requires_approval = False
+                from app.models.entities import EmailMessage
+                email_row = (
+                    await db.execute(select(EmailMessage).where(EmailMessage.provider_message_id == source_message_id).limit(1))
+                ).scalar_one_or_none()
+                if email_row is not None:
+                    email_row.status = "replied"
+                    if step.action_type == "gmail_send_reply":
+                        await learn_successful_reply(db, message=email_row, mode="autonomous_core")
+                await write_audit(
+                    db,
+                    "email_reply_sent",
+                    entity_type="email",
+                    entity_id=source_message_id,
+                    details={"gmail_message_id": outbound.external_message_id, "objective_id": objective.id, "autopilot": True},
+                )
+
+            if bool(params.get("expect_reply")):
+                thread_record_id = int(params.get("thread_record_id") or 0)
+                followup_id = int(params.get("follow_up_id") or 0)
+                followup = await db.get(VAFollowUp, followup_id) if followup_id > 0 else None
+                current_attempt = int(params.get("follow_up_attempt") or (followup.attempts if followup else 0) or 0)
+                max_attempts = int(params.get("max_follow_up_attempts") or (followup.max_attempts if followup else 4) or 4)
+                schedule_next = followup_id == 0 or current_attempt < max_attempts
+                saved_payload = {
+                    "thread_record_id": thread_record_id,
+                    "gmail_thread_id": outbound.external_thread_id or outbound.gmail_thread_id,
+                    "source_message_id": source_message_id,
+                    "source_rfc_message_id": outbound.rfc_message_id,
+                    "subject": outbound.subject,
+                    "previous_body": outbound.body,
+                }
+                await mark_thread_waiting_for_counterparty(
+                    db,
+                    thread_record_id=thread_record_id,
+                    objective_id=objective.id,
+                    channel="email",
+                    target=outbound.recipient,
+                    purpose=f"Follow up on {outbound.subject or 'the previous email'}",
+                    payload=saved_payload,
+                    follow_up_hours=int(params.get("follow_up_hours") or 48),
+                    max_attempts=max_attempts,
+                    schedule_follow_up=schedule_next,
+                )
+                if followup is not None:
+                    followup.last_external_ref = outbound.external_message_id
+                    followup.last_sent_at = now
+                    if not schedule_next:
+                        followup.status = "exhausted"
+                await _transition_objective(
+                    db,
+                    objective,
+                    "waiting_external",
+                    reason="Verified reply sent; waiting for the counterparty response",
+                )
+            else:
+                await _finish_if_all_steps_complete(db, objective)
+            continue
+
+        if step.verification_type == "device_action_verified":
+            from app.services.communication_ownership import mark_thread_waiting_for_counterparty
+
+            action_id = int(params.get("communication_action_id") or 0)
+            action = await db.get(CommunicationAction, action_id) if action_id > 0 else None
+            if action is None:
+                step.status = "failed"
+                step.finished_at = now
+                await _transition_objective(db, objective, "blocked_system", reason="Persisted device communication action is missing")
+                continue
+            evidence = list(
+                (
+                    await db.execute(
+                        select(CommunicationDeliveryEvidence).where(
+                            CommunicationDeliveryEvidence.communication_action_id == action.id
+                        )
+                    )
+                ).scalars()
+            )
+            types = {row.evidence_type for row in evidence}
+            channel = str(params.get("channel") or "").lower()
+            verified_type = "sms_delivered" if "sms_delivered" in types else (
+                "sms_sent" if channel == "sms" and "sms_sent" in types else (
+                    "remote_input_dispatched" if channel != "sms" and "remote_input_dispatched" in types else ""
+                )
+            )
+            if action.status == "failed":
+                if step.attempts < step.max_attempts:
+                    action.status = "pending"
+                    action.failure_reason = ""
+                    step.status = "retry"
+                    step.run_after = now + timedelta(seconds=min(300, 30 * max(1, step.attempts)))
+                    await _transition_objective(db, objective, "waiting", reason="Definitive device dispatch failure; safe retry queued")
+                else:
+                    step.status = "failed"
+                    step.finished_at = now
+                    step.last_error = action.failure_reason or "Device communication failed"
+                    await _transition_objective(db, objective, "blocked_system", reason=step.last_error)
+                continue
+            if not verified_type:
+                if action.status == "pending" and step.created_at <= now - timedelta(minutes=30):
+                    step.status = "failed"
+                    step.finished_at = now
+                    step.last_error = "Android device did not report a definitive dispatch outcome; automatic resend is unsafe"
+                    await _transition_objective(
+                        db,
+                        objective,
+                        "blocked_system",
+                        reason="Device dispatch outcome is unknown; VAAPP will not risk sending a duplicate message",
+                    )
+                    continue
+                step.run_after = now + timedelta(seconds=15)
+                await _transition_objective(db, objective, "verifying")
+                continue
+
+            strongest = next(row for row in evidence if row.evidence_type == verified_type)
+            step.status = "completed"
+            step.finished_at = now
+            step.last_error = ""
+            step.external_ref = strongest.external_ref or f"communication-action:{action.id}"
+            step.outcome_json = _dump({"communication_action_id": action.id, "evidence_type": verified_type})
+            await _add_evidence(
+                db,
+                objective,
+                step=step,
+                evidence_type=verified_type,
+                provider="android_device",
+                external_ref=strongest.external_ref or str(action.id),
+                details=_loads(strongest.details_json, {}),
+            )
+            if bool(params.get("expect_reply")):
+                followup_id = int(params.get("follow_up_id") or 0)
+                followup = await db.get(VAFollowUp, followup_id) if followup_id > 0 else None
+                current_attempt = int(params.get("follow_up_attempt") or (followup.attempts if followup else 0) or 0)
+                max_attempts = int(params.get("max_follow_up_attempts") or (followup.max_attempts if followup else 4) or 4)
+                schedule_next = followup_id == 0 or (channel == "sms" and current_attempt < max_attempts)
+                action_payload = _loads(action.payload_json, {})
+                await mark_thread_waiting_for_counterparty(
+                    db,
+                    thread_record_id=int(params.get("thread_record_id") or 0),
+                    objective_id=objective.id,
+                    channel=channel,
+                    target=action.target,
+                    purpose=f"Follow up with {action.target}",
+                    payload={
+                        "thread_record_id": int(params.get("thread_record_id") or 0),
+                        "communication_event_id": action.event_id,
+                        "previous_body": str(action_payload.get("text") or ""),
+                    },
+                    follow_up_hours=int(params.get("follow_up_hours") or 48),
+                    max_attempts=max_attempts,
+                    schedule_follow_up=schedule_next,
+                )
+                if followup is not None:
+                    followup.last_external_ref = strongest.external_ref or str(action.id)
+                    followup.last_sent_at = now
+                    if not schedule_next:
+                        followup.status = "exhausted"
+                await _transition_objective(db, objective, "waiting_external", reason="Verified device reply dispatched; waiting for the counterparty response")
+            else:
+                await _finish_if_all_steps_complete(db, objective)
+            continue
+
         if step.verification_type != "workflow_run_completed" or step.workflow_run_id is None:
             step.status = "failed"
             step.finished_at = now

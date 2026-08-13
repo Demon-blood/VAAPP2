@@ -45,6 +45,76 @@ async def authorize_step(
             "reason": "Internal reversible operation",
         }
 
+
+    if action_type in {"gmail_send_reply", "gmail_send_followup"}:
+        capability = await capability_for_key(db, "email")
+        if capability is None or not capability.get("available"):
+            return {
+                "allowed": False,
+                "needs_user": bool(capability and capability.get("resolution") == "user_connect"),
+                "resolution": (capability or {}).get("resolution") or "capability_unavailable",
+                "reason": "Gmail send requires a live Google OAuth connection",
+                "capability": capability,
+            }
+        if objective.risk_level in {"critical"}:
+            return {
+                "allowed": False,
+                "needs_user": True,
+                "resolution": "material_decision",
+                "reason": "Critical-risk communication requires the account holder's material decision",
+                "capability": capability,
+            }
+        if not str(parameters.get("recipient") or "").strip() or not str(parameters.get("body") or "").strip():
+            return {
+                "allowed": False,
+                "needs_user": False,
+                "resolution": "invalid_parameters",
+                "reason": "Gmail recipient and body are required",
+                "capability": capability,
+            }
+        return {
+            "allowed": True,
+            "needs_user": False,
+            "resolution": "automatic",
+            "reason": "Gmail reply was already classified safe and has a real durable send/verification executor",
+            "capability": capability,
+        }
+
+    if action_type in {"device_communication_action", "device_followup_action"}:
+        capability = await capability_for_key(db, "android_device")
+        if capability is None or not capability.get("available"):
+            return {
+                "allowed": False,
+                "needs_user": bool(capability and capability.get("resolution") == "user_connect"),
+                "resolution": (capability or {}).get("resolution") or "capability_unavailable",
+                "reason": "A live paired Android device is required for this communication action",
+                "capability": capability,
+            }
+        channel = str(parameters.get("channel") or "").lower()
+        if channel not in {"sms", "whatsapp", "signal", "telegram", "messenger"}:
+            return {
+                "allowed": False,
+                "needs_user": False,
+                "resolution": "unsupported_action",
+                "reason": f"No Android communication executor exists for channel {channel or '<empty>'}",
+                "capability": capability,
+            }
+        if objective.risk_level == "critical":
+            return {
+                "allowed": False,
+                "needs_user": True,
+                "resolution": "material_decision",
+                "reason": "Critical-risk communication requires the account holder's material decision",
+                "capability": capability,
+            }
+        return {
+            "allowed": True,
+            "needs_user": False,
+            "resolution": "automatic",
+            "reason": "A real paired-device action exists and outcome verification is required",
+            "capability": capability,
+        }
+
     if action_type == "needs_user":
         return {
             "allowed": False,

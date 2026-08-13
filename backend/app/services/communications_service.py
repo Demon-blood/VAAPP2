@@ -9,9 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.ai_client import AIConfigurationError, AIQuotaDeferred, analyze_communication
-from app.models.entities import CommunicationAction, CommunicationEvent, CommunicationRule, Task
+from app.models.entities import CommunicationAction, CommunicationDeliveryEvidence, CommunicationEvent, CommunicationRule, Task
 from app.schemas.api import CommunicationIngestRequest
 from app.services.audit import write_audit
+from app.services.communication_ownership import register_device_communication
 from app.services.runtime_config import get_runtime_value
 
 PROTECTED_TERMS = (
@@ -283,6 +284,8 @@ async def ingest_communication(db: AsyncSession, payload: CommunicationIngestReq
                 )
             )
 
+    await register_device_communication(db, event=event, action=action)
+
     await write_audit(
         db,
         "communication_processed",
@@ -321,35 +324,126 @@ async def complete_communication_action(
     *,
     status: str,
     failure_reason: str = "",
+    external_ref: str = "",
+    details: dict[str, Any] | None = None,
 ) -> CommunicationAction:
     action = await db.get(CommunicationAction, action_id)
     if action is None:
         raise ValueError("Communication action does not exist")
-    if action.status == "completed":
-        return action
-    action.status = status
+
+    accepted = {"pending", "dispatched", "sent", "delivered", "completed", "failed", "cancelled", "delivery_failed"}
+    if status not in accepted:
+        raise ValueError(f"Unsupported communication action status: {status}")
+
+    current_success = action.status in {"dispatched", "sent", "delivered", "completed"}
+    evidence_type = {
+        "dispatched": "remote_input_dispatched",
+        "sent": "sms_sent",
+        "delivered": "sms_delivered",
+        "delivery_failed": "sms_delivery_failed",
+        "completed": "device_action_completed",
+    }.get(status)
+
+    # Never turn a proven send/provider handoff into a retryable failure just because
+    # a later delivery receipt reports failure or a duplicate callback arrives.
+    if status == "delivery_failed" and current_success:
+        effective_status = action.status
+    elif status == "failed" and current_success:
+        effective_status = action.status
+    else:
+        rank = {"pending": 0, "dispatched": 1, "sent": 2, "completed": 2, "delivered": 3}
+        if status in rank and action.status in rank:
+            effective_status = status if rank[status] >= rank[action.status] else action.status
+        else:
+            effective_status = status
+
+    action.status = effective_status
     action.failure_reason = failure_reason[:2000]
+    if evidence_type:
+        existing_evidence = (
+            await db.execute(
+                select(CommunicationDeliveryEvidence).where(
+                    CommunicationDeliveryEvidence.communication_action_id == action.id,
+                    CommunicationDeliveryEvidence.evidence_type == evidence_type,
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing_evidence is None:
+            db.add(
+                CommunicationDeliveryEvidence(
+                    communication_action_id=action.id,
+                    evidence_type=evidence_type,
+                    external_ref=external_ref[:1000],
+                    details_json=json.dumps(details or {"reported_status": status, "failure_reason": failure_reason}, ensure_ascii=False, default=str),
+                )
+            )
+
     event = await db.get(CommunicationEvent, action.event_id)
-    if event is not None and status == "completed":
-        event.status = "action_completed"
+    proven = effective_status in {"dispatched", "sent", "delivered", "completed"}
+    if event is not None and proven:
+        event.status = f"action_{effective_status}"
         event.action_required = False
         task = (
             await db.execute(
-                select(Task).where(Task.source_type == "communication", Task.source_id == str(event.id), Task.status.in_(["open", "waiting"]))
+                select(Task).where(
+                    Task.source_type == "communication",
+                    Task.source_id == str(event.id),
+                    Task.status.in_(["open", "waiting"]),
+                )
             )
         ).scalar_one_or_none()
         if task is not None and not task.requires_approval:
             task.status = "completed"
+
     await write_audit(
         db,
         "communication_action_result",
         entity_type="communication_action",
         entity_id=str(action.id),
-        result="success" if status == "completed" else "failed",
-        details={"status": status, "failure_reason": action.failure_reason},
+        result="success" if proven else ("deferred" if status == "delivery_failed" else "failed"),
+        details={
+            "reported_status": status,
+            "effective_status": effective_status,
+            "failure_reason": action.failure_reason,
+            "external_ref": external_ref,
+        },
     )
     await db.commit()
     return action
+
+
+async def pending_communication_actions(db: AsyncSession, *, limit: int = 50) -> list[dict[str, Any]]:
+    """Return real persisted device work that still needs dispatch/reconciliation.
+
+    SMS actions may be initiated by the paired device worker. Notification-app rows
+    are also returned so locally persisted RemoteInput handoff evidence can be re-posted
+    after a network outage, but they are explicitly marked non-dispatchable because a
+    stale RemoteInput action cannot be reconstructed safely.
+    """
+    rows = list(
+        (
+            await db.execute(
+                select(CommunicationAction)
+                .where(CommunicationAction.status == "pending")
+                .order_by(CommunicationAction.created_at.asc(), CommunicationAction.id.asc())
+                .limit(max(1, min(limit, 200)))
+            )
+        ).scalars()
+    )
+    result: list[dict[str, Any]] = []
+    for action in rows:
+        payload = json.loads(action.payload_json or "{}")
+        channel = str(payload.get("channel") or "").lower()
+        result.append({
+            "id": action.id,
+            "type": action.action_type,
+            "target": action.target,
+            "text": str(payload.get("text") or ""),
+            "channel": channel,
+            "can_background_dispatch": channel == "sms",
+            "created_at": action.created_at,
+        })
+    return result
 
 
 async def device_call_policy(db: AsyncSession) -> dict[str, Any]:

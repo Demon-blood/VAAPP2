@@ -70,8 +70,9 @@ class SmsReceiver : BroadcastReceiver() {
             val text = action.optString("text")
             if (actionId <= 0 || text.isBlank() || !VaBackendClient.markActionExecuted(context, actionId)) return@thread
             try {
-                VaSms.send(context, sender, text)
-                VaBackendClient.postActionResult(context, actionId, "completed")
+                VaSms.send(context, sender, text, actionId)
+                // SmsStatusReceiver reports real carrier send/delivery callbacks.
+                // Do not mark this action complete merely because SmsManager accepted the request.
             } catch (exc: Exception) {
                 VaBackendClient.clearActionExecuted(context, actionId)
                 VaBackendClient.postActionResult(context, actionId, "failed", exc.toString())

@@ -125,6 +125,7 @@ from app.services.communications_service import (
     complete_communication_action,
     device_call_policy,
     ingest_communication,
+    pending_communication_actions,
 )
 from app.services.financial_autopilot import (
     complete_own_transfer_authorization,
@@ -1000,11 +1001,41 @@ async def communication_action_result(
 ) -> dict:
     try:
         action = await complete_communication_action(
-            db, action_id, status=payload.status, failure_reason=payload.failure_reason
+            db,
+            action_id,
+            status=payload.status,
+            failure_reason=payload.failure_reason,
+            external_ref=payload.external_ref,
+            details=payload.details,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"id": action.id, "status": action.status}
+
+
+@router.get("/api/communications/actions/pending")
+async def communication_pending_actions(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return {"actions": await pending_communication_actions(db, limit=limit)}
+
+
+@router.get("/api/communications/threads")
+async def communication_threads(
+    limit: int = Query(default=100, ge=1, le=500),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.communication_ownership import communication_threads_overview
+
+    rows = await communication_threads_overview(db, limit=limit)
+    return {
+        "threads": rows,
+        "waiting_on_counterparty": sum(1 for row in rows if row.get("waiting_on") == "counterparty"),
+        "owned": sum(1 for row in rows if row.get("objective_id") is not None),
+    }
 
 
 @router.get("/api/communications/device-policy")
@@ -1473,12 +1504,22 @@ async def audit_log(
 async def enable_google_watch(
     _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
 ) -> dict:
-    from app.integrations.google_api import start_gmail_watch
+    from app.services.gmail_sync_service import ensure_gmail_watch
 
-    if not settings.google_pubsub_topic:
-        raise HTTPException(status_code=503, detail="GOOGLE_PUBSUB_TOPIC is not configured")
     try:
-        return await start_gmail_watch(db, settings.google_pubsub_topic)
+        return await ensure_gmail_watch(db, force=True)
+    except (GoogleConfigurationError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/google/mailbox-status")
+async def google_mailbox_status(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    from app.services.gmail_sync_service import mailbox_status
+
+    try:
+        return await mailbox_status(db)
     except GoogleConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -1488,14 +1529,38 @@ async def google_pubsub(
     request: Request,
     token: str = Query(default=""),
 ) -> dict:
-    if not settings.google_pubsub_verification_token or token != settings.google_pubsub_verification_token:
-        raise HTTPException(status_code=403, detail="Invalid Pub/Sub verification token")
-    # Acknowledge promptly; the regular scheduler provides a fallback when Pub/Sub delivery is delayed.
     from app.core.database import SessionLocal
+    from app.services.gmail_sync_service import decode_pubsub_notification
+    from app.services.workflow_engine import enqueue_job
 
     async with SessionLocal() as db:
-        await sync_gmail(db, max_messages=250)
-    return {"acknowledged": True}
+        expected_token = await get_runtime_value(db, "google_pubsub_verification_token", "")
+        if not expected_token or token != expected_token:
+            raise HTTPException(status_code=403, detail="Invalid Pub/Sub verification token")
+        try:
+            body = await request.json()
+            notification = decode_pubsub_notification(body)
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        # Pub/Sub delivery is acknowledged only after a durable history-sync job is
+        # persisted.  Processing happens asynchronously in the workflow worker, so
+        # Google does not retry simply because AI/Gmail processing takes longer.
+        message_id = notification["pubsub_message_id"] or notification["history_id"]
+        job, created = await enqueue_job(
+            db,
+            job_type="gmail.history.sync",
+            payload={
+                "email": notification["email"],
+                "history_id": notification["history_id"],
+                "pubsub_message_id": notification["pubsub_message_id"],
+                "publish_time": notification["publish_time"],
+            },
+            idempotency_key=f"gmail.history.push:{message_id}"[:255],
+            priority=8,
+            max_attempts=8,
+        )
+    return {"acknowledged": True, "queued": created, "job_id": job.id}
 
 @router.get("/api/documents")
 async def list_documents(

@@ -783,10 +783,30 @@ async def worker_tick(*, worker_id: str | None = None, limit: int = 4) -> dict[s
 @job_handler("gmail.sync")
 async def _gmail_sync(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     from app.services.email_processor import sync_gmail
+    from app.services.gmail_sync_service import refresh_mailbox_cursor_from_profile
 
     max_messages = max(1, min(int(payload.get("max_messages") or 250), 1000))
     result = await sync_gmail(db, max_messages=max_messages)
-    return {"result": result}
+    state = await refresh_mailbox_cursor_from_profile(db, mark_full_sync=True)
+    return {"result": result, "history_id": state.history_id}
+
+
+@job_handler("gmail.history.sync")
+async def _gmail_history_sync(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.gmail_sync_service import history_sync
+
+    return await history_sync(
+        db,
+        notification_history_id=str(payload.get("history_id") or ""),
+        notification_email=str(payload.get("email") or ""),
+    )
+
+
+@job_handler("gmail.watch.ensure")
+async def _gmail_watch_ensure(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.gmail_sync_service import ensure_gmail_watch
+
+    return await ensure_gmail_watch(db, force=bool(payload.get("force")))
 
 
 @job_handler("banking.autopilot")

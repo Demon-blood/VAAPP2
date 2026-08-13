@@ -74,13 +74,62 @@ object VaBackendClient {
     fun postBatch(context: Context, events: JSONArray): JSONObject? =
         request(context, "POST", "/api/communications/batch", JSONObject().put("events", events))
 
-    fun postActionResult(context: Context, actionId: Long, status: String, failureReason: String = "") {
-        request(
+    fun postActionResult(
+        context: Context,
+        actionId: Long,
+        status: String,
+        failureReason: String = "",
+        externalRef: String = "",
+        details: JSONObject = JSONObject(),
+    ): Boolean = request(
+        context,
+        "POST",
+        "/api/communications/actions/$actionId/result",
+        JSONObject()
+            .put("status", status)
+            .put("failure_reason", failureReason.take(1900))
+            .put("external_ref", externalRef.take(1000))
+            .put("details", details),
+    ) != null
+
+    fun storeActionEvidence(
+        context: Context,
+        actionId: Long,
+        status: String,
+        externalRef: String,
+        details: JSONObject = JSONObject(),
+    ) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(
+                "action_evidence_$actionId",
+                JSONObject()
+                    .put("status", status)
+                    .put("external_ref", externalRef)
+                    .put("details", details)
+                    .toString(),
+            )
+            .apply()
+    }
+
+    fun repostStoredActionEvidence(context: Context, actionId: Long): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = prefs.getString("action_evidence_$actionId", null) ?: return false
+        val evidence = try { JSONObject(raw) } catch (_: Exception) { return false }
+        val posted = postActionResult(
             context,
-            "POST",
-            "/api/communications/actions/$actionId/result",
-            JSONObject().put("status", status).put("failure_reason", failureReason.take(1900)),
+            actionId,
+            evidence.optString("status"),
+            externalRef = evidence.optString("external_ref"),
+            details = evidence.optJSONObject("details") ?: JSONObject(),
         )
+        if (posted) prefs.edit().remove("action_evidence_$actionId").apply()
+        return true
+    }
+
+    fun fetchPendingCommunicationActions(context: Context): JSONArray {
+        val response = request(context, "GET", "/api/communications/actions/pending?limit=100", null)
+            ?: return JSONArray()
+        return response.optJSONArray("actions") ?: JSONArray()
     }
 
     fun fetchCallPolicy(context: Context): JSONObject? =

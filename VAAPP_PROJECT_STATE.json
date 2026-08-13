@@ -2,71 +2,61 @@
   "project": "VAAPP",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "repository_verified_before_upload": {
+  "github_verified_baseline": {
     "commit": "b92ac998359057cfd1daba56576e0da44eef80b1",
     "backend_version": "0.8.1",
     "android_version": "0.8.1+32",
-    "latest_ci_run": 27,
-    "latest_ci_status": "success"
+    "ci_run": 27,
+    "ci_status": "success"
   },
-  "release_candidate": {
-    "backend_version": "0.9.0",
-    "android_version": "0.9.0+33",
-    "apk": "Full-Time-VA-Android-v0.9.0.apk",
-    "phase": 1,
-    "phase_name": "Autonomous Core",
+  "local_release_candidate": {
+    "backend_version": "0.9.1",
+    "android_version": "0.9.1+34",
+    "apk": "Full-Time-VA-Android-v0.9.1.apk",
+    "cumulative_from_github_baseline": true
+  },
+  "current_phase": {
+    "number": 2,
+    "name": "Inbox & Communications Ownership",
     "status": "implemented_locally_awaiting_github_ci"
   },
-  "validation": {
-    "python_compileall": "pass",
-    "local_static_regression_tests_passed": 26,
-    "workflow_yaml": "pass",
-    "pubspec_yaml": "pass",
-    "workflow_shell_blocks": "6/6 pass",
-    "dart_structural_scan": "pass",
-    "private_identifier_scan": "pass",
-    "raw_pdf_xlsx_scan": "pass",
-    "dependency_backed_behavior_tests": "pending_github_ci_local_aiosqlite_unavailable"
+  "included_completed_local_phases": [
+    "Phase 1 — Autonomous Core",
+    "Phase 2 — Inbox & Communications Ownership"
+  ],
+  "next_phase": {
+    "number": 3,
+    "name": "Calendar & Scheduling Agent",
+    "start_condition": "Cumulative v0.9.1 upload passes full GitHub Actions"
   },
-  "phase1_capabilities": [
-    "unified idempotent VA event intake",
-    "durable objective lifecycle",
-    "durable ordered objective steps",
-    "central fail-closed policy decision",
-    "real shipped capability registry",
-    "stable external-action idempotency correlation",
-    "existing workflow engine execution",
-    "independent outcome evidence",
-    "workflow completion/supersession verification",
-    "payment/SCA and own-transfer reconciliation",
-    "safe provider-auth recovery",
-    "durable follow-up state without fake delivery",
-    "strict Needs You classification",
-    "autonomy quality metrics",
-    "Work Operations Android view"
-  ],
   "non_negotiable_requirements": [
-    "No fake or placeholder executor presented as complete",
+    "No fake implementations or placeholder executors presented as complete",
     "No global paper/simulation mode",
-    "Routine work executes automatically where a real executor exists",
-    "Needs You only for unavoidable auth/material decision/physical action",
-    "External actions durable, idempotent, auditable, and outcome-verified",
-    "No blind retry after ambiguous external outcome",
-    "No private banking data/secrets/raw statements in public source",
+    "Routine work executes automatically",
+    "Needs You only for unavoidable authentication/security authorization, material decisions, or physical action with no executor",
+    "All external actions are durable, idempotent, auditable, and outcome-verified",
+    "Ambiguous external execution outcomes are reconciled before retry",
+    "No secrets or private banking data embedded in public source",
     "Kraken withdrawals disabled/not implemented",
-    "Revolut Pro cannot directly fund personal Kraken"
+    "Revolut Pro never directly funds personal Kraken"
   ],
-  "phase_order": [
-    "Autonomous Core",
-    "Inbox & Communications Ownership",
-    "Calendar & Scheduling Agent",
-    "CRM / Relationship Memory",
-    "Secure Browser / Portal Operator",
-    "Documents / Forms / Deadlines",
-    "Financial Allocation & Forecasting",
-    "Calls / Telephony",
-    "Purchasing / Travel / Logistics / Customer Service",
-    "Professional Product Cleanup / v1.0 Readiness"
+  "phase2_key_capabilities": [
+    "Persistent Gmail mailbox history/watch state",
+    "Durable Gmail PubSub callback -> workflow queue before acknowledgement",
+    "History sync with stale-cursor full recovery",
+    "Durable outbound Gmail intent committed before send",
+    "Deterministic RFC Message-ID reconciliation prevents blind duplicate sends",
+    "Verified Gmail reply threading",
+    "Persistent communication thread ownership",
+    "Durable counterparty follow-ups and response evidence",
+    "Real Android SmsManager execution with carrier SENT/DELIVERED evidence",
+    "Real live-notification RemoteInput handoff evidence",
+    "WorkManager evidence reconciliation before SMS resend",
+    "Communication ownership/Gmail health Android UI"
   ],
-  "next_action": "Upload Phase-1 v0.9.0 overlay, inspect GitHub Actions, fix until green, then mark Phase 1 complete and begin Phase 2."
+  "next_action": "Upload cumulative v0.9.1 Phase-2 package, inspect GitHub Actions, fix until green, then begin Phase 3 Calendar & Scheduling Agent.",
+  "handoff_files": [
+    "VAAPP_PROJECT_HANDOFF.md",
+    "VAAPP_PROJECT_STATE.json"
+  ]
 }

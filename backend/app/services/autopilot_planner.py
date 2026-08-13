@@ -6,11 +6,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.integrations.google_api import send_gmail_message
-from app.models.entities import AuditLog, Bill, EmailMessage, Payment, Task
+from app.models.entities import AuditLog, Bill, EmailMessage, GmailOutboundMessage, Payment, Task
 from app.schemas.api import AutomationDecision
 from app.services.audit import write_audit
-from app.services.autonomy_policy import learn_successful_reply, reply_autonomy_decision
+from app.services.autonomy_policy import reply_autonomy_decision
+from app.services.communication_ownership import queue_saved_email_reply
 from app.services.runtime_config import get_runtime_value
 from app.services.workflow_engine import enqueue_job
 
@@ -25,7 +25,7 @@ def _bill_version_key(bill: Bill) -> str:
 
 
 async def _reply_already_sent(db: AsyncSession, message_id: str) -> bool:
-    return (
+    audit = (
         await db.execute(
             select(AuditLog.id).where(
                 AuditLog.event_type == "email_reply_sent",
@@ -33,7 +33,18 @@ async def _reply_already_sent(db: AsyncSession, message_id: str) -> bool:
                 AuditLog.entity_id == message_id,
             ).limit(1)
         )
-    ).scalar_one_or_none() is not None
+    ).scalar_one_or_none()
+    if audit is not None:
+        return True
+    verified = (
+        await db.execute(
+            select(GmailOutboundMessage.id).where(
+                GmailOutboundMessage.source_message_id == message_id,
+                GmailOutboundMessage.status == "verified",
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    return verified is not None
 
 
 async def _execute_safe_queued_replies(db: AsyncSession, *, limit: int = 30) -> dict[str, int]:
@@ -47,7 +58,7 @@ async def _execute_safe_queued_replies(db: AsyncSession, *, limit: int = 30) -> 
             )
         ).scalars()
     )
-    sent = 0
+    queued = 0
     retained = 0
     for task in tasks:
         if not task.source_id:
@@ -77,26 +88,32 @@ async def _execute_safe_queued_replies(db: AsyncSession, *, limit: int = 30) -> 
             task.requires_approval = True
             retained += 1
             continue
-        sent_id = await send_gmail_message(
+        await queue_saved_email_reply(
             db,
-            to=str(decision.reply.get("to") or message.sender),
+            record=message,
+            recipient=str(decision.reply.get("to") or message.sender),
             subject=str(decision.reply.get("subject") or f"Re: {message.subject}"),
             body=str(decision.reply.get("body") or ""),
+            priority=message.priority,
+            expect_reply=bool(message.action_required),
+            follow_up_hours=48,
+            policy=reason,
         )
-        task.status = "completed"
+        task.status = "waiting"
         task.requires_approval = False
-        await learn_successful_reply(db, message=message, mode="planner")
         await write_audit(
             db,
-            "email_reply_sent",
+            "email_reply_migrated_to_objective",
             entity_type="email",
             entity_id=message.provider_message_id,
-            details={"gmail_message_id": sent_id, "task_id": task.id, "autopilot": True, "policy": reason},
+            details={"task_id": task.id, "policy": reason},
         )
-        sent += 1
+        queued += 1
     if tasks:
         await db.commit()
-    return {"sent": sent, "retained_for_user": retained}
+    # Keep the historical `sent` key for callers, but Phase 2 never equates queueing
+    # durable work with a provider-confirmed send.
+    return {"sent": 0, "queued": queued, "retained_for_user": retained}
 
 
 async def _plan_bills(db: AsyncSession) -> dict[str, int]:

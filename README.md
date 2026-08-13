@@ -1,6 +1,6 @@
-# Full-Time VA v0.9.0 — Autonomous Core
+# Full-Time VA v0.9.1 — Inbox & Communications Ownership
 
-v0.9.0 keeps the verified v0.8.1 finance/investments baseline and introduces Phase 1 of the full-time-VA architecture: a durable autonomous operator core. Events become owned objectives, every executable step is policy/capability checked, external work is dispatched through the existing real workflow engine with stable idempotency keys, and objectives remain open until their outcome is independently verified.
+v0.9.1 is the cumulative Phase 1 + Phase 2 release candidate. It keeps the durable autonomous operator core and adds real inbox/communications ownership: persistent Gmail history cursors and push-watch state, durable ambiguity-safe outbound Gmail delivery, conversation ownership and follow-ups, carrier-confirmed Android SMS execution, notification RemoteInput dispatch evidence, and restart-safe reconciliation. No communication is marked sent or delivered without provider/device evidence.
 
 ## Cash structure
 
@@ -23,7 +23,7 @@ v0.9.0 keeps the verified v0.8.1 finance/investments baseline and introduces Pha
 
 ## Release identity
 
-Backend `0.9.0` · Android `0.9.0+33` · APK `Full-Time-VA-Android-v0.9.0.apk`.
+Backend `0.9.1` · Android `0.9.1+34` · APK `Full-Time-VA-Android-v0.9.1.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -47,3 +47,19 @@ Money now includes a dedicated Investments tab for Revolut Brokerage/Robo statem
 - Phase 1 intentionally does not claim browser, telephony, or future-domain executors that do not yet exist. Those are implemented in later phases.
 
 See `docs/V0.9.0_AUTONOMOUS_CORE.md` for the Phase-1 contract and validation requirements.
+
+
+## v0.9.1 Inbox & Communications Ownership — Phase 2
+
+- Gmail mailbox state persists the current history cursor, push-watch topic/expiration, last push, last history sync, last full recovery sync, and last watch renewal/error.
+- Gmail Pub/Sub callbacks persist a `gmail.history.sync` workflow job before acknowledging the notification. Periodic full sync remains a recovery path if push delivery is delayed or a cursor becomes stale.
+- Safe automatic replies are no longer sent inline from the email processor. They become durable VA objectives whose Gmail intent is persisted and committed before the external send call.
+- Each outbound Gmail action uses a deterministic RFC Message-ID and reconciles the Sent mailbox before any retry, preventing blind duplicate sends after timeout/connection ambiguity.
+- Reply threading preserves Gmail `threadId` plus standard `In-Reply-To`/`References` headers. A successful send is recorded only after the sent message can be independently found and verified.
+- Email/SMS/messaging conversations are owned as persistent communication threads. When the VA is waiting on the other party it schedules a durable follow-up and cancels that follow-up automatically when a response arrives.
+- Android SMS execution uses `SmsManager` plus carrier SENT/DELIVERED callbacks. Local carrier evidence is retained and reposted to the backend after temporary network failure before any resend is considered.
+- Notification-based app replies use the live Android `RemoteInput` action only while that real notification action exists. The app records provider handoff (`dispatched`) evidence; it does not claim arbitrary background initiation or recipient delivery for WhatsApp/Signal/Telegram/Messenger.
+- A WorkManager reconciliation worker replays locally proven communication evidence and background-dispatches only real SMS actions. Unknown delivery outcomes fail closed instead of causing duplicate messages.
+- The Communications screen now shows Gmail watch/cursor health plus the persistent conversation-ownership ledger.
+
+See `docs/V0.9.1_INBOX_COMMUNICATIONS_OWNERSHIP.md` for the Phase-2 execution and verification contract.

@@ -8,12 +8,20 @@ import android.os.Build
 import android.provider.CallLog
 import android.provider.Settings
 import android.provider.Telephony
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.Constraints
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
@@ -22,9 +30,32 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        scheduleCommunicationCatchUp()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             handleMethod(call, result)
         }
+    }
+
+    private fun scheduleCommunicationCatchUp() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = PeriodicWorkRequestBuilder<VaCommunicationPendingWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .build()
+        val manager = WorkManager.getInstance(this)
+        manager.enqueueUniquePeriodicWork(
+            "va-communication-pending-actions",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request,
+        )
+        manager.enqueueUniqueWork(
+            "va-communication-pending-actions-now",
+            ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<VaCommunicationPendingWorker>()
+                .setConstraints(constraints)
+                .build(),
+        )
     }
 
     private fun handleMethod(call: MethodCall, result: MethodChannel.Result) {
@@ -35,6 +66,7 @@ class MainActivity : FlutterActivity() {
                     call.argument<String>("serverUrl"),
                     call.argument<String>("deviceToken"),
                 )
+                scheduleCommunicationCatchUp()
                 result.success(true)
             }
             "clearCredentials" -> {

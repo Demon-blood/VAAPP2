@@ -47,6 +47,9 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> communications = [];
   List<Map<String, dynamic>> communicationRules = [];
   Map<String, dynamic> communicationStatus = {};
+  List<Map<String, dynamic>> communicationThreads = [];
+  Map<String, dynamic> communicationOwnership = {};
+  Map<String, dynamic> gmailMailboxStatus = {};
   Map<String, dynamic> financeOverview = {};
   Map<String, dynamic> financeInvestments = {};
   List<Map<String, dynamic>> financeAccountPolicies = [];
@@ -121,6 +124,9 @@ class AppState extends ChangeNotifier {
     communications = [];
     communicationRules = [];
     communicationStatus = {};
+    communicationThreads = [];
+    communicationOwnership = {};
+    gmailMailboxStatus = {};
     financeOverview = {};
     financeInvestments = {};
     financeAccountPolicies = [];
@@ -149,11 +155,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.9.0')) {
+        if (!_versionAtLeast(backendVersion, '0.9.1')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.9.0 requires backend 0.9.0 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.9.1 requires backend 0.9.1 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -196,6 +202,8 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/va/overview'),
         _safeGet('/api/va/capabilities'),
         _safeGet('/api/va/objectives?limit=100'),
+        _safeGet('/api/communications/threads?limit=100'),
+        _safeGet('/api/google/mailbox-status', optional: true),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -230,6 +238,12 @@ class AppState extends ChangeNotifier {
       if (results[29] is Map) vaOverview = Map<String, dynamic>.from(results[29] as Map);
       if (results[30] is Map) vaCapabilities = Map<String, dynamic>.from(results[30] as Map);
       if (results[31] is List) vaObjectives = _list(results[31]);
+      if (results[32] is Map) {
+        communicationOwnership = Map<String, dynamic>.from(results[32] as Map);
+        final rawThreads = communicationOwnership['threads'];
+        if (rawThreads is List) communicationThreads = _list(rawThreads);
+      }
+      if (results[33] is Map) gmailMailboxStatus = Map<String, dynamic>.from(results[33] as Map);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -392,9 +406,17 @@ class AppState extends ChangeNotifier {
     final results = await Future.wait<dynamic>([
       _safeGet('/api/communications/events?limit=200'),
       _safeGet('/api/communications/rules'),
+      _safeGet('/api/communications/threads?limit=100'),
+      _safeGet('/api/google/mailbox-status', optional: true),
     ]);
     if (results[0] is List) communications = _list(results[0]);
     if (results[1] is List) communicationRules = _list(results[1]);
+    if (results[2] is Map) {
+      communicationOwnership = Map<String, dynamic>.from(results[2] as Map);
+      final rawThreads = communicationOwnership['threads'];
+      if (rawThreads is List) communicationThreads = _list(rawThreads);
+    }
+    if (results[3] is Map) gmailMailboxStatus = Map<String, dynamic>.from(results[3] as Map);
     await _refreshNativeCommunicationState();
     notifyListeners();
   }

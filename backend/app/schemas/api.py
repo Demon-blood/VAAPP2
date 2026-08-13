@@ -214,8 +214,10 @@ class CommunicationBatchRequest(BaseModel):
 
 
 class CommunicationActionResultRequest(BaseModel):
-    status: Literal["completed", "failed", "cancelled"]
+    status: Literal["dispatched", "sent", "delivered", "completed", "failed", "cancelled", "delivery_failed"]
     failure_reason: str = Field(default="", max_length=2000)
+    external_ref: str = Field(default="", max_length=1000)
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class CommunicationEventResponse(BaseModel):

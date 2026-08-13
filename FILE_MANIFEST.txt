@@ -11,8 +11,10 @@ android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/MainActivity.kt
 android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/MmsReceiver.kt
 android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/RespondViaMessageService.kt
 android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/SmsReceiver.kt
+android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/SmsStatusReceiver.kt
 android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/VaBackendClient.kt
 android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/VaCallScreeningService.kt
+android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/VaCommunicationPendingWorker.kt
 android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/VaNotificationListenerService.kt
 android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/VaSms.kt
 android/assets/app_icon.png
@@ -99,6 +101,7 @@ backend/app/services/briefing_service.py
 backend/app/services/capability_registry.py
 backend/app/services/cash_safety.py
 backend/app/services/certificate_service.py
+backend/app/services/communication_ownership.py
 backend/app/services/communications_service.py
 backend/app/services/connector_service.py
 backend/app/services/document_policy.py
@@ -107,6 +110,8 @@ backend/app/services/financial_autopilot.py
 backend/app/services/financial_document_policy.py
 backend/app/services/financial_learning.py
 backend/app/services/financial_reconciliation.py
+backend/app/services/gmail_delivery.py
+backend/app/services/gmail_sync_service.py
 backend/app/services/investment_autopilot.py
 backend/app/services/investment_service.py
 backend/app/services/operations_service.py
@@ -158,6 +163,8 @@ backend/tests/test_v080_kraken_source_policy.py
 backend/tests/test_v081_investments_dashboard_contract.py
 backend/tests/test_v090_autonomous_core.py
 backend/tests/test_v090_autonomous_core_contract.py
+backend/tests/test_v091_communications_contract.py
+backend/tests/test_v091_communications_ownership.py
 backend/tests/test_version_and_routes.py
 backend/tests/test_workflow_engine.py
 build_android.ps1
@@ -189,6 +196,7 @@ docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md
 docs/V0.8.0_VALIDATION.md
 docs/V0.8.1_INVESTMENTS_DASHBOARD.md
 docs/V0.9.0_AUTONOMOUS_CORE.md
+docs/V0.9.1_INBOX_COMMUNICATIONS_OWNERSHIP.md
 generate_enable_banking_keys.ps1
 render.yaml
 start_backend.ps1

@@ -1,12 +1,12 @@
 {
-  "release": "0.9.0",
-  "android_version": "0.9.0+33",
+  "release": "0.9.1",
+  "android_version": "0.9.1+34",
   "baseline_repository": "Demon-blood/VAAPP2",
   "baseline_commit": "b92ac998359057cfd1daba56576e0da44eef80b1",
-  "purpose": "Phase 1 Autonomous Core: durable event/objective lifecycle, central policy and real capability checks, idempotent execution, outcome verification, recovery, follow-ups, autonomy metrics, and Android Operations view",
+  "purpose": "Cumulative Phase 1 + Phase 2: durable autonomous objectives plus real Gmail/SMS/notification communication ownership, ambiguity-safe delivery reconciliation, follow-ups, and Android evidence recovery",
   "database_strategy": "additive_tables_only",
-  "phase": 1,
-  "phase_name": "Autonomous Core",
-  "next_phase": "Inbox & Communications Ownership",
-  "version": "0.9.0"
+  "phase": 2,
+  "phase_name": "Inbox & Communications Ownership",
+  "next_phase": "Calendar & Scheduling Agent",
+  "version": "0.9.1"
 }

@@ -7,7 +7,7 @@ from app.core.version import APP_VERSION
 
 
 def test_backend_version_matches_release() -> None:
-    assert APP_VERSION == "0.9.0"
+    assert APP_VERSION == "0.9.1"
 
 
 def test_required_system_and_connector_routes_exist() -> None:
@@ -30,6 +30,10 @@ def test_required_system_and_connector_routes_exist() -> None:
     assert "/api/payments/auto-run" in paths
     assert "/api/communications/ingest" in paths
     assert "/api/communications/device-policy" in paths
+    assert "/api/communications/actions/pending" in paths
+    assert "/api/communications/threads" in paths
+    assert "/api/google/mailbox-status" in paths
+    assert "/api/google/pubsub" in paths
     assert "/api/finance/overview" in paths
     assert "/api/finance/statements/import" in paths
     assert "/api/finance/statements" in paths

@@ -63,6 +63,7 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
         ).scalar_one()
     )
     ai = bool(await get_runtime_value(db, "ai_api_key", "") and await get_runtime_value(db, "ai_model", ""))
+    gmail_topic = (await get_runtime_value(db, "google_pubsub_topic", "")).strip()
     generic_connector = bool(
         (
             await db.execute(
@@ -101,6 +102,14 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Google Gmail API",
             resolution="user_connect" if not google else "automatic",
             detail="Google OAuth connection required" if not google else "Connected Google account",
+        ),
+        _cap(
+            "gmail_push",
+            "Real-time Gmail change notifications",
+            google and bool(gmail_topic),
+            "Gmail watch + Google Cloud Pub/Sub",
+            resolution="user_connect" if not (google and gmail_topic) else "automatic",
+            detail="Google OAuth and a configured Pub/Sub topic are required" if not (google and gmail_topic) else "Durable history-sync notifications enabled",
         ),
         _cap(
             "calendar",
@@ -157,6 +166,22 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "VAAPP service connector runtime",
             resolution="user_connect" if not generic_connector else "automatic",
             detail="At least one live/configured service connector required",
+        ),
+        _cap(
+            "sms_send",
+            "Android SMS send",
+            device,
+            "Android SmsManager",
+            resolution="user_connect" if not device else "automatic",
+            detail="A recently paired Android device is required; SEND_SMS permission is enforced on-device at execution time",
+        ),
+        _cap(
+            "notification_reply",
+            "Messaging-app notification replies",
+            device,
+            "Android RemoteInput",
+            resolution="user_connect" if not device else "automatic",
+            detail="Replies require a live notification that exposes a RemoteInput action; this does not claim arbitrary message initiation",
         ),
         _cap(
             "android_device",

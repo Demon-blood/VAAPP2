@@ -946,3 +946,94 @@ class OperationPreference(Base):
     __table_args__ = (
         UniqueConstraint("domain", "preference_key", name="uq_operation_preference"),
     )
+
+
+# v0.9.1 Inbox & Communications Ownership -----------------------------------
+# These are additive tables so existing deployments can continue to use
+# metadata.create_all() without mutating the older communication/task schemas.
+
+
+class GmailMailboxState(Base):
+    __tablename__ = "gmail_mailbox_states"
+
+    account_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    history_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    watch_topic: Mapped[str] = mapped_column(Text, default="")
+    watch_expiration_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_push_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_history_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_full_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_watch_renewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class VACommunicationThread(Base):
+    __tablename__ = "va_communication_threads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    channel: Mapped[str] = mapped_column(String(40), index=True)
+    provider: Mapped[str] = mapped_column(String(80), default="", index=True)
+    thread_key: Mapped[str] = mapped_column(String(255), index=True)
+    objective_id: Mapped[int | None] = mapped_column(ForeignKey("va_objectives.id"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    participant: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="open", index=True)
+    waiting_on: Mapped[str] = mapped_column(String(40), default="va", index=True)
+    last_message_ref: Mapped[str] = mapped_column(String(255), default="")
+    last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_outbound_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    context_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("channel", "provider", "thread_key", name="uq_va_communication_thread"),
+        Index("ix_va_communication_threads_followup", "status", "waiting_on", "next_follow_up_at"),
+    )
+
+
+class GmailOutboundMessage(Base):
+    __tablename__ = "gmail_outbound_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    objective_id: Mapped[int | None] = mapped_column(ForeignKey("va_objectives.id"), nullable=True, index=True)
+    step_id: Mapped[int | None] = mapped_column(ForeignKey("va_objective_steps.id"), nullable=True, index=True)
+    source_message_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    gmail_thread_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    recipient: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(Text, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    rfc_message_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    in_reply_to: Mapped[str] = mapped_column(Text, default="")
+    references: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="prepared", index=True)
+    external_message_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    external_thread_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=1)
+    verify_after: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CommunicationDeliveryEvidence(Base):
+    __tablename__ = "communication_delivery_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    communication_action_id: Mapped[int] = mapped_column(ForeignKey("communication_actions.id", ondelete="CASCADE"), index=True)
+    evidence_type: Mapped[str] = mapped_column(String(80), index=True)
+    external_ref: Mapped[str] = mapped_column(Text, default="")
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("communication_action_id", "evidence_type", name="uq_communication_delivery_evidence"),
+    )

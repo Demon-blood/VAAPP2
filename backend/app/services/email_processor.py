@@ -28,7 +28,6 @@ from app.integrations.google_api import (
     gmail_service,
     headers_to_dict,
     modify_gmail_message,
-    send_gmail_message,
 )
 from app.models.entities import AuditLog, AutomationRule, Bill, Creditor, EmailMessage, Task
 from app.schemas.api import AutomationDecision
@@ -63,6 +62,7 @@ from app.services.operations_service import (
     upsert_subscription,
     upsert_support_case,
 )
+from app.services.communication_ownership import register_email_inbound
 
 PROTECTED_CATEGORY_TERMS = {
     "legal",
@@ -326,7 +326,7 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
     existing = (
         await db.execute(select(EmailMessage).where(EmailMessage.provider_message_id == message["id"]))
     ).scalar_one_or_none()
-    if existing and existing.status == "processed":
+    if existing and existing.status in {"processed", "replied"}:
         return existing
 
     payload = message.get("payload") or {}
@@ -768,6 +768,7 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                     )
                 )
 
+    reply_plan: dict[str, Any] | None = None
     if decision.reply and not deferred_ai:
         rule = await _matching_reply_rule(db, record.sender, decision.category)
         explicit_rule_send = False
@@ -780,38 +781,33 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
         policy_send, policy_reason = await reply_autonomy_decision(db, message=record, decision=decision)
         should_send = explicit_rule_send or policy_send
         if should_send:
-            sent_id = await send_gmail_message(
-                db,
-                to=str(decision.reply.get("to") or record.sender),
-                subject=str(decision.reply.get("subject") or f"Re: {record.subject}"),
-                body=str(decision.reply.get("body") or ""),
-                reply_to_id=headers.get("message-id"),
-            )
-            await learn_successful_reply(
-                db,
-                message=record,
-                mode="explicit_rule" if explicit_rule_send else "deterministic_autopilot",
-            )
-            reply_task_waiting = bool(decision.task and decision.task.get("requires_approval"))
-            reply_still_needs_attention = (
-                decision.action_required
-                or str(decision.priority).lower() in {"high", "urgent"}
-                or reply_task_waiting
-            )
-            if not reply_still_needs_attention and "INBOX" in label_ids:
-                await modify_gmail_message(db, message["id"], remove_labels=["INBOX"])
-                decision.archive = True
-                record.analysis_json = decision.model_dump_json()
+            # Phase 2 deliberately does not call Gmail inline.  The reply becomes a
+            # durable VA objective with a persisted outbound intent before the external
+            # POST.  Ambiguous Gmail outcomes are reconciled by deterministic RFC
+            # Message-ID, so a timeout cannot create a blind duplicate reply.
+            reply_plan = {
+                **dict(decision.reply),
+                "to": str(decision.reply.get("to") or record.sender),
+                "subject": str(decision.reply.get("subject") or f"Re: {record.subject}"),
+                "body": str(decision.reply.get("body") or ""),
+                "policy": "explicit_rule" if explicit_rule_send else policy_reason,
+                "expect_reply": bool(
+                    decision.task
+                    or decision.support_case
+                    or decision.action_required
+                ),
+                "follow_up_hours": 48,
+            }
             await write_audit(
                 db,
-                "email_reply_sent",
+                "email_reply_queued",
                 entity_type="email",
                 entity_id=message["id"],
                 details={
-                    "gmail_message_id": sent_id,
                     "rule_id": rule.id if explicit_rule_send and rule is not None else None,
                     "autopilot": True,
-                    "policy": "explicit_rule" if explicit_rule_send else policy_reason,
+                    "policy": reply_plan["policy"],
+                    "gmail_thread_id": record.thread_id,
                 },
             )
         else:
@@ -841,6 +837,18 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
         record.status = "processed"
     else:
         record.status = "deferred_ai"
+
+    # Every inbound message now updates a persistent conversation thread.  Actionable
+    # mail becomes a VA event/objective; routine mail is tracked without creating fake work.
+    if not deferred_ai:
+        await register_email_inbound(
+            db,
+            record=record,
+            message=message,
+            message_id_header=str(headers.get("message-id") or ""),
+            decision=decision.model_dump(mode="json"),
+            reply_plan=reply_plan,
+        )
 
     await write_audit(
         db,
@@ -1087,7 +1095,7 @@ async def sync_gmail(db: AsyncSession, max_messages: int = 100) -> int:
                 select(EmailMessage.status).where(EmailMessage.provider_message_id == item["id"])
             )
         ).scalar_one_or_none()
-        if existing_status == "processed":
+        if existing_status in {"processed", "replied"}:
             continue
         message = await asyncio.to_thread(
             lambda item_id=item["id"]: service.users()

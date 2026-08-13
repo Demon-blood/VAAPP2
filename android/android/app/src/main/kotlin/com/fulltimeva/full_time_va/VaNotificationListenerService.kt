@@ -60,7 +60,10 @@ class VaNotificationListenerService : NotificationListenerService() {
                 }
                 RemoteInput.addResultsToIntent(remoteInputs, fillInIntent, results)
                 replyAction.actionIntent.send(this, 0, fillInIntent)
-                VaBackendClient.postActionResult(this, actionId, "completed")
+                val externalRef = "remote-input:${sbn.key}"
+                val evidence = JSONObject().put("package_name", sbn.packageName).put("notification_key", sbn.key)
+                VaBackendClient.storeActionEvidence(this, actionId, "dispatched", externalRef, evidence)
+                VaBackendClient.repostStoredActionEvidence(this, actionId)
             } catch (exc: Exception) {
                 VaBackendClient.clearActionExecuted(this, actionId)
                 VaBackendClient.postActionResult(this, actionId, "failed", exc.toString())

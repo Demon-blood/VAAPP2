@@ -58,6 +58,10 @@
         </receiver>
 
         <receiver
+            android:name=".SmsStatusReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".MmsReceiver"
             android:permission="android.permission.BROADCAST_WAP_PUSH"
             android:exported="true">

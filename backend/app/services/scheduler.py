@@ -43,6 +43,28 @@ async def gmail_enqueue_job() -> None:
             logger.exception("Failed to enqueue Gmail Autopilot job")
 
 
+async def gmail_watch_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            from app.services.runtime_config import get_runtime_value
+
+            topic = (await get_runtime_value(db, "google_pubsub_topic", "")).strip()
+            if not topic:
+                return
+            await enqueue_job(
+                db,
+                job_type="gmail.watch.ensure",
+                payload={},
+                idempotency_key=_bucket_key("gmail.watch.ensure", 720),
+                priority=18,
+                max_attempts=5,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue Gmail watch-renewal job")
+
+
 async def banking_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
@@ -236,6 +258,16 @@ def start_scheduler() -> None:
         "interval",
         minutes=settings.gmail_sync_minutes,
         id="gmail_sync_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        gmail_watch_enqueue_job,
+        "interval",
+        hours=12,
+        id="gmail_watch_renew_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

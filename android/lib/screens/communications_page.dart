@@ -80,6 +80,26 @@ class CommunicationsPage extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            _MailboxOwnershipCard(
+              mailbox: state.gmailMailboxStatus,
+              ownership: state.communicationOwnership,
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(child: Text('Conversation ownership', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
+                Text('${state.communicationThreads.length}'),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text('The VA keeps ownership until the real reply/action is verified and any expected counterparty response arrives.'),
+            const SizedBox(height: 8),
+            if (state.communicationThreads.isEmpty)
+              const Card(child: ListTile(title: Text('No owned conversations yet.')))
+            else
+              for (final thread in state.communicationThreads.where((row) => row['objective_id'] != null || row['waiting_on'] == 'counterparty').take(12))
+                _OwnedThreadTile(thread: thread),
+            const Divider(height: 36),
             const Text('Phone access', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),
             const Text('Grant these Android roles once. After that, calls and messages feed the same Autopilot, Needs You and Daily Briefing as email.'),
@@ -140,6 +160,91 @@ class CommunicationsPage extends StatelessWidget {
               for (final event in state.communications.take(100)) _CommunicationTile(event: event),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MailboxOwnershipCard extends StatelessWidget {
+  const _MailboxOwnershipCard({required this.mailbox, required this.ownership});
+  final Map<String, dynamic> mailbox;
+  final Map<String, dynamic> ownership;
+
+  String _stamp(dynamic value) {
+    final date = DateTime.tryParse('${value ?? ''}');
+    if (date == null) return '—';
+    final local = date.toLocal();
+    return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} '
+        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final configured = mailbox['watch_topic_configured'] == true;
+    final error = '${mailbox['last_error'] ?? ''}'.trim();
+    final waiting = ownership['waiting_on_counterparty'] ?? 0;
+    final owned = ownership['owned'] ?? 0;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(configured ? Icons.mark_email_read_outlined : Icons.mark_email_unread_outlined,
+                    color: configured ? VaTheme.success : VaTheme.warning),
+                const SizedBox(width: 10),
+                const Expanded(child: Text('Inbox ownership', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(configured
+                ? 'Gmail push watch active · history cursor ${mailbox['history_id'] ?? '—'}'
+                : 'Gmail fallback sync is available; configure Pub/Sub to enable real-time push.'),
+            const SizedBox(height: 6),
+            Text('Last push ${_stamp(mailbox['last_push_at'])} · Last sync ${_stamp(mailbox['last_history_sync_at'])}',
+                style: const TextStyle(color: VaTheme.textMuted)),
+            if (error.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(error, style: const TextStyle(color: VaTheme.warning)),
+            ],
+            const Divider(height: 24),
+            Wrap(
+              spacing: 18,
+              runSpacing: 8,
+              children: [
+                Text('$owned owned', style: const TextStyle(fontWeight: FontWeight.w800)),
+                Text('$waiting waiting on others', style: const TextStyle(fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OwnedThreadTile extends StatelessWidget {
+  const _OwnedThreadTile({required this.thread});
+  final Map<String, dynamic> thread;
+
+  @override
+  Widget build(BuildContext context) {
+    final waiting = thread['waiting_on'] == 'counterparty';
+    final next = DateTime.tryParse('${thread['next_follow_up_at'] ?? ''}')?.toLocal();
+    final nextText = next == null
+        ? ''
+        : ' · next follow-up ${next.day.toString().padLeft(2, '0')}/${next.month.toString().padLeft(2, '0')} '
+            '${next.hour.toString().padLeft(2, '0')}:${next.minute.toString().padLeft(2, '0')}';
+    return Card(
+      child: ListTile(
+        leading: Icon(waiting ? Icons.hourglass_top_rounded : Icons.smart_toy_outlined,
+            color: waiting ? VaTheme.warning : VaTheme.secondary),
+        title: Text('${thread['title'] ?? thread['participant'] ?? thread['channel']}',
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text('${thread['channel'] ?? ''} · ${waiting ? 'waiting on counterparty' : 'owned by VA'}$nextText'),
+        trailing: thread['objective_id'] == null ? null : Text('#${thread['objective_id']}', style: const TextStyle(color: VaTheme.textMuted)),
       ),
     );
   }

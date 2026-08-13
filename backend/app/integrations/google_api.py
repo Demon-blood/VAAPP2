@@ -476,18 +476,152 @@ async def modify_gmail_message(
     )
 
 
-async def send_gmail_message(db: AsyncSession, to: str, subject: str, body: str, reply_to_id: str | None = None) -> str:
+async def send_gmail_message(
+    db: AsyncSession,
+    to: str,
+    subject: str,
+    body: str,
+    reply_to_id: str | None = None,
+    *,
+    thread_id: str | None = None,
+    message_id_header: str | None = None,
+    references: str | None = None,
+) -> str:
+    """Send one Gmail message without blind transport-level retries.
+
+    The higher-level delivery service persists an idempotency record and reconciles
+    ambiguous outcomes by RFC Message-ID without automatically resubmitting that
+    provider intent. Gmail's messages.send endpoint itself has no idempotency key,
+    so retrying this request inside the HTTP boundary could create duplicate mail.
+    """
     service = await gmail_service(db)
     message = EmailMessage()
     message["To"] = to
     message["Subject"] = subject
+    if message_id_header:
+        message["Message-ID"] = message_id_header
     if reply_to_id:
         message["In-Reply-To"] = reply_to_id
-        message["References"] = reply_to_id
+        message["References"] = references or reply_to_id
+    elif references:
+        message["References"] = references
     message.set_content(body)
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
-    result = service.users().messages().send(userId="me", body={"raw": raw}).execute()
-    return result["id"]
+    request_body: dict[str, Any] = {"raw": raw}
+    if thread_id:
+        request_body["threadId"] = thread_id
+    result = await asyncio.to_thread(
+        lambda: service.users().messages().send(userId="me", body=request_body).execute()
+    )
+    return str(result["id"])
+
+
+async def get_gmail_profile(db: AsyncSession) -> dict[str, Any]:
+    service = await gmail_service(db)
+    result = await asyncio.to_thread(lambda: service.users().getProfile(userId="me").execute())
+    return dict(result or {})
+
+
+async def get_gmail_message(
+    db: AsyncSession,
+    message_id: str,
+    *,
+    format: str = "full",
+) -> dict[str, Any]:
+    service = await gmail_service(db)
+    return dict(
+        await asyncio.to_thread(
+            lambda: service.users().messages().get(userId="me", id=message_id, format=format).execute()
+        )
+        or {}
+    )
+
+
+async def find_gmail_message_by_rfc_message_id(
+    db: AsyncSession,
+    rfc_message_id: str,
+    *,
+    sent_only: bool = True,
+) -> dict[str, Any] | None:
+    """Find a message using Gmail's rfc822msgid search operator.
+
+    This is the postcondition used to reconcile an ambiguous messages.send result.
+    """
+    normalized = rfc_message_id.strip()
+    if not normalized:
+        return None
+    query = f'rfc822msgid:{normalized}'
+    if sent_only:
+        query = f'in:sent {query}'
+    service = await gmail_service(db)
+    result = await asyncio.to_thread(
+        lambda: service.users().messages().list(userId="me", q=query, maxResults=10).execute()
+    )
+    rows = list((result or {}).get("messages") or [])
+    if not rows:
+        return None
+    # Retrieve metadata so verification can prove the SENT label and thread id.
+    message_id = str(rows[0].get("id") or "")
+    if not message_id:
+        return None
+    return dict(
+        await asyncio.to_thread(
+            lambda: service.users().messages().get(userId="me", id=message_id, format="metadata").execute()
+        )
+        or {}
+    )
+
+
+async def list_gmail_history_added_message_ids(
+    db: AsyncSession,
+    *,
+    start_history_id: str,
+    label_id: str = "INBOX",
+    max_pages: int = 25,
+) -> tuple[list[str], str]:
+    """Return unique message IDs added since a persisted Gmail history cursor.
+
+    Gmail can return the same message across multiple history records.  The result is
+    therefore de-duplicated while preserving chronological discovery order.  A stale
+    cursor intentionally propagates Gmail's HTTP 404 so the caller can perform the
+    documented full-sync recovery path.
+    """
+    if not str(start_history_id or "").strip():
+        raise ValueError("start_history_id is required")
+    service = await gmail_service(db)
+    page_token: str | None = None
+    newest_history_id = str(start_history_id)
+    message_ids: list[str] = []
+    seen: set[str] = set()
+    pages = 0
+    while True:
+        pages += 1
+        response = await asyncio.to_thread(
+            lambda token=page_token: service.users().history().list(
+                userId="me",
+                startHistoryId=str(start_history_id),
+                historyTypes=["messageAdded"],
+                labelId=label_id,
+                maxResults=500,
+                pageToken=token,
+            ).execute()
+        )
+        response = dict(response or {})
+        newest_history_id = str(response.get("historyId") or newest_history_id)
+        for history in response.get("history") or []:
+            for added in history.get("messagesAdded") or []:
+                message = added.get("message") or {}
+                message_id = str(message.get("id") or "")
+                labels = set(message.get("labelIds") or [])
+                if not message_id or (label_id and labels and label_id not in labels):
+                    continue
+                if message_id not in seen:
+                    seen.add(message_id)
+                    message_ids.append(message_id)
+        page_token = response.get("nextPageToken")
+        if not page_token or pages >= max(1, max_pages):
+            break
+    return message_ids, newest_history_id
 
 
 async def create_calendar_event(db: AsyncSession, event: dict[str, Any]) -> str:
