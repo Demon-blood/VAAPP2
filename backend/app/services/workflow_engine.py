@@ -820,6 +820,13 @@ async def _calendar_sync(db: AsyncSession, payload: dict[str, Any]) -> dict[str,
     )
 
 
+@job_handler("relationship.reconcile")
+async def _relationship_reconcile(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.relationship_memory import reconcile_relationship_memory
+
+    return await reconcile_relationship_memory(db)
+
+
 @job_handler("banking.autopilot")
 async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     from app.core.settings import get_settings

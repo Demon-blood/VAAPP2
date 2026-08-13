@@ -164,6 +164,12 @@ from app.services.financial_reconciliation import (
     reclassify_existing_nonpayable_bills,
 )
 from app.services.operations_service import cleanup_low_value_documents, sync_google_contacts
+from app.services.relationship_memory import (
+    list_relationships as list_relationship_memory,
+    reconcile_relationship_memory,
+    relationship_detail,
+    relationship_memory_status,
+)
 from app.services.runtime_config import CONFIG_SECTIONS, get_runtime_value, section_status, set_runtime_values
 from app.services.automation_engine import run_connector_automation_rules
 from app.services.connector_service import (
@@ -199,6 +205,7 @@ async def system_info() -> dict:
             "gmail",
             "calendar",
             "calendar_scheduling_agent",
+            "relationship_memory",
             "tasks",
             "documents",
             "orders",
@@ -1728,9 +1735,49 @@ async def manual_contact_sync(
     _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
 ) -> dict:
     try:
-        return {"contacts_synced": await sync_google_contacts(db)}
+        contacts_synced = await sync_google_contacts(db)
+        relationship_result = await reconcile_relationship_memory(db)
+        return {"contacts_synced": contacts_synced, "relationship_memory": relationship_result}
     except GoogleConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/relationships/status")
+async def relationship_status_route(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await relationship_memory_status(db)
+
+
+@router.get("/api/relationships")
+async def relationship_list_route(
+    limit: int = Query(default=250, ge=1, le=1000),
+    q: str = Query(default="", max_length=200),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    return await list_relationship_memory(db, limit=limit, query=q)
+
+
+@router.get("/api/relationships/{relationship_id}")
+async def relationship_detail_route(
+    relationship_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        return await relationship_detail(db, relationship_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/api/relationships/reconcile")
+async def relationship_reconcile_route(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await reconcile_relationship_memory(db)
 
 
 @router.get("/api/orders")

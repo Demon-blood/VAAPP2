@@ -52,6 +52,8 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic> gmailMailboxStatus = {};
   Map<String, dynamic> calendarStatus = {};
   List<Map<String, dynamic>> calendarEvents = [];
+  Map<String, dynamic> relationshipStatus = {};
+  List<Map<String, dynamic>> relationships = [];
   Map<String, dynamic> financeOverview = {};
   Map<String, dynamic> financeInvestments = {};
   List<Map<String, dynamic>> financeAccountPolicies = [];
@@ -131,6 +133,8 @@ class AppState extends ChangeNotifier {
     gmailMailboxStatus = {};
     calendarStatus = {};
     calendarEvents = [];
+    relationshipStatus = {};
+    relationships = [];
     financeOverview = {};
     financeInvestments = {};
     financeAccountPolicies = [];
@@ -159,11 +163,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.9.2')) {
+        if (!_versionAtLeast(backendVersion, '0.9.3')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.9.2 requires backend 0.9.2 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.9.3 requires backend 0.9.3 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -210,6 +214,8 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/google/mailbox-status', optional: true),
         _safeGet('/api/calendar/status', optional: true),
         _safeGet('/api/calendar/events?days=60', optional: true),
+        _safeGet('/api/relationships/status', optional: true),
+        _safeGet('/api/relationships?limit=250', optional: true),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -252,6 +258,8 @@ class AppState extends ChangeNotifier {
       if (results[33] is Map) gmailMailboxStatus = Map<String, dynamic>.from(results[33] as Map);
       if (results[34] is Map) calendarStatus = Map<String, dynamic>.from(results[34] as Map);
       if (results[35] is List) calendarEvents = _list(results[35]);
+      if (results[36] is Map) relationshipStatus = Map<String, dynamic>.from(results[36] as Map);
+      if (results[37] is List) relationships = _list(results[37]);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -599,6 +607,23 @@ class AppState extends ChangeNotifier {
       await refreshAll(showBusy: false);
     });
     return result;
+  }
+
+  Future<Map<String, dynamic>> reconcileRelationshipsNow() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/relationships/reconcile') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> relationshipDetail(int relationshipId) async {
+    return Map<String, dynamic>.from(
+      await api.getJson('/api/relationships/$relationshipId') as Map,
+    );
   }
 
   Future<Map<String, dynamic>> runAutomaticPaymentsNow() async {

@@ -6,16 +6,16 @@ Branch: `main`
 
 ## Verified source of truth
 
-Phase 2 is complete on GitHub. Verified baseline commit: `651a2e304c410962b09cd2a26b7867e77ab2fccb`. GitHub Actions run #30 completed successfully: backend tests, Flutter installation, Android signing, Flutter analysis/tests, Android release build, and prerelease publishing all passed.
+Phases 1–3 are complete on GitHub. Verified Phase-3 commit: `fba21f29c7a6ccc7beb54c2d395c2ef78293ca76`. GitHub Actions run #31 completed successfully, including backend tests, Flutter analysis/tests, Android release build, signing and prerelease publishing.
 
-Verified baseline release: backend `0.9.1` / Android `0.9.1+34`.
+Verified baseline release: backend `0.9.2` / Android `0.9.2+35`.
 
 ## Current local candidate
 
-Backend `0.9.2` / Android `0.9.2+35`.
+Backend `0.9.3` / Android `0.9.3+36`.
 
-Current phase: **Phase 3 — Calendar & Scheduling Agent**.  
-Status: **implemented as a cumulative overlay from the verified Phase-2 baseline; awaiting GitHub upload and full CI**.
+Current phase: **Phase 4 — CRM / Relationship Memory**.  
+Status: **implemented as a cumulative overlay from the verified Phase-3 baseline; awaiting GitHub upload and full CI**.
 
 ## Product objective
 
@@ -25,58 +25,52 @@ Operating lifecycle:
 
 `Observe -> Understand -> Own objective -> Check policy/capability -> Plan -> Execute -> Verify -> Follow up/recover -> Reconcile -> Complete -> Learn`
 
-Routine reversible work executes automatically. **Needs You** is reserved for unavoidable authentication/security, genuinely material decisions without a safe pre-authorization, or physical/manual work with no real executor.
+Routine reversible work executes automatically. **Needs You** is reserved for unavoidable authentication/security, genuinely material decisions without safe pre-authorization, or physical/manual work with no real executor.
 
 ## Completed phases
 
-### Phase 1 — Autonomous Core
+1. **Autonomous Core** — durable objectives, steps, evidence, policy/capability decisions, workflow execution and recovery.
+2. **Inbox & Communications Ownership** — durable Gmail ownership, ambiguity-safe sends, SMS/RemoteInput evidence, persistent conversation follow-up.
+3. **Calendar & Scheduling Agent** — durable Google Calendar mirror/mutations, conflict checks, deterministic create IDs, provider verification, attendee response ownership. CI green on run #31.
 
-Durable `VAEvent`, `VAObjective`, steps, evidence, follow-ups, policy, capability checks, workflow dispatch, verification, recovery, Needs You semantics and Android Operations UI.
+## Phase 4 implementation
 
-### Phase 2 — Inbox & Communications Ownership
+### Canonical relationship identity
 
-Durable Gmail history/watch ownership, ambiguity-safe Gmail sends, communication threads, verified Android SMS/RemoteInput evidence and owned follow-ups. Phase-2 CI hotfix is included in baseline commit `651a2e...`; run #30 is green.
+`RelationshipProfile` is the canonical person record. A profile exists only when VAAPP has a concrete email or phone identity. `RelationshipIdentity` normalizes those identities and enforces global uniqueness. Similar display names never merge people. When multiple verified identities prove two existing profiles refer to the same person, Phase 4 moves their identities/interactions/facts into one profile and writes an audit event.
 
-## Phase 3 implementation
+### Provider-backed interaction timeline
 
-### Calendar provider mirror
+`RelationshipInteraction` is populated by a deterministic reconciliation pass over:
+- Google Contacts identities
+- Gmail inbound messages
+- verified Gmail outbound messages
+- Android SMS / supported messaging-app communication events
+- Google Calendar attendees and organizers
 
-`CalendarSyncState` stores sync health. `CalendarEventMirror` persists Google-observed events, timing, attendees, provider update time, ETag, link and VA objective ownership. A scheduled `calendar.sync` workflow job refreshes the mirror.
+Each interaction has a stable provider/source reference so repeated reconciliation is idempotent. Protected device communications do not copy their raw body into the relationship summary.
 
-### Durable mutation ledger
+### Source-backed factual memory
 
-`CalendarMutation` persists create/update/cancel intent before provider execution. It stores stable idempotency, objective/step correlation, provider event ID, desired and observed state, ETag, attempts, errors and verification state.
+`RelationshipFact` stores a fact key/value together with source type, immutable source reference, confidence, and first/last-seen timestamps. Phase 4 records factual Google Contact name/organization data. It deliberately does not infer family status, preferences, sensitive traits, or other personal facts from names or conversational guesses.
 
-### Duplicate-safe event creation
+### Follow-up / relationship state
 
-The create path derives a deterministic Google Calendar event ID from the objective-step idempotency key and supplies it on insert. Ambiguous retries therefore address the same provider object. HTTP 409 is reconciled rather than treated as permission to generate another event.
+Profiles aggregate observed interaction count, last inbound/outbound interaction, preferred channel from actual usage, recent memory topics, an activity score, and the existing VA communication/follow-up state. `waiting_on_counterparty` and `next_follow_up_at` therefore reflect real durable Phase-1/2 follow-up records rather than a separate reminder system.
 
-### Conflict policy
+### Durable reconciliation
 
-Create mutations default to a real Google Calendar free/busy check. A fixed-time conflict becomes `needs_user` because choosing which commitment to move is a material scheduling decision. Missing Calendar OAuth is also user-resolvable authentication. Other provider failures remain VA-owned recovery/system blockers.
-
-### Verification
-
-Calendar mutations remain `verifying` until Google Calendar independently reflects the requested state. Only then does the objective receive `calendar_event_verified` evidence and advance/completely finish.
-
-### Attendee responses and follow-up
-
-For events that explicitly expect an attendee response, the verified event leaves a wait step. Calendar sync watches provider attendee statuses. When all invitees answer, it records `calendar_attendee_response_received`, cancels pending chases and completes the scheduling objective. A bounded email follow-up can be scheduled through the Phase-2 durable communications executor.
-
-### Email-originated scheduling
-
-`email_processor.py` no longer calls Calendar inline. A detected calendar action is persisted as `calendar_event_planned`, then owned by the autonomous core with the same policy/idempotency/verification contract.
+`RelationshipMemoryState` records reconciliation health/counts/errors. `relationship.reconcile` is a durable workflow job enqueued on the existing scheduler. The pass is reconstructive and idempotent: it can be safely repeated after restarts and provider sync ordering differences.
 
 ### API / Android
 
 New routes:
-- `GET /api/calendar/status`
-- `GET /api/calendar/events`
-- `GET /api/calendar/availability`
-- `POST /api/calendar/sync`
-- `POST /api/calendar/objectives`
+- `GET /api/relationships/status`
+- `GET /api/relationships`
+- `GET /api/relationships/{relationship_id}`
+- `POST /api/relationships/reconcile`
 
-Android Work now has a **Calendar** tab showing mirror health, upcoming events, VA-owned events and attendee-response state.
+Manual Google Contacts sync also reconciles relationship memory before returning. Work now has **Relationships** instead of the old directory-only Contacts view, showing memory health, verified identities, source-backed facts, recent interactions and follow-up state.
 
 ## Finance constraints remain mandatory
 
@@ -97,9 +91,9 @@ Android Work now has a **Calendar** tab showing mirror health, upcoming events, 
 ## Roadmap
 
 1. Autonomous Core — complete
-2. Inbox & Communications Ownership — complete, CI green run #30
-3. Calendar & Scheduling Agent — current local candidate
-4. CRM / Relationship Memory
+2. Inbox & Communications Ownership — complete
+3. Calendar & Scheduling Agent — complete, CI green run #31
+4. CRM / Relationship Memory — current local candidate
 5. Secure Browser / Portal Operator
 6. Documents / Forms / Deadlines
 7. Financial Allocation & Forecasting
@@ -113,4 +107,4 @@ A phase is complete only when real execution, policy, durable state, idempotency
 
 ## Exact next action
 
-Apply the v0.9.2 Phase-3 overlay to GitHub `main`, run Actions, fix failures until green, then mark Phase 3 complete and begin Phase 4 — CRM / Relationship Memory.
+Apply the v0.9.3 Phase-4 overlay to GitHub `main`, run Actions, fix failures until green, then mark Phase 4 complete and begin Phase 5 — Secure Browser / Portal Operator.

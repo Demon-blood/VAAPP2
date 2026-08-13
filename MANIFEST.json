@@ -1,12 +1,12 @@
 {
-  "release": "0.9.2",
-  "android_version": "0.9.2+35",
+  "release": "0.9.3",
+  "android_version": "0.9.3+36",
   "baseline_repository": "Demon-blood/VAAPP2",
-  "baseline_commit": "651a2e304c410962b09cd2a26b7867e77ab2fccb",
-  "purpose": "Cumulative Phase 1 + Phase 2 + Phase 3: durable autonomous objectives, real communications ownership, and provider-verified Google Calendar scheduling ownership with idempotent mutations, conflict checks, attendee responses, and follow-ups",
+  "baseline_commit": "fba21f29c7a6ccc7beb54c2d395c2ef78293ca76",
+  "purpose": "Cumulative Phase 1 + Phase 2 + Phase 3 + Phase 4: autonomous objectives, communications ownership, verified calendar scheduling, and provenance-backed cross-channel CRM / relationship memory",
   "database_strategy": "additive_tables_only",
-  "phase": 3,
-  "phase_name": "Calendar & Scheduling Agent",
-  "next_phase": "CRM / Relationship Memory",
-  "version": "0.9.2"
+  "phase": 4,
+  "phase_name": "CRM / Relationship Memory",
+  "next_phase": "Secure Browser / Portal Operator",
+  "version": "0.9.3"
 }

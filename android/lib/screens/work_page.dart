@@ -31,7 +31,7 @@ class WorkPage extends StatelessWidget {
                 Tab(text: 'Orders'),
                 Tab(text: 'Subscriptions'),
                 Tab(text: 'Support'),
-                Tab(text: 'Contacts'),
+                Tab(text: 'Relationships'),
                 Tab(text: 'Projects'),
               ],
             ),
@@ -45,7 +45,7 @@ class WorkPage extends StatelessWidget {
                   const _OrdersView(),
                   const _SubscriptionsView(),
                   const _SupportView(),
-                  const _ContactsView(),
+                  const _RelationshipsView(),
                   const _ProjectsView(),
                 ],
               ),
@@ -580,34 +580,322 @@ class _SupportView extends StatelessWidget {
   }
 }
 
-class _ContactsView extends StatelessWidget {
-  const _ContactsView();
+class _RelationshipsView extends StatelessWidget {
+  const _RelationshipsView();
 
   @override
   Widget build(BuildContext context) {
-    final rows = context.watch<AppState>().contacts;
-    if (rows.isEmpty) {
-      return const EmptyState(
-        icon: Icons.contacts_outlined,
-        title: 'No contacts synchronized',
-        message: 'Google Contacts data appears after the Google account is authorized and synchronized.',
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(8),
-      itemCount: rows.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final row = rows[index];
-        final emails = (row['emails'] as List? ?? const []).join(', ');
-        final phones = (row['phones'] as List? ?? const []).join(', ');
-        return ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-          title: Text('${row['display_name']}'.isEmpty ? emails : '${row['display_name']}'),
-          subtitle: Text([if (emails.isNotEmpty) emails, if (phones.isNotEmpty) phones, if ('${row['organization'] ?? ''}'.isNotEmpty) '${row['organization']}'].join('\n')),
-        );
-      },
+    final state = context.watch<AppState>();
+    final rows = state.relationships;
+    final status = state.relationshipStatus;
+    final waiting = (status['waiting_on_counterparty'] as num?)?.toInt() ?? 0;
+    final due = (status['followups_due'] as num?)?.toInt() ?? 0;
+    final identities = (status['identities'] as num?)?.toInt() ?? 0;
+    final interactions = (status['interactions'] as num?)?.toInt() ?? 0;
+    final lastError = '${status['last_error'] ?? ''}'.trim();
+
+    return RefreshIndicator(
+      onRefresh: () => context.read<AppState>().refreshAll(),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: VaTheme.surface,
+              border: Border.all(color: VaTheme.primary.withValues(alpha: .24)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.people_alt_rounded, color: VaTheme.primary),
+                    const SizedBox(width: 9),
+                    const Expanded(
+                      child: Text('Relationship memory', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                    ),
+                    IconButton.filledTonal(
+                      tooltip: 'Reconcile relationship memory now',
+                      onPressed: state.busy ? null : () => _reconcile(context),
+                      icon: const Icon(Icons.sync_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${rows.length} people · $identities identities · $interactions interactions',
+                  style: const TextStyle(color: VaTheme.textMuted),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$waiting waiting on someone · $due follow-up${due == 1 ? '' : 's'} due',
+                  style: TextStyle(
+                    color: due > 0 ? VaTheme.warning : VaTheme.textMuted,
+                    fontWeight: due > 0 ? FontWeight.w800 : FontWeight.normal,
+                  ),
+                ),
+                if (lastError.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(lastError, style: const TextStyle(color: VaTheme.warning, fontWeight: FontWeight.w700)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (rows.isEmpty)
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * .48,
+              child: const EmptyState(
+                icon: Icons.person_search_rounded,
+                title: 'No relationship memory yet',
+                message: 'The VA builds this automatically from verified Google Contacts, Gmail, device communications, and Calendar identities.',
+              ),
+            )
+          else
+            for (final row in rows) ...[
+              _RelationshipCard(row: row),
+              const SizedBox(height: 9),
+            ],
+        ],
+      ),
     );
+  }
+
+  Future<void> _reconcile(BuildContext context) async {
+    try {
+      final result = await context.read<AppState>().reconcileRelationshipsNow();
+      if (!context.mounted) return;
+      final profiles = (result['profiles'] as num?)?.toInt() ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Relationship memory reconciled · $profiles profile${profiles == 1 ? '' : 's'} verified.')),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+}
+
+class _RelationshipCard extends StatelessWidget {
+  const _RelationshipCard({required this.row});
+
+  final Map<String, dynamic> row;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = '${row['display_name'] ?? ''}'.trim();
+    final email = '${row['primary_email'] ?? ''}'.trim();
+    final phone = '${row['primary_phone'] ?? ''}'.trim();
+    final organization = '${row['organization'] ?? ''}'.trim();
+    final channel = '${row['preferred_channel'] ?? ''}'.trim();
+    final summary = '${row['memory_summary'] ?? ''}'.trim();
+    final count = (row['interaction_count'] as num?)?.toInt() ?? 0;
+    final score = (row['engagement_score'] as num?)?.toInt() ?? 0;
+    final waiting = row['waiting_on_counterparty'] == true;
+    final nextFollowUp = _formatDate('${row['next_follow_up_at'] ?? ''}');
+    final lastInteraction = _formatDate('${row['last_interaction_at'] ?? ''}');
+    final title = name.isNotEmpty ? name : (email.isNotEmpty ? email : phone);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => _openDetail(context),
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            color: VaTheme.surface,
+            border: Border.all(color: waiting ? VaTheme.primary.withValues(alpha: .36) : VaTheme.border),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: VaTheme.primary.withValues(alpha: .12),
+                child: Text(
+                  title.isEmpty ? '?' : title.substring(0, 1).toUpperCase(),
+                  style: const TextStyle(color: VaTheme.primary, fontWeight: FontWeight.w900),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: Text(title.isEmpty ? 'Unnamed relationship' : title, style: const TextStyle(fontWeight: FontWeight.w900))),
+                        if (waiting)
+                          const Tooltip(
+                            message: 'The VA is waiting on this person',
+                            child: Icon(Icons.hourglass_top_rounded, size: 17, color: VaTheme.primary),
+                          ),
+                      ],
+                    ),
+                    if (organization.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(organization, style: const TextStyle(color: VaTheme.textMuted)),
+                    ],
+                    if (email.isNotEmpty || phone.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        [if (email.isNotEmpty) email, if (phone.isNotEmpty) phone].join(' · '),
+                        style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+                      ),
+                    ],
+                    const SizedBox(height: 7),
+                    Text(
+                      '$count interaction${count == 1 ? '' : 's'}${channel.isEmpty ? '' : ' · $channel'} · activity $score/100',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                    ),
+                    if (lastInteraction.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text('Last contact $lastInteraction', style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+                    ],
+                    if (nextFollowUp.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text('Next follow-up $nextFollowUp', style: const TextStyle(color: VaTheme.warning, fontSize: 12, fontWeight: FontWeight.w800)),
+                    ],
+                    if (summary.isNotEmpty) ...[
+                      const SizedBox(height: 7),
+                      Text(summary, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: VaTheme.textMuted)),
+                    ],
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: VaTheme.textMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _formatDate(String raw) {
+    if (raw.isEmpty || raw == 'null') return '';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    return DateFormat('d MMM · HH:mm').format(parsed.toLocal());
+  }
+
+  Future<void> _openDetail(BuildContext context) async {
+    final id = (row['id'] as num?)?.toInt();
+    if (id == null) return;
+    try {
+      final detail = await context.read<AppState>().relationshipDetail(id);
+      if (!context.mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => _RelationshipDetailSheet(detail: detail),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+}
+
+class _RelationshipDetailSheet extends StatelessWidget {
+  const _RelationshipDetailSheet({required this.detail});
+
+  final Map<String, dynamic> detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final identities = detail['identities'] is List ? List<dynamic>.from(detail['identities'] as List) : const <dynamic>[];
+    final interactions = detail['recent_interactions'] is List ? List<dynamic>.from(detail['recent_interactions'] as List) : const <dynamic>[];
+    final facts = detail['facts'] is List ? List<dynamic>.from(detail['facts'] as List) : const <dynamic>[];
+    final name = '${detail['display_name'] ?? ''}'.trim();
+    final email = '${detail['primary_email'] ?? ''}'.trim();
+    final title = name.isNotEmpty ? name : (email.isNotEmpty ? email : 'Relationship');
+
+    return SafeArea(
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .78,
+        maxChildSize: .94,
+        minChildSize: .45,
+        builder: (context, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
+          children: [
+            Text(title, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
+            if ('${detail['organization'] ?? ''}'.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('${detail['organization']}', style: const TextStyle(color: VaTheme.textMuted)),
+              ),
+            const SizedBox(height: 18),
+            Text('Verified identities', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+            const SizedBox(height: 6),
+            if (identities.isEmpty)
+              const Text('No verified identities stored.', style: TextStyle(color: VaTheme.textMuted))
+            else
+              for (final item in identities.whereType<Map>())
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  leading: Icon('${item['type']}' == 'phone' ? Icons.phone_outlined : Icons.alternate_email_rounded),
+                  title: Text('${item['value'] ?? ''}'),
+                  subtitle: Text('Source: ${item['source'] ?? 'observed'}'),
+                ),
+            if (facts.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text('Source-backed facts', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              for (final item in facts.whereType<Map>())
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text('${item['key'] ?? ''}'.replaceAll('_', ' ')),
+                  subtitle: Text('${item['value'] ?? ''}\n${item['source_type'] ?? ''} · ${item['source_ref'] ?? ''}'),
+                ),
+            ],
+            const SizedBox(height: 14),
+            Text('Recent interactions', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+            const SizedBox(height: 6),
+            if (interactions.isEmpty)
+              const Text('No interaction history stored.', style: TextStyle(color: VaTheme.textMuted))
+            else
+              for (final item in interactions.whereType<Map>())
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(_channelIcon('${item['channel'] ?? ''}')),
+                  title: Text('${item['subject'] ?? ''}'.trim().isEmpty ? '${item['channel'] ?? 'Interaction'}' : '${item['subject']}'),
+                  subtitle: Text(
+                    [
+                      _formatTimestamp('${item['occurred_at'] ?? ''}'),
+                      '${item['direction'] ?? ''}',
+                      if ('${item['summary'] ?? ''}'.trim().isNotEmpty) '${item['summary']}',
+                    ].where((value) => value.isNotEmpty).join(' · '),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static IconData _channelIcon(String channel) => switch (channel) {
+        'email' => Icons.email_outlined,
+        'sms' => Icons.sms_outlined,
+        'calendar' => Icons.event_outlined,
+        _ => Icons.chat_bubble_outline_rounded,
+      };
+
+  static String _formatTimestamp(String raw) {
+    final parsed = DateTime.tryParse(raw);
+    return parsed == null ? '' : DateFormat('d MMM yyyy · HH:mm').format(parsed.toLocal());
   }
 }
 

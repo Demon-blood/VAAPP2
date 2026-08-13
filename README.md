@@ -1,6 +1,6 @@
-# Full-Time VA v0.9.2 — Calendar & Scheduling Agent
+# Full-Time VA v0.9.3 — CRM / Relationship Memory
 
-v0.9.2 is the cumulative Phase 1 + Phase 2 + Phase 3 release candidate. It keeps the durable autonomous operator core and communications ownership, and adds a real Calendar & Scheduling Agent: provider-mirrored Google Calendar state, durable idempotent create/update/cancel mutations, conflict checks, provider verification, attendee-response ownership, scheduling follow-ups, and an Android Calendar ownership surface.
+v0.9.3 is the cumulative Phase 1 + Phase 2 + Phase 3 + Phase 4 release candidate. It keeps the autonomous core, communications ownership, and Calendar agent, and adds CRM / Relationship Memory: canonical people built from verified identities, provenance-backed facts, cross-channel interaction history, follow-up state, safe identity merging, and an Android Relationships workspace.
 
 ## Cash structure
 
@@ -23,7 +23,7 @@ v0.9.2 is the cumulative Phase 1 + Phase 2 + Phase 3 release candidate. It keeps
 
 ## Release identity
 
-Backend `0.9.2` · Android `0.9.2+35` · APK `Full-Time-VA-Android-v0.9.2.apk`.
+Backend `0.9.3` · Android `0.9.3+36` · APK `Full-Time-VA-Android-v0.9.3.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -78,3 +78,18 @@ See `docs/V0.9.1_INBOX_COMMUNICATIONS_OWNERSHIP.md` for the Phase-2 execution an
 - Work now includes a Calendar tab showing sync health, upcoming mirrored events, VA-owned events, and attendee-response state.
 
 See `docs/V0.9.2_CALENDAR_SCHEDULING_AGENT.md` for the Phase-3 execution and verification contract.
+
+## v0.9.3 CRM / Relationship Memory — Phase 4
+
+- `RelationshipProfile` is the canonical person record. It is created only from concrete email/phone identities; similar names are never enough to merge people.
+- `RelationshipIdentity` stores globally unique normalized email/phone identities with the source and first/last-seen timestamps. When a Google Contact proves that two previously separate identities belong to one person, the profiles are merged with an audit event.
+- `RelationshipInteraction` creates a durable timeline from Gmail inbound mail, **verified** Gmail outbound mail, Android SMS/messaging events, and Google Calendar attendees/organizers.
+- Protected device messages are represented as protected interactions without copying their raw body into relationship memory.
+- `RelationshipFact` stores only source-backed facts with provenance. Phase 4 records Google Contacts display name/organization facts and does not invent personal attributes from names or conversational guesses.
+- Relationship aggregates track last inbound/outbound contact, preferred channel by observed usage, interaction count, activity score, memory topics, waiting-on-counterparty state, and the next real VA follow-up.
+- A durable `relationship.reconcile` workflow job continually rebuilds/repairs relationship memory from existing provider evidence, so restarts and temporary ordering differences do not lose context.
+- New APIs expose relationship health, list/detail views, and a manual reconciliation trigger.
+- Work → **Relationships** replaces the old address-book-only Contacts view and shows verified identities, source-backed facts, recent interactions, follow-up state, and memory health.
+
+See `docs/V0.9.3_CRM_RELATIONSHIP_MEMORY.md` for the Phase-4 identity, provenance and reconciliation contract.
+

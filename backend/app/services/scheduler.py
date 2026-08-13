@@ -82,6 +82,23 @@ async def calendar_enqueue_job() -> None:
             logger.exception("Failed to enqueue Calendar ownership sync job")
 
 
+async def relationship_memory_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            await enqueue_job(
+                db,
+                job_type="relationship.reconcile",
+                payload={},
+                idempotency_key=_bucket_key("relationship.reconcile", max(5, settings.external_sync_minutes)),
+                priority=65,
+                max_attempts=5,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue relationship-memory reconciliation job")
+
+
 async def banking_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
@@ -295,6 +312,16 @@ def start_scheduler() -> None:
         "interval",
         minutes=max(5, settings.external_sync_minutes),
         id="calendar_sync_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        relationship_memory_enqueue_job,
+        "interval",
+        minutes=max(5, settings.external_sync_minutes),
+        id="relationship_memory_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

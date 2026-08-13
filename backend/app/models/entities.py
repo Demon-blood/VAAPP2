@@ -1110,3 +1110,113 @@ class CalendarMutation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+# v0.9.3 CRM / Relationship Memory -----------------------------------------
+# Canonical people, source-backed identities, interaction history and factual
+# memory are additive. Identity uniqueness is global so cross-channel evidence
+# can safely converge on one real person without name-based guessing.
+
+
+class RelationshipMemoryState(Base):
+    __tablename__ = "relationship_memory_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    last_reconcile_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_reconcile_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    profile_count: Mapped[int] = mapped_column(Integer, default=0)
+    identity_count: Mapped[int] = mapped_column(Integer, default=0)
+    interaction_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class RelationshipProfile(Base):
+    __tablename__ = "relationship_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    canonical_key: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(255), default="", index=True)
+    organization: Mapped[str] = mapped_column(String(255), default="", index=True)
+    primary_email: Mapped[str] = mapped_column(String(255), default="", index=True)
+    primary_phone: Mapped[str] = mapped_column(String(80), default="", index=True)
+    preferred_channel: Mapped[str] = mapped_column(String(40), default="", index=True)
+    interaction_count: Mapped[int] = mapped_column(Integer, default=0)
+    engagement_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    last_interaction_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_outbound_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    waiting_on_counterparty: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    memory_summary: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        Index("ix_relationship_profiles_followup", "waiting_on_counterparty", "next_follow_up_at"),
+    )
+
+
+class RelationshipIdentity(Base):
+    __tablename__ = "relationship_identities"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    relationship_id: Mapped[int] = mapped_column(ForeignKey("relationship_profiles.id", ondelete="CASCADE"), index=True)
+    identity_type: Mapped[str] = mapped_column(String(40), index=True)
+    normalized_value: Mapped[str] = mapped_column(String(320), index=True)
+    display_value: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(80), default="observed", index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("identity_type", "normalized_value", name="uq_relationship_identity_global"),
+        Index("ix_relationship_identity_profile_type", "relationship_id", "identity_type"),
+    )
+
+
+class RelationshipInteraction(Base):
+    __tablename__ = "relationship_interactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    relationship_id: Mapped[int] = mapped_column(ForeignKey("relationship_profiles.id", ondelete="CASCADE"), index=True)
+    source_type: Mapped[str] = mapped_column(String(80), index=True)
+    source_ref: Mapped[str] = mapped_column(String(320), index=True)
+    channel: Mapped[str] = mapped_column(String(40), default="unknown", index=True)
+    direction: Mapped[str] = mapped_column(String(20), default="shared", index=True)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    subject: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    context_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("relationship_id", "source_type", "source_ref", name="uq_relationship_interaction_source"),
+        Index("ix_relationship_interaction_timeline", "relationship_id", "occurred_at"),
+    )
+
+
+class RelationshipFact(Base):
+    __tablename__ = "relationship_facts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    relationship_id: Mapped[int] = mapped_column(ForeignKey("relationship_profiles.id", ondelete="CASCADE"), index=True)
+    fact_key: Mapped[str] = mapped_column(String(120), index=True)
+    value_json: Mapped[str] = mapped_column(Text, default="null")
+    source_type: Mapped[str] = mapped_column(String(80), index=True)
+    source_ref: Mapped[str] = mapped_column(String(320), index=True)
+    confidence: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("1.0000"))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "relationship_id",
+            "fact_key",
+            "source_type",
+            "source_ref",
+            name="uq_relationship_fact_provenance",
+        ),
+    )
