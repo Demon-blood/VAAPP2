@@ -69,6 +69,22 @@ CONFIG_SECTIONS: dict[str, dict[str, Any]] = {
             {"key": "ai_fallback_allow_sensitive", "label": "Allow fallback for sensitive mail", "type": "choice", "choices": ["false", "true"], "required": True, "default": "false"},
         ],
     },
+    "twilio": {
+        "title": "Twilio Programmable Voice",
+        "description": "Real PSTN calling for the VA. Calls disclose that they are automated, recording is disabled, and provider completion never substitutes for objective verification.",
+        "setup_url": "https://console.twilio.com/",
+        "fields": [
+            {"key": "telephony_enabled", "label": "Enable autonomous telephone calls", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
+            {"key": "twilio_account_sid", "label": "Account SID", "type": "text", "required": True},
+            {"key": "twilio_auth_token", "label": "Auth token", "type": "secret", "required": True},
+            {"key": "twilio_from_number", "label": "Twilio caller number (E.164)", "type": "text", "required": True},
+            {"key": "telephony_owner_display_name", "label": "Name the VA may say it represents", "type": "text", "required": False},
+            {"key": "telephony_language", "label": "Voice / speech locale", "type": "text", "required": True, "default": "en-GB"},
+            {"key": "telephony_max_turns", "label": "Maximum caller speech turns per call", "type": "number", "required": True, "default": "10"},
+            {"key": "telephony_max_duration_seconds", "label": "Maximum planned call duration (seconds)", "type": "number", "required": True, "default": "600"},
+            {"key": "telephony_max_attempts", "label": "Maximum bounded outbound attempts", "type": "number", "required": True, "default": "3"},
+        ],
+    },
     "enable_banking": {
         "title": "Open Banking - Beobank and Revolut",
         "description": "Enable Banking application credentials for account information and payment initiation.",

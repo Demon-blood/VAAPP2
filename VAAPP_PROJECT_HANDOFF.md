@@ -6,18 +6,18 @@ Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–6 are complete on GitHub. The Phase-6 CI-fix commit is `0802b52d68036d7f120ea7e68dbfaf5b4984962b`. GitHub Actions run #35 completed successfully on 2026-08-13, including the backend suite, Flutter analysis/tests, Android release build, signing and prerelease publishing.
+Phases 1–7 are complete on GitHub. The Phase-7 CI-fix commit is `c00d70ee4dd20f84f05272de89b09faf953c5c3b`. GitHub Actions run #37 completed successfully on 2026-08-13, including the backend suite, Flutter analysis/tests, signed Android release build, and prerelease publishing.
 
-Verified baseline release: backend `0.9.5` / Android `0.9.5+38`.
+Verified baseline release: backend `0.9.6` / Android `0.9.6+39`.
 
 ## Current local candidate
 
-Backend `0.9.6` / Android `0.9.6+39`.
+Backend `0.9.7` / Android `0.9.7+40`.
 
-Current phase: **Phase 7 — Financial Allocation & Forecasting**.  
-Status: **implemented as a cumulative delta from the verified Phase-6 baseline; awaiting GitHub upload and full CI**.
+Current phase: **Phase 8 — Calls / Telephony**.  
+Status: **implemented as a cumulative delta from the verified Phase-7 baseline; awaiting GitHub upload and full CI**.
 
-Next phase after the Phase-7 gate is green: **Phase 8 — Calls / Telephony**.
+Next phase after the Phase-8 gate is green: **Phase 9 — Purchasing / Travel / Logistics / Customer Service**.
 
 ## Product objective
 
@@ -33,54 +33,49 @@ Routine reversible work executes automatically. **Needs You** is reserved for un
 
 1. **Autonomous Core** — durable objectives, steps, evidence, policy/capability decisions, workflow execution and recovery.
 2. **Inbox & Communications Ownership** — durable Gmail ownership, ambiguity-safe sends, SMS/RemoteInput evidence, persistent conversation follow-up.
-3. **Calendar & Scheduling Agent** — durable Google Calendar mirror/mutations, conflict checks, deterministic create IDs, provider verification, attendee response ownership.
+3. **Calendar & Scheduling Agent** — durable Google Calendar mirror/mutations, conflict checks, deterministic provider IDs, provider verification, attendee response ownership.
 4. **CRM / Relationship Memory** — source-backed people, identity-safe merging, provenance facts, cross-channel interaction timelines and follow-up projection.
 5. **Secure Browser / Portal Operator** — allowlisted Chromium execution, encrypted sessions/credentials, MFA/CAPTCHA handoff, ambiguity-safe side effects and provider postcondition evidence.
-6. **Documents / Forms / Deadlines** — Drive-backed document intelligence, exact deadline ownership, encrypted reusable profile facts, durable form intents and provider-verified form completion. CI green on run #35 after the release-version assertion hotfix.
+6. **Documents / Forms / Deadlines** — source-backed document intelligence, exact deadline ownership, encrypted reusable facts, durable form intents and provider-verified completion.
+7. **Financial Allocation & Forecasting** — conservative 30–180 day cash forecasts, protected floors, same-scope surplus allocation plans, durable allocation actions, and real bank-transfer verification. CI green on run #37 after the Phase-7 Flutter-analysis hotfix.
 
-## Phase 7 implementation
+## Phase 8 implementation
 
-### Durable forecast evidence
+### Real PSTN executor
 
-`FinancialForecastRun` stores an encrypted forecast snapshot and an input fingerprint. Forecasts are generated from effective bank balances, account safety floors, learned recurring cashflows, exact open bills, budget envelopes, current-month income and learned investment funding. Unknown future income is not fabricated.
+Android `CallScreeningService` remains the inbound phone-screening/logging layer. It does not pretend to conduct calls. Real autonomous conversations use Twilio Programmable Voice.
 
-The default forecast horizon is 90 days, configurable from 30–180 days. It stores both base and conservative cash paths. The conservative path discounts uncertain income and raises variable/recurring debit assumptions.
+Outbound call creation is a real Twilio Call-resource POST authenticated with the configured Twilio Account SID/Auth Token. Voice and status control use per-call callback URLs. The system requests initiated/ringing/answered/completed provider callbacks and never enables call recording.
 
-### Protected cash boundary
+### Durable telephony ledger
 
-Cash is allocatable only when the conservative minimum remains above the protected floor. The floor includes account safety reserves, account target floors and the global minimum operating-cash floor. Expected Revolut investment funding is modeled as a protected outflow and therefore cannot become ordinary surplus.
+Phase 8 introduces additive `TelephonyCall`, `TelephonyTurn`, and `TelephonyEvidence` tables. Call intents carry stable idempotency keys and attempt-series ownership. Phone numbers, purposes, expected outcomes, webhook tokens, summaries, and transcripts are encrypted or hashed at rest as appropriate.
 
-### Allocation ledger and execution
+Every outbound intent is persisted before the provider POST. If provider creation becomes ambiguous, the call is `creation_uncertain`, automatic redial is suppressed, and later signed provider callbacks may recover the `CallSid`. Clear busy/no-answer outcomes may schedule a bounded child attempt; an ambiguous create outcome never does.
 
-`FinancialAllocationPlan` stores per-scope forecast-safe surplus. `FinancialAllocationAction` is persisted before dispatch and links to the real `OwnAccountTransfer` ledger.
+### Signed call control
 
-Allocation priority inside one scope is:
+The Twilio incoming, voice, speech-turn, and status endpoints validate `X-Twilio-Signature` before mutating durable state. Paired-device call management remains bearer-authenticated.
 
-1. controlled spending-wallet prefunding when its target has a gap;
-2. current-month tax contribution gap;
-3. reserve target/floor gap;
-4. ordinary savings for remaining surplus.
+Speech turns use Twilio speech gathering and dynamic TTS responses. The configured turn count and call duration are hard bounded. A one-minute server reconciliation loop repairs stale intents, refreshes active provider calls, and starts only already-scheduled bounded retries.
 
-Only payment-enabled `operating` accounts with own-transfer permission may send. Destinations must be same-scope, same-currency accounts explicitly configured to accept surplus. The existing transfer executor remains authoritative for global per-transfer limits, daily/monthly caps, minimum transfer amount, active-transfer serialization, reserve checks, provider ambiguity, SCA and provider verification.
+### Voice safety and disclosure
 
-### Idempotency / ambiguity
+The assistant explicitly identifies itself as an automated virtual assistant. Routine information gathering, message taking, status chasing, reference collection, availability checks, and low-risk logistics can be handled autonomously.
 
-Recent unchanged forecast inputs reuse the recent forecast during background banking cycles. Allocation actions are run-scoped and durable. On recovery, actions reconcile against their linked transfer before status changes. `creation_uncertain` is never treated as success and is never blindly replayed. Bank SCA remains a genuine authentication handoff.
+Payments, binding contracts/commitments, debt/legal settlements, medical decisions, employment commitments, credential/security changes, identity/authentication steps, and sensitive authentication/card/bank credentials are not accepted by the voice engine. Reaching such a step ends the call and creates a `needs_user` handoff. Later provider-completed callbacks cannot erase that handoff.
 
-### Automation
+### Verification contract
 
-The existing `banking.autopilot` durable job now performs forecast-aware allocation after bank/transaction/statement/payment/transfer reconciliation. The manual Financial Autopilot endpoint synchronizes current evidence and forces a fresh forecast/allocation pass.
+Provider completion and objective completion are separate facts. A Twilio `completed` state does not by itself complete the VA objective. Without source-backed counterparty confirmation, the call remains `provider_completed_unverified` and the objective remains waiting/verifying.
 
-The historical `run_budget_autopilot` implementation remains in source for compatibility/tests, but scheduled/manual product execution is superseded by the forecast-aware allocator.
+Only explicit counterparty evidence supporting the expected outcome writes `telephony_counterparty_confirmation` evidence and completes the objective.
 
-### API / Android
+### Android
 
-New authenticated endpoints:
+A dedicated **Calls** destination shows provider readiness, active/recent calls, masked target numbers, provider and verification states, bounded attempt/retry status, detailed transcript/evidence review, and manual provider reconciliation.
 
-- `GET /api/finance/forecast`
-- `POST /api/finance/forecast/run?horizon_days=90`
-
-Android Money now has seven tabs: Bills, Payments, Accounts, Budget, **Forecast**, Investments, Receipts. Forecast displays base/conservative minima, protected floor, forecast-safe surplus, checkpoints, investment-funding protection and provider-linked allocation actions/authorization.
+The Android call form persists its draft idempotency key in secure local storage across transport errors and app restarts so retrying after an uncertain app/server response cannot silently create a second call intent.
 
 ## Finance constraints remain mandatory
 
@@ -97,14 +92,14 @@ Android Money now has seven tabs: Bills, Payments, Accounts, Budget, **Forecast*
 - Kraken auto funding/trading remains off until explicitly configured.
 - Kraken withdrawals remain disabled/not implemented.
 
-## Phase 7 release gate
+## Phase 8 release gate
 
-Before Phase 8 source changes:
+Before Phase 9 source changes:
 
-1. overlay the Phase-7 package at repository root;
+1. overlay the Phase-8 package at repository root;
 2. commit the extracted files, not the ZIP;
 3. push to `main`;
 4. confirm the full GitHub Actions workflow is green;
-5. if CI fails, fix Phase 7 first and do not start Phase 8 source modifications.
+5. if CI fails, fix Phase 8 first and do not start Phase 9 source modifications.
 
-Suggested commit message: `Phase 7 — Financial Allocation & Forecasting`.
+Suggested commit message: `Phase 8 — Calls / Telephony`.

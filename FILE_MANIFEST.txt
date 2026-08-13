@@ -38,6 +38,7 @@
 ./android/lib/screens/services_page.dart
 ./android/lib/screens/settings_page.dart
 ./android/lib/screens/tasks_page.dart
+./android/lib/screens/telephony_page.dart
 ./android/lib/screens/va_operations_page.dart
 ./android/lib/screens/work_page.dart
 ./android/lib/services/api_client.dart
@@ -64,6 +65,7 @@
 ./backend/app/__init__.py
 ./backend/app/api/__init__.py
 ./backend/app/api/routes.py
+./backend/app/api/telephony_routes.py
 ./backend/app/api_autopilot.py
 ./backend/app/core/__init__.py
 ./backend/app/core/auth.py
@@ -82,6 +84,7 @@
 ./backend/app/main.py
 ./backend/app/models/__init__.py
 ./backend/app/models/entities.py
+./backend/app/models/telephony_entities.py
 ./backend/app/schemas/__init__.py
 ./backend/app/schemas/api.py
 ./backend/app/services/__init__.py
@@ -125,6 +128,8 @@
 ./backend/app/services/revolut_statement_parser.py
 ./backend/app/services/runtime_config.py
 ./backend/app/services/scheduler.py
+./backend/app/services/telephony_ai.py
+./backend/app/services/telephony_service.py
 ./backend/app/services/va_policy.py
 ./backend/app/services/workflow_engine.py
 ./backend/docker-compose.yml
@@ -178,6 +183,7 @@
 ./backend/tests/test_v094_browser_portal_contract.py
 ./backend/tests/test_v095_documents_forms_deadlines_contract.py
 ./backend/tests/test_v096_financial_allocation_forecasting_contract.py
+./backend/tests/test_v097_telephony_contract.py
 ./backend/tests/test_version_and_routes.py
 ./backend/tests/test_workflow_engine.py
 ./build_android.ps1
@@ -215,6 +221,7 @@
 ./docs/V0.9.4_SECURE_BROWSER_PORTAL_OPERATOR.md
 ./docs/V0.9.5_DOCUMENTS_FORMS_DEADLINES.md
 ./docs/V0.9.6_FINANCIAL_ALLOCATION_FORECASTING.md
+./docs/V0.9.7_CALLS_TELEPHONY.md
 ./generate_enable_banking_keys.ps1
 ./render.yaml
 ./start_backend.ps1

@@ -99,6 +99,12 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
         await get_runtime_value(db, "enable_banking_application_id", "")
         and (runtime_bank_key or settings.enable_banking_key_exists)
     )
+    telephony_enabled = (await get_runtime_value(db, "telephony_enabled", "true")).lower() == "true"
+    twilio_configured = bool(
+        await get_runtime_value(db, "twilio_account_sid", "")
+        and await get_runtime_value(db, "twilio_auth_token", "")
+        and await get_runtime_value(db, "twilio_from_number", "")
+    )
 
     rows = [
         _cap("workflow_engine", "Durable workflow execution", True, "VAAPP workflow engine"),
@@ -204,6 +210,18 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
                 "Document/deadline extraction is active; matching configured portals are used for form execution"
                 if browser_portal
                 else "Document/deadline extraction is active; forms wait for a matching allowlisted portal"
+            ),
+        ),
+        _cap(
+            "telephony_call",
+            "Autonomous PSTN telephone calls",
+            telephony_enabled and twilio_configured and ai,
+            "Twilio Programmable Voice + VAAPP voice decision engine",
+            resolution="user_connect" if not (telephony_enabled and twilio_configured and ai) else "automatic",
+            detail=(
+                "Twilio Account SID/Auth Token/caller number and the AI decision engine are required"
+                if not (telephony_enabled and twilio_configured and ai)
+                else "Signed voice/status webhooks, encrypted transcripts, bounded retries, and counterparty verification are active"
             ),
         ),
         _cap(

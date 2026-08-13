@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.api.telephony_routes import router as telephony_router
 from app.api_autopilot import router as autopilot_router
 from app.core.database import SessionLocal, init_db
 from app.core.version import APP_VERSION
@@ -125,3 +126,4 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(autopilot_router)
+app.include_router(telephony_router)

@@ -270,6 +270,7 @@ async def system_info() -> dict:
             "sms_management",
             "messaging_notification_management",
             "call_screening",
+            "telephony_calls",
             "phone_deployment",
         ],
     }
@@ -322,6 +323,7 @@ async def configuration_status(
         "github_configured": by_slug["github"]["configured"],
         "cloudflare_configured": by_slug["cloudflare"]["configured"],
         "discord_configured": by_slug["discord"]["configured"],
+        "twilio_configured": by_slug["twilio"]["configured"],
         "google_drive_enabled": google_connected,
         "google_contacts_enabled": google_connected,
         "automation_enabled": settings.automation_enabled,
@@ -366,6 +368,11 @@ async def dashboard(
     github_configured = bool(await get_runtime_value(db, "github_token"))
     cloudflare_configured = bool(await get_runtime_value(db, "cloudflare_api_token") and await get_runtime_value(db, "cloudflare_account_id"))
     discord_configured = bool(await get_runtime_value(db, "discord_bot_token") and await get_runtime_value(db, "discord_default_channel_id"))
+    twilio_configured = bool(
+        await get_runtime_value(db, "twilio_account_sid")
+        and await get_runtime_value(db, "twilio_auth_token")
+        and await get_runtime_value(db, "twilio_from_number")
+    )
     return DashboardResponse(
         open_tasks=open_tasks,
         action_emails=action_emails,
@@ -380,6 +387,7 @@ async def dashboard(
             "github": github_configured,
             "cloudflare": cloudflare_configured,
             "discord": discord_configured,
+            "twilio": twilio_configured,
         },
     )
 
@@ -2463,6 +2471,8 @@ async def setup_sections(
             section["callback_url"] = f"{base}/api/google/callback"
         elif section["slug"] == "enable_banking":
             section["callback_url"] = f"{base}/api/banking/callback"
+        elif section["slug"] == "twilio":
+            section["callback_url"] = f"{base}/api/telephony/twilio/incoming"
     return sections
 
 

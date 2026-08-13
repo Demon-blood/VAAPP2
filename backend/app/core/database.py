@@ -20,7 +20,10 @@ async def get_db() -> AsyncIterator[AsyncSession]:
 
 
 async def init_db() -> None:
+    # Import every additive model module explicitly so metadata registration never
+    # depends on FastAPI router import order.
     from app.models.entities import Base as EntityBase
+    import app.models.telephony_entities  # noqa: F401
 
     async with engine.begin() as connection:
         await connection.run_sync(EntityBase.metadata.create_all)

@@ -5,11 +5,11 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_v096_release_identity() -> None:
-    assert 'APP_VERSION = "0.9.6"' in (ROOT / "backend/app/core/version.py").read_text()
-    assert 'version = "0.9.6"' in (ROOT / "backend/pyproject.toml").read_text()
-    assert "version: 0.9.6+39" in (ROOT / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "0.9.7"' in (ROOT / "backend/app/core/version.py").read_text()
+    assert 'version = "0.9.7"' in (ROOT / "backend/pyproject.toml").read_text()
+    assert "version: 0.9.7+40" in (ROOT / "android/pubspec.yaml").read_text()
     workflow = (ROOT / ".github/workflows/android-release.yml").read_text()
-    assert "Full-Time-VA-Android-v0.9.6.apk" in workflow
+    assert "Full-Time-VA-Android-v0.9.7.apk" in workflow
 
 
 def test_forecast_models_are_additive_and_encrypted() -> None:

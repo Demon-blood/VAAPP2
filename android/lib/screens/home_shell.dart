@@ -8,6 +8,7 @@ import 'inbox_page.dart';
 import 'money_page.dart';
 import 'services_page.dart';
 import 'settings_page.dart';
+import 'telephony_page.dart';
 import 'work_page.dart';
 
 class HomeShell extends StatefulWidget {
@@ -22,7 +23,7 @@ class _HomeShellState extends State<HomeShell> {
   bool inboxActionOnly = false;
   int moneyTab = 0;
 
-  static const labels = ['Today', 'Inbox', 'Work', 'Money', 'Services', 'Settings'];
+  static const labels = ['Today', 'Inbox', 'Work', 'Money', 'Calls', 'Services', 'Settings'];
 
   void _openTasks() {
     context.read<AppState>().clearTransientError();
@@ -59,7 +60,7 @@ class _HomeShellState extends State<HomeShell> {
 
   void _openServices() {
     context.read<AppState>().clearTransientError();
-    setState(() => index = 4);
+    setState(() => index = 5);
   }
 
   @override
@@ -81,6 +82,7 @@ class _HomeShellState extends State<HomeShell> {
       ),
       WorkPage(onOpenBills: _openBills, onOpenPayments: _openPayments),
       MoneyPage(key: ValueKey('money-$moneyTab'), initialIndex: moneyTab),
+      const TelephonyPage(),
       const ServicesPage(),
       const SettingsPage(),
     ];
@@ -155,6 +157,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.inbox_outlined), selectedIcon: Icon(Icons.inbox_rounded), label: 'Inbox'),
           NavigationDestination(icon: Icon(Icons.work_outline), selectedIcon: Icon(Icons.work_rounded), label: 'Work'),
           NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Money'),
+          NavigationDestination(icon: Icon(Icons.phone_outlined), selectedIcon: Icon(Icons.phone_in_talk_rounded), label: 'Calls'),
           NavigationDestination(icon: Icon(Icons.hub_outlined), selectedIcon: Icon(Icons.hub_rounded), label: 'Services'),
           NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings_rounded), label: 'Settings'),
         ],

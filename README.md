@@ -1,6 +1,6 @@
-# Full-Time VA v0.9.6 — Financial Allocation & Forecasting
+# Full-Time VA v0.9.7 — Calls / Telephony
 
-v0.9.6 is the cumulative Phase 1–7 release candidate. It keeps document/form/deadline ownership and adds a durable source-backed cash forecast, conservative safety scenarios, forecast-safe Personal/Pro allocation plans, and bank-verified surplus transfers.
+v0.9.7 is the cumulative Phase 1–8 release candidate. It keeps the verified financial forecasting/allocation engine and adds real provider-backed PSTN calling through Twilio Programmable Voice, signed call-control webhooks, encrypted conversation turns, bounded recovery, and source-backed objective verification.
 
 ## Cash structure
 
@@ -23,7 +23,7 @@ v0.9.6 is the cumulative Phase 1–7 release candidate. It keeps document/form/d
 
 ## Release identity
 
-Backend `0.9.6` · Android `0.9.6+39` · APK `Full-Time-VA-Android-v0.9.6.apk`.
+Backend `0.9.7` · Android `0.9.7+40` · APK `Full-Time-VA-Android-v0.9.7.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -135,3 +135,18 @@ See `docs/V0.9.5_DOCUMENTS_FORMS_DEADLINES.md` for the Phase-6 extraction, owner
 - Money now includes a **Forecast** tab showing Personal/Pro protected floors, base/conservative minima, safe allocatable surplus, cash checkpoints, protected investment funding and provider-linked allocation actions.
 
 See `docs/V0.9.6_FINANCIAL_ALLOCATION_FORECASTING.md` for the Phase-7 forecast, allocation, idempotency and verification contract.
+
+## v0.9.7 Calls / Telephony — Phase 8
+
+- Outbound calls now use a real Twilio Programmable Voice PSTN executor. Android `CallScreeningService` remains the separate inbound-device screening and logging layer; screening is never reported as having conducted a conversation.
+- `TelephonyCall`, `TelephonyTurn`, and `TelephonyEvidence` provide an additive durable ledger. Phone numbers, webhook tokens, purposes, expected outcomes, call summaries, and transcripts are encrypted or hashed at rest as appropriate.
+- Every outbound call intent is persisted before the Twilio create request. Network ambiguity becomes `creation_uncertain`; VAAPP never blindly dials again after an uncertain create outcome. Signed voice/status callbacks can recover the provider `CallSid` when Twilio accepted the request but the REST response was lost.
+- Twilio webhooks are accepted only after `X-Twilio-Signature` validation against the exact public callback URL. Call-control turns use speech `<Gather>` and dynamic `<Say>` responses; call recording is disabled.
+- The assistant explicitly identifies itself as an automated virtual assistant. The voice decision engine may gather routine information, take messages, chase status, collect reference numbers, and coordinate low-risk logistics, but it stops for payments, binding commitments, authentication/security steps, sensitive credentials, or comparable material decisions.
+- Provider lifecycle and objective lifecycle are separate. A Twilio `completed` call is stored as `provider_completed_unverified` unless the counterparty's actual words provide source-backed confirmation of the expected outcome. Only then is `telephony_counterparty_confirmation` outcome evidence written and the VA objective completed.
+- Clear `busy` / `no-answer` outcomes can schedule bounded later attempts. Timeouts during call creation never do. A maximum call duration and maximum turn count prevent open-ended autonomous calls.
+- A one-minute reconciliation loop refreshes active provider calls, quarantines interrupted create intents, and starts only previously scheduled bounded retries.
+- Android now includes a dedicated **Calls** workspace for provider readiness, autonomous call creation, status/verification state, encrypted transcript review, provider evidence, and explicit reconciliation. The client persists the draft idempotency key in secure local storage and reuses it after an uncertain HTTP response instead of silently creating another call intent.
+
+See `docs/V0.9.7_CALLS_TELEPHONY.md` for the Phase-8 execution, safety, recovery and verification contract.
+

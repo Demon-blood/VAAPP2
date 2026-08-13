@@ -250,6 +250,18 @@ async def daily_briefing_enqueue_job() -> None:
             logger.exception("Failed to enqueue daily-briefing Autopilot job")
 
 
+async def telephony_reconcile_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            from app.services.telephony_service import reconcile_telephony
+
+            await reconcile_telephony(db)
+        except Exception:
+            logger.exception("Failed to reconcile autonomous telephony calls")
+
+
 async def workflow_worker_job() -> None:
     if not settings.automation_enabled:
         return
@@ -404,6 +416,16 @@ def start_scheduler() -> None:
         "interval",
         hours=1,
         id="autopilot_daily_briefing_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        telephony_reconcile_job,
+        "interval",
+        minutes=1,
+        id="telephony_reconcile",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
