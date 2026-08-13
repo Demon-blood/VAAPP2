@@ -11,6 +11,7 @@ from app.services.runtime_config import get_runtime_value
 
 _INTENT_CAPABILITY = {
     "sync_gmail": "email",
+    "sync_calendar": "calendar",
     "sync_banking": "banking_read",
     "sync_contacts": "contacts",
     "run_connectors": "service_connectors",
@@ -77,6 +78,66 @@ async def authorize_step(
             "needs_user": False,
             "resolution": "automatic",
             "reason": "Gmail reply was already classified safe and has a real durable send/verification executor",
+            "capability": capability,
+        }
+
+    if action_type == "calendar_mutation":
+        capability = await capability_for_key(db, "calendar")
+        if capability is None or not capability.get("available"):
+            return {
+                "allowed": False,
+                "needs_user": bool(capability and capability.get("resolution") == "user_connect"),
+                "resolution": (capability or {}).get("resolution") or "capability_unavailable",
+                "reason": "Calendar scheduling requires a live Google OAuth connection",
+                "capability": capability,
+            }
+        operation = str(parameters.get("operation") or "create").lower()
+        if operation not in {"create", "update", "cancel"}:
+            return {
+                "allowed": False,
+                "needs_user": False,
+                "resolution": "unsupported_action",
+                "reason": f"Unsupported calendar operation: {operation}",
+                "capability": capability,
+            }
+        if objective.risk_level == "critical":
+            return {
+                "allowed": False,
+                "needs_user": True,
+                "resolution": "material_decision",
+                "reason": "Critical-risk calendar change requires the account holder's material decision",
+                "capability": capability,
+            }
+        if operation in {"create", "update"}:
+            if not str(parameters.get("summary") or "").strip():
+                return {
+                    "allowed": False,
+                    "needs_user": False,
+                    "resolution": "invalid_parameters",
+                    "reason": "Calendar summary is required",
+                    "capability": capability,
+                }
+            if not str(parameters.get("start") or "").strip() or not str(parameters.get("end") or "").strip():
+                return {
+                    "allowed": False,
+                    "needs_user": False,
+                    "resolution": "invalid_parameters",
+                    "reason": "Calendar start and end are required",
+                    "capability": capability,
+                }
+        if operation in {"update", "cancel"} and not str(parameters.get("provider_event_id") or "").strip():
+            return {
+                "allowed": False,
+                "needs_user": False,
+                "resolution": "invalid_parameters",
+                "reason": f"Calendar {operation} requires provider_event_id",
+                "capability": capability,
+            }
+        return {
+            "allowed": True,
+            "needs_user": False,
+            "resolution": "automatic",
+            "reason": "Google Calendar is connected and the mutation is reversible, durable, idempotent and provider-verified",
             "capability": capability,
         }
 

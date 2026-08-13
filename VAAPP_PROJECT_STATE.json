@@ -1,62 +1,29 @@
 {
-  "project": "VAAPP",
+  "updated": "2026-08-13",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "github_verified_baseline": {
-    "commit": "b92ac998359057cfd1daba56576e0da44eef80b1",
-    "backend_version": "0.8.1",
-    "android_version": "0.8.1+32",
-    "ci_run": 27,
-    "ci_status": "success"
-  },
-  "local_release_candidate": {
-    "backend_version": "0.9.1",
-    "android_version": "0.9.1+34",
-    "apk": "Full-Time-VA-Android-v0.9.1.apk",
-    "cumulative_from_github_baseline": true
-  },
-  "current_phase": {
-    "number": 2,
-    "name": "Inbox & Communications Ownership",
-    "status": "implemented_locally_awaiting_github_ci"
-  },
-  "included_completed_local_phases": [
-    "Phase 1 — Autonomous Core",
-    "Phase 2 — Inbox & Communications Ownership"
-  ],
-  "next_phase": {
-    "number": 3,
-    "name": "Calendar & Scheduling Agent",
-    "start_condition": "Cumulative v0.9.1 upload passes full GitHub Actions"
-  },
-  "non_negotiable_requirements": [
-    "No fake implementations or placeholder executors presented as complete",
-    "No global paper/simulation mode",
-    "Routine work executes automatically",
-    "Needs You only for unavoidable authentication/security authorization, material decisions, or physical action with no executor",
-    "All external actions are durable, idempotent, auditable, and outcome-verified",
-    "Ambiguous external execution outcomes are reconciled before retry",
-    "No secrets or private banking data embedded in public source",
-    "Kraken withdrawals disabled/not implemented",
-    "Revolut Pro never directly funds personal Kraken"
-  ],
-  "phase2_key_capabilities": [
-    "Persistent Gmail mailbox history/watch state",
-    "Durable Gmail PubSub callback -> workflow queue before acknowledgement",
-    "History sync with stale-cursor full recovery",
-    "Durable outbound Gmail intent committed before send",
-    "Deterministic RFC Message-ID reconciliation prevents blind duplicate sends",
-    "Verified Gmail reply threading",
-    "Persistent communication thread ownership",
-    "Durable counterparty follow-ups and response evidence",
-    "Real Android SmsManager execution with carrier SENT/DELIVERED evidence",
-    "Real live-notification RemoteInput handoff evidence",
-    "WorkManager evidence reconciliation before SMS resend",
-    "Communication ownership/Gmail health Android UI"
-  ],
-  "next_action": "Upload cumulative v0.9.1 Phase-2 package, inspect GitHub Actions, fix until green, then begin Phase 3 Calendar & Scheduling Agent.",
-  "handoff_files": [
-    "VAAPP_PROJECT_HANDOFF.md",
-    "VAAPP_PROJECT_STATE.json"
+  "verified_baseline_commit": "651a2e304c410962b09cd2a26b7867e77ab2fccb",
+  "verified_baseline_version": "0.9.1",
+  "verified_baseline_android_version": "0.9.1+34",
+  "verified_baseline_actions_run": 30,
+  "verified_baseline_actions_conclusion": "success",
+  "local_candidate_version": "0.9.2",
+  "local_candidate_android_version": "0.9.2+35",
+  "current_phase": 3,
+  "current_phase_name": "Calendar & Scheduling Agent",
+  "phase_status": "implemented in cumulative overlay; awaiting GitHub upload and full CI",
+  "next_phase": "CRM / Relationship Memory",
+  "database_strategy": "additive_tables_only",
+  "phase3_features": [
+    "durable CalendarSyncState provider health",
+    "CalendarEventMirror provider-observed event ledger",
+    "CalendarMutation persisted before Google API execution",
+    "deterministic provider event IDs for duplicate-safe create retries",
+    "provider-verified create/update/cancel completion",
+    "free-busy conflict checks",
+    "email calendar decisions converted to durable VA objectives",
+    "attendee response observation and follow-up cancellation",
+    "bounded email follow-up for expected invite responses",
+    "Android Work Calendar ownership tab"
   ]
 }

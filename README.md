@@ -1,6 +1,6 @@
-# Full-Time VA v0.9.1 — Inbox & Communications Ownership
+# Full-Time VA v0.9.2 — Calendar & Scheduling Agent
 
-v0.9.1 is the cumulative Phase 1 + Phase 2 release candidate. It keeps the durable autonomous operator core and adds real inbox/communications ownership: persistent Gmail history cursors and push-watch state, durable ambiguity-safe outbound Gmail delivery, conversation ownership and follow-ups, carrier-confirmed Android SMS execution, notification RemoteInput dispatch evidence, and restart-safe reconciliation. No communication is marked sent or delivered without provider/device evidence.
+v0.9.2 is the cumulative Phase 1 + Phase 2 + Phase 3 release candidate. It keeps the durable autonomous operator core and communications ownership, and adds a real Calendar & Scheduling Agent: provider-mirrored Google Calendar state, durable idempotent create/update/cancel mutations, conflict checks, provider verification, attendee-response ownership, scheduling follow-ups, and an Android Calendar ownership surface.
 
 ## Cash structure
 
@@ -23,7 +23,7 @@ v0.9.1 is the cumulative Phase 1 + Phase 2 release candidate. It keeps the durab
 
 ## Release identity
 
-Backend `0.9.1` · Android `0.9.1+34` · APK `Full-Time-VA-Android-v0.9.1.apk`.
+Backend `0.9.2` · Android `0.9.2+35` · APK `Full-Time-VA-Android-v0.9.2.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -63,3 +63,18 @@ See `docs/V0.9.0_AUTONOMOUS_CORE.md` for the Phase-1 contract and validation req
 - The Communications screen now shows Gmail watch/cursor health plus the persistent conversation-ownership ledger.
 
 See `docs/V0.9.1_INBOX_COMMUNICATIONS_OWNERSHIP.md` for the Phase-2 execution and verification contract.
+
+## v0.9.2 Calendar & Scheduling Agent — Phase 3
+
+- Google Calendar is synchronized into a durable provider mirror instead of being read only at request time.
+- Every VA-created calendar change is persisted in `CalendarMutation` before the Google API call.
+- Event creation uses a deterministic Google Calendar event ID derived from the VA step idempotency key, so ambiguous retries address the same provider object instead of creating duplicates.
+- Updates and cancellations reconcile provider state and use the observed ETag when available.
+- Busy-time checks prevent routine autonomous double-booking. A fixed-time conflict becomes a real scheduling decision instead of silently overwriting availability.
+- Calendar steps remain `verifying` until Google Calendar independently reflects the requested postcondition; only then is `calendar_event_verified` outcome evidence stored.
+- Email-derived calendar actions now become durable `calendar_event_planned` objectives rather than inline side effects.
+- Calendar sync observes attendee response state. When invitees answer, pending scheduling follow-ups are cancelled and the waiting objective can complete.
+- When an invite genuinely expects a response, the objective can own a bounded follow-up through the existing durable communications engine.
+- Work now includes a Calendar tab showing sync health, upcoming mirrored events, VA-owned events, and attendee-response state.
+
+See `docs/V0.9.2_CALENDAR_SCHEDULING_AGENT.md` for the Phase-3 execution and verification contract.

@@ -1037,3 +1037,76 @@ class CommunicationDeliveryEvidence(Base):
     __table_args__ = (
         UniqueConstraint("communication_action_id", "evidence_type", name="uq_communication_delivery_evidence"),
     )
+
+
+# v0.9.2 Calendar & Scheduling Agent ----------------------------------------
+# Durable Google Calendar ownership. The provider mirror and mutation ledger are
+# additive; existing deployments continue to use metadata.create_all().
+
+
+class CalendarSyncState(Base):
+    __tablename__ = "calendar_sync_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    calendar_id: Mapped[str] = mapped_column(String(255), default="primary")
+    last_sync_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_full_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_event_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class CalendarEventMirror(Base):
+    __tablename__ = "calendar_event_mirrors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    calendar_id: Mapped[str] = mapped_column(String(255), default="primary", index=True)
+    provider_event_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    ical_uid: Mapped[str] = mapped_column(String(255), default="", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="confirmed", index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    location: Mapped[str] = mapped_column(Text, default="")
+    start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    start_raw: Mapped[str] = mapped_column(Text, default="")
+    end_raw: Mapped[str] = mapped_column(Text, default="")
+    timezone: Mapped[str] = mapped_column(String(120), default="Europe/Brussels")
+    attendees_json: Mapped[str] = mapped_column(Text, default="[]")
+    organizer_json: Mapped[str] = mapped_column(Text, default="{}")
+    html_link: Mapped[str] = mapped_column(Text, default="")
+    etag: Mapped[str] = mapped_column(Text, default="")
+    provider_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    owned_objective_id: Mapped[int | None] = mapped_column(ForeignKey("va_objectives.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        Index("ix_calendar_event_mirrors_upcoming", "status", "start_at", "end_at"),
+    )
+
+
+class CalendarMutation(Base):
+    __tablename__ = "calendar_mutations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    objective_id: Mapped[int | None] = mapped_column(ForeignKey("va_objectives.id"), nullable=True, index=True)
+    step_id: Mapped[int | None] = mapped_column(ForeignKey("va_objective_steps.id"), nullable=True, index=True)
+    operation: Mapped[str] = mapped_column(String(20), default="create", index=True)
+    calendar_id: Mapped[str] = mapped_column(String(255), default="primary")
+    provider_event_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    desired_event_json: Mapped[str] = mapped_column(Text, default="{}")
+    observed_event_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    etag: Mapped[str] = mapped_column(Text, default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=4)
+    verify_after: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

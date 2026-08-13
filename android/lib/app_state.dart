@@ -50,6 +50,8 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> communicationThreads = [];
   Map<String, dynamic> communicationOwnership = {};
   Map<String, dynamic> gmailMailboxStatus = {};
+  Map<String, dynamic> calendarStatus = {};
+  List<Map<String, dynamic>> calendarEvents = [];
   Map<String, dynamic> financeOverview = {};
   Map<String, dynamic> financeInvestments = {};
   List<Map<String, dynamic>> financeAccountPolicies = [];
@@ -127,6 +129,8 @@ class AppState extends ChangeNotifier {
     communicationThreads = [];
     communicationOwnership = {};
     gmailMailboxStatus = {};
+    calendarStatus = {};
+    calendarEvents = [];
     financeOverview = {};
     financeInvestments = {};
     financeAccountPolicies = [];
@@ -155,11 +159,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.9.1')) {
+        if (!_versionAtLeast(backendVersion, '0.9.2')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.9.1 requires backend 0.9.1 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.9.2 requires backend 0.9.2 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -204,6 +208,8 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/va/objectives?limit=100'),
         _safeGet('/api/communications/threads?limit=100'),
         _safeGet('/api/google/mailbox-status', optional: true),
+        _safeGet('/api/calendar/status', optional: true),
+        _safeGet('/api/calendar/events?days=60', optional: true),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -244,6 +250,8 @@ class AppState extends ChangeNotifier {
         if (rawThreads is List) communicationThreads = _list(rawThreads);
       }
       if (results[33] is Map) gmailMailboxStatus = Map<String, dynamic>.from(results[33] as Map);
+      if (results[34] is Map) calendarStatus = Map<String, dynamic>.from(results[34] as Map);
+      if (results[35] is List) calendarEvents = _list(results[35]);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -580,6 +588,17 @@ class AppState extends ChangeNotifier {
       await api.postJson('/api/sync/gmail');
       await refreshAll(showBusy: false);
     });
+  }
+
+  Future<Map<String, dynamic>> syncCalendarNow() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/calendar/sync') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
   }
 
   Future<Map<String, dynamic>> runAutomaticPaymentsNow() async {

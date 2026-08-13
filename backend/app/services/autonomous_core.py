@@ -13,6 +13,7 @@ from app.models.entities import (
     AuditLog,
     CommunicationAction,
     CommunicationDeliveryEvidence,
+    CalendarMutation,
     GmailOutboundMessage,
     OwnAccountTransfer,
     Payment,
@@ -36,6 +37,7 @@ from app.services.workflow_engine import failure_recovery_class, requeue_dead_le
 TERMINAL_OBJECTIVE_STATES = {"completed", "cancelled", "failed"}
 _JOB_CAPABILITY = {
     "gmail.sync": "email",
+    "calendar.sync": "calendar",
     "banking.autopilot": "banking_read",
     "google.contacts.sync": "contacts",
     "connectors.rules.run": "service_connectors",
@@ -540,6 +542,103 @@ async def _handle_response_event(db: AsyncSession, event: VAEvent, payload: dict
     return prior
 
 
+async def _handle_calendar_response_event(db: AsyncSession, event: VAEvent, payload: dict[str, Any]) -> VAObjective:
+    prior_id = int(payload.get("prior_objective_id") or 0)
+    prior = await db.get(VAObjective, prior_id) if prior_id > 0 else None
+    if prior is None:
+        objective, _ = await _create_objective(
+            db,
+            event,
+            title=event.title,
+            goal="Record the observed Calendar attendee response.",
+            category="calendar_response",
+            status="completed",
+        )
+        await _add_evidence(
+            db,
+            objective,
+            step=None,
+            evidence_type="calendar_attendee_response",
+            provider="google_calendar",
+            external_ref=str(payload.get("provider_event_id") or event.source_id),
+            details=payload,
+        )
+        objective.finished_at = objective.finished_at or utcnow()
+        event.status = "processed"
+        event.processed_at = utcnow()
+        await db.commit()
+        return objective
+
+    followups = list(
+        (
+            await db.execute(
+                select(VAFollowUp).where(
+                    VAFollowUp.objective_id == prior.id,
+                    VAFollowUp.status.in_(["pending", "due", "dispatching"]),
+                )
+            )
+        ).scalars()
+    )
+    for followup in followups:
+        followup.status = "cancelled"
+
+    waiting_steps = list(
+        (
+            await db.execute(
+                select(VAObjectiveStep).where(
+                    VAObjectiveStep.objective_id == prior.id,
+                    VAObjectiveStep.action_type == "wait",
+                    VAObjectiveStep.status.in_(["pending", "waiting", "retry"]),
+                )
+            )
+        ).scalars()
+    )
+    await _add_evidence(
+        db,
+        prior,
+        step=None,
+        evidence_type="calendar_attendee_response",
+        provider="google_calendar",
+        external_ref=str(payload.get("provider_event_id") or event.source_id),
+        details=payload,
+    )
+    for step in waiting_steps:
+        step.status = "completed"
+        step.finished_at = utcnow()
+        step.outcome_json = _dump({"calendar_attendee_response": True, "event_id": event.id})
+    await _finish_if_all_steps_complete(db, prior)
+    if prior.status != "completed":
+        remaining_non_wait = int(
+            (
+                await db.execute(
+                    select(func.count(VAObjectiveStep.id)).where(
+                        VAObjectiveStep.objective_id == prior.id,
+                        VAObjectiveStep.action_type != "wait",
+                        VAObjectiveStep.status != "completed",
+                    )
+                )
+            ).scalar_one()
+        )
+        if remaining_non_wait:
+            await _transition_objective(
+                db,
+                prior,
+                "verifying",
+                reason="Calendar attendees responded; remaining provider postconditions are still being verified",
+            )
+        else:
+            await _transition_objective(
+                db,
+                prior,
+                "completed",
+                reason="Calendar attendees responded and the scheduling objective is satisfied",
+            )
+    event.status = "processed"
+    event.processed_at = utcnow()
+    await db.commit()
+    return prior
+
+
 async def _handle_followup_event(db: AsyncSession, event: VAEvent, payload: dict[str, Any]) -> VAObjective:
     followup = await db.get(VAFollowUp, int(event.source_id)) if event.source_id.isdigit() else None
     objective_id = int(payload.get("objective_id") or (followup.objective_id if followup else 0) or 0)
@@ -803,6 +902,51 @@ async def objective_from_event(db: AsyncSession, event: VAEvent) -> VAObjective:
                 verification_type="counterparty_response",
             )
         objective.plan_json = _dump({"steps": 2 if payload.get("expect_reply") else 1, "source": "communications_ownership", "expect_reply": bool(payload.get("expect_reply"))})
+    elif event.event_type == "calendar_event_planned":
+        operation = str(payload.get("operation") or "create").lower()
+        provider_event_id = str(payload.get("provider_event_id") or "")
+        attendees = payload.get("attendees") if isinstance(payload.get("attendees"), list) else []
+        expect_response = bool(payload.get("expect_response")) and bool(attendees) and operation in {"create", "update"}
+        objective, _ = await _create_objective(
+            db,
+            event,
+            title=event.title,
+            goal=f"{operation.title()} and verify the Google Calendar event {payload.get('summary') or provider_event_id or 'requested event'}.",
+            category="calendar_scheduling",
+            priority=str(payload.get("priority") or "normal"),
+            risk_level=str(payload.get("risk_level") or "low"),
+            status="planned",
+        )
+        await _ensure_step(
+            db,
+            objective,
+            position=1,
+            action_type="calendar_mutation",
+            parameters={
+                **payload,
+                "operation": operation,
+                "provider_event_id": provider_event_id,
+                "expect_response": expect_response,
+            },
+            verification_type="calendar_mutation_verified",
+        )
+        if expect_response:
+            await _ensure_step(
+                db,
+                objective,
+                position=2,
+                action_type="wait",
+                parameters={"reason": "calendar_attendee_response", "provider_event_id": provider_event_id},
+                verification_type="calendar_attendee_response",
+            )
+        objective.plan_json = _dump({
+            "steps": 2 if expect_response else 1,
+            "source": "calendar_ownership",
+            "operation": operation,
+            "expect_response": expect_response,
+        })
+    elif event.event_type == "calendar_attendee_response_received":
+        return await _handle_calendar_response_event(db, event, payload)
     elif event.event_type == "device_reply_planned":
         protected = bool(payload.get("protected"))
         objective, _ = await _create_objective(
@@ -1045,6 +1189,63 @@ async def _execute_step(db: AsyncSession, objective: VAObjective, step: VAObject
                 # observed until the Android bridge posts real carrier/RemoteInput evidence.
                 step.status = "verifying"
                 step.run_after = utcnow() + timedelta(seconds=10)
+                await _transition_objective(db, objective, "verifying")
+        elif step.action_type == "calendar_mutation":
+            from app.services.calendar_ownership import prepare_calendar_mutation, send_or_reconcile_calendar_mutation
+
+            operation = str(params.get("operation") or "create").lower()
+            desired = dict(params)
+            desired.pop("operation", None)
+            provider_event_id = str(params.get("provider_event_id") or "")
+            mutation = await prepare_calendar_mutation(
+                db,
+                idempotency_key=step.idempotency_key,
+                operation=operation,
+                desired_event=desired,
+                objective_id=objective.id,
+                step_id=step.id,
+                provider_event_id=provider_event_id,
+            )
+            step.external_ref = f"calendar-mutation:{mutation.id}"
+            mutation = await send_or_reconcile_calendar_mutation(db, mutation)
+            step.outcome_json = _dump(
+                {
+                    "calendar_mutation_id": mutation.id,
+                    "provider_event_id": mutation.provider_event_id,
+                    "status": mutation.status,
+                }
+            )
+            if mutation.status == "failed_user":
+                step.status = "blocked_user"
+                step.last_error = mutation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "needs_user",
+                    reason=mutation.last_error or "Google Calendar authorization is required",
+                )
+            elif mutation.status == "needs_user_conflict":
+                step.status = "blocked_user"
+                step.last_error = mutation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "needs_user",
+                    reason="The requested meeting overlaps an existing busy period and no safe alternative window was supplied",
+                )
+            elif mutation.status == "failed":
+                step.status = "failed"
+                step.finished_at = utcnow()
+                step.last_error = mutation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_system",
+                    reason=mutation.last_error or "Calendar mutation failed without a verified provider outcome",
+                )
+            else:
+                step.status = "verifying"
+                step.run_after = max(mutation.verify_after, utcnow() + timedelta(seconds=2))
                 await _transition_objective(db, objective, "verifying")
         elif step.action_type == "record_only":
             step.status = "completed"
@@ -1298,6 +1499,12 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
                     followup.last_sent_at = now
                     if not schedule_next:
                         followup.status = "exhausted"
+                    elif thread_record_id <= 0:
+                        # Calendar-owned reminder emails do not belong to a
+                        # VACommunicationThread. Keep their persisted follow-up row
+                        # recurring until the bounded attempt limit is reached.
+                        followup.status = "pending"
+                        followup.due_at = now + timedelta(hours=max(1, int(params.get("follow_up_hours") or followup.recurrence_hours or 48)))
                 await _transition_objective(
                     db,
                     objective,
@@ -1306,6 +1513,131 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
                 )
             else:
                 await _finish_if_all_steps_complete(db, objective)
+            continue
+
+        if step.verification_type == "calendar_mutation_verified":
+            from app.services.calendar_ownership import ensure_calendar_mutation_verified
+
+            mutation = (
+                await db.execute(
+                    select(CalendarMutation).where(CalendarMutation.step_id == step.id).limit(1)
+                )
+            ).scalar_one_or_none()
+            if mutation is None:
+                step.status = "failed"
+                step.finished_at = now
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_system",
+                    reason="Persisted Calendar mutation intent is missing",
+                )
+                continue
+            if mutation.status == "failed_user":
+                step.status = "blocked_user"
+                step.last_error = mutation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "needs_user",
+                    reason=mutation.last_error or "Google Calendar authorization is required",
+                )
+                continue
+            if mutation.status == "needs_user_conflict":
+                step.status = "blocked_user"
+                step.last_error = mutation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "needs_user",
+                    reason="The requested meeting conflicts with existing calendar availability",
+                )
+                continue
+            if mutation.status == "failed":
+                step.status = "failed"
+                step.finished_at = now
+                step.last_error = mutation.last_error
+                await _transition_objective(
+                    db,
+                    objective,
+                    "blocked_system",
+                    reason=mutation.last_error or "Calendar provider mutation failed",
+                )
+                continue
+            verified = await ensure_calendar_mutation_verified(db, mutation)
+            if not verified:
+                step.run_after = max(mutation.verify_after, now + timedelta(seconds=15))
+                await _transition_objective(db, objective, "verifying")
+                continue
+
+            step.status = "completed"
+            step.finished_at = now
+            step.last_error = ""
+            step.external_ref = f"google-calendar:{mutation.provider_event_id}"
+            step.outcome_json = _dump(
+                {
+                    "calendar_mutation_id": mutation.id,
+                    "provider_event_id": mutation.provider_event_id,
+                    "operation": mutation.operation,
+                    "status": "verified",
+                }
+            )
+            await _add_evidence(
+                db,
+                objective,
+                step=step,
+                evidence_type="calendar_event_verified",
+                provider="google_calendar",
+                external_ref=mutation.provider_event_id,
+                details={"operation": mutation.operation, "etag": mutation.etag},
+            )
+            if bool(params.get("expect_response")) and mutation.operation in {"create", "update"}:
+                attendees = params.get("attendees") if isinstance(params.get("attendees"), list) else []
+                target = ""
+                if attendees:
+                    first = attendees[0]
+                    target = str(first.get("email") if isinstance(first, dict) else first).strip()
+                if target:
+                    existing_followup = (
+                        await db.execute(
+                            select(VAFollowUp).where(
+                                VAFollowUp.objective_id == objective.id,
+                                VAFollowUp.channel == "email",
+                                VAFollowUp.status.in_(["pending", "due", "dispatching"]),
+                            ).limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    if existing_followup is None:
+                        follow_hours = max(1, min(int(params.get("follow_up_hours") or 24), 168))
+                        summary = str(params.get("summary") or "the calendar invitation")
+                        start_value = str(params.get("start") or "")
+                        db.add(
+                            VAFollowUp(
+                                objective_id=objective.id,
+                                channel="email",
+                                target=target,
+                                purpose=f"Confirm attendance for {summary}",
+                                payload_json=_dump(
+                                    {
+                                        "subject": f"Re: {summary}",
+                                        "follow_up_body": f"Just checking whether you can make {summary} at {start_value}. Please let me know.",
+                                        "calendar_event_id": mutation.provider_event_id,
+                                    }
+                                ),
+                                due_at=now + timedelta(hours=follow_hours),
+                                recurrence_hours=follow_hours,
+                                max_attempts=max(1, min(int(params.get("max_follow_up_attempts") or 2), 4)),
+                                status="pending",
+                            )
+                        )
+                    await _transition_objective(
+                        db,
+                        objective,
+                        "waiting_external",
+                        reason="Calendar event is verified; waiting for attendee responses",
+                    )
+                    continue
+            await _finish_if_all_steps_complete(db, objective)
             continue
 
         if step.verification_type == "device_action_verified":

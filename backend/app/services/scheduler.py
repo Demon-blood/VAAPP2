@@ -65,6 +65,23 @@ async def gmail_watch_enqueue_job() -> None:
             logger.exception("Failed to enqueue Gmail watch-renewal job")
 
 
+async def calendar_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            await enqueue_job(
+                db,
+                job_type="calendar.sync",
+                payload={"days_back": 30, "days_forward": 365},
+                idempotency_key=_bucket_key("calendar.sync", max(5, settings.external_sync_minutes)),
+                priority=22,
+                max_attempts=6,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue Calendar ownership sync job")
+
+
 async def banking_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
@@ -268,6 +285,16 @@ def start_scheduler() -> None:
         "interval",
         hours=12,
         id="gmail_watch_renew_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        calendar_enqueue_job,
+        "interval",
+        minutes=max(5, settings.external_sync_minutes),
+        id="calendar_sync_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

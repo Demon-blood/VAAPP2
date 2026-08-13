@@ -23,7 +23,6 @@ from app.integrations.ai_client import (
     mark_rule_shortcut,
 )
 from app.integrations.google_api import (
-    create_calendar_event,
     extract_gmail_body,
     gmail_service,
     headers_to_dict,
@@ -736,37 +735,35 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
             )
 
     if decision.calendar_event and not deferred_ai:
-        try:
-            event_id = await create_calendar_event(db, decision.calendar_event)
-            await write_audit(
-                db,
-                "calendar_event_created",
-                entity_type="email",
-                entity_id=message["id"],
-                details={"calendar_event_id": event_id},
-            )
-        except Exception as exc:
-            recovery_class = failure_recovery_class("google.calendar", str(exc))
-            if recovery_class in {"transient", "user_required"}:
-                raise
-            existing_calendar_task = (
-                await db.execute(
-                    select(Task).where(
-                        Task.source_type == "calendar_review", Task.source_id == message["id"]
-                    )
-                )
-            ).scalars().first()
-            if existing_calendar_task is None:
-                db.add(
-                    Task(
-                        title=f"Calendar decision needed: {record.subject}",
-                        description=f"Autopilot could not determine a safe calendar action: {exc}",
-                        source_type="calendar_review",
-                        source_id=message["id"],
-                        priority="high",
-                        requires_approval=True,
-                    )
-                )
+        # Phase 3 moves Calendar side effects into the same durable objective engine
+        # as communications. Persist ownership first; the calendar mutation ledger
+        # uses a deterministic provider event ID and verifies Google state before
+        # the objective can complete.
+        from app.services.autonomous_core import record_event
+
+        calendar_plan = dict(decision.calendar_event)
+        calendar_plan.setdefault("operation", "create")
+        calendar_plan.setdefault("source_message_id", message["id"])
+        calendar_plan.setdefault("source_sender", record.sender)
+        calendar_plan.setdefault("priority", decision.priority)
+        calendar_plan.setdefault("avoid_conflicts", True)
+        await record_event(
+            db,
+            event_key=f"gmail-message:{message['id']}:calendar-plan:v1",
+            source_type="email",
+            source_id=message["id"],
+            event_type="calendar_event_planned",
+            title=f"Schedule: {calendar_plan.get('summary') or record.subject or 'calendar event'}",
+            payload=calendar_plan,
+            occurred_at=record.received_at,
+        )
+        await write_audit(
+            db,
+            "calendar_event_queued",
+            entity_type="email",
+            entity_id=message["id"],
+            details={"autonomous_core": True, "operation": calendar_plan.get("operation", "create")},
+        )
 
     reply_plan: dict[str, Any] | None = None
     if decision.reply and not deferred_ai:

@@ -809,6 +809,17 @@ async def _gmail_watch_ensure(db: AsyncSession, payload: dict[str, Any]) -> dict
     return await ensure_gmail_watch(db, force=bool(payload.get("force")))
 
 
+@job_handler("calendar.sync")
+async def _calendar_sync(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.calendar_ownership import sync_calendar
+
+    return await sync_calendar(
+        db,
+        days_back=max(1, min(int(payload.get("days_back") or 30), 365)),
+        days_forward=max(1, min(int(payload.get("days_forward") or 365), 730)),
+    )
+
+
 @job_handler("banking.autopilot")
 async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     from app.core.settings import get_settings

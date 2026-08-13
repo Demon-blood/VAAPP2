@@ -18,7 +18,7 @@ class WorkPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-        length: 8,
+        length: 9,
         child: Column(
           children: [
             const TabBar(
@@ -26,6 +26,7 @@ class WorkPage extends StatelessWidget {
               tabs: [
                 Tab(text: 'Operations'),
                 Tab(text: 'Tasks'),
+                Tab(text: 'Calendar'),
                 Tab(text: 'Documents'),
                 Tab(text: 'Orders'),
                 Tab(text: 'Subscriptions'),
@@ -39,6 +40,7 @@ class WorkPage extends StatelessWidget {
                 children: [
                   const VaOperationsPage(),
                   TasksPage(onOpenBills: onOpenBills, onOpenPayments: onOpenPayments),
+                  const _CalendarView(),
                   const _DocumentsView(),
                   const _OrdersView(),
                   const _SubscriptionsView(),
@@ -52,6 +54,196 @@ class WorkPage extends StatelessWidget {
         ),
       );
 }
+
+class _CalendarView extends StatelessWidget {
+  const _CalendarView();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final status = state.calendarStatus;
+    final rows = state.calendarEvents;
+    final lastSync = _formatSync(status['last_sync_at']);
+    final awaiting = (status['awaiting_attendee_response'] as num?)?.toInt() ?? 0;
+    final upcoming = (status['upcoming_events'] as num?)?.toInt() ?? rows.length;
+    final lastError = '${status['last_error'] ?? ''}'.trim();
+
+    return RefreshIndicator(
+      onRefresh: () => context.read<AppState>().refreshAll(),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: VaTheme.surface,
+              border: Border.all(color: VaTheme.primary.withValues(alpha: .24)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.calendar_month_rounded, color: VaTheme.primary),
+                    const SizedBox(width: 9),
+                    const Expanded(
+                      child: Text('Calendar ownership', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                    ),
+                    IconButton.filledTonal(
+                      tooltip: 'Sync Google Calendar now',
+                      onPressed: state.busy ? null : () => _sync(context),
+                      icon: const Icon(Icons.sync_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '$upcoming upcoming · $awaiting awaiting response · Last sync $lastSync',
+                  style: const TextStyle(color: VaTheme.textMuted),
+                ),
+                if (lastError.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(lastError, style: const TextStyle(color: VaTheme.warning, fontWeight: FontWeight.w700)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (rows.isEmpty)
+            SizedBox(
+              height: MediaQuery.sizeOf(context).height * .48,
+              child: const EmptyState(
+                icon: Icons.event_available_outlined,
+                title: 'No upcoming calendar events',
+                message: 'The VA mirrors Google Calendar and will place verified scheduling work here automatically.',
+              ),
+            )
+          else
+            for (final row in rows) ...[
+              _CalendarEventCard(row: row),
+              const SizedBox(height: 9),
+            ],
+        ],
+      ),
+    );
+  }
+
+  static String _formatSync(dynamic value) {
+    final raw = '$value'.trim();
+    if (raw.isEmpty || raw == 'null') return 'not yet';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    return DateFormat('d MMM HH:mm').format(parsed.toLocal());
+  }
+
+  Future<void> _sync(BuildContext context) async {
+    try {
+      final result = await context.read<AppState>().syncCalendarNow();
+      if (!context.mounted) return;
+      final events = (result['events'] as num?)?.toInt() ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Calendar synchronized · $events event${events == 1 ? '' : 's'} observed.')),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+}
+
+
+class _CalendarEventCard extends StatelessWidget {
+  const _CalendarEventCard({required this.row});
+
+  final Map<String, dynamic> row;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = '${row['summary'] ?? 'Untitled event'}';
+    final location = '${row['location'] ?? ''}'.trim();
+    final start = _formatTime('${row['start'] ?? ''}');
+    final end = _formatTime('${row['end'] ?? ''}', compact: true);
+    final attendees = row['attendees'] is List ? List<dynamic>.from(row['attendees'] as List) : const <dynamic>[];
+    final pending = attendees.where((item) => item is Map && '${item['responseStatus'] ?? ''}' == 'needsAction').length;
+    final link = '${row['html_link'] ?? ''}'.trim();
+    final owned = row['owned_objective_id'] != null;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: link.isEmpty ? null : () => launchUrl(Uri.parse(link), mode: LaunchMode.externalApplication),
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            color: VaTheme.surface,
+            border: Border.all(color: owned ? VaTheme.primary.withValues(alpha: .34) : VaTheme.border),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: VaTheme.primary.withValues(alpha: .12),
+                ),
+                child: const Icon(Icons.event_rounded, color: VaTheme.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: Text(summary, style: const TextStyle(fontWeight: FontWeight.w900))),
+                        if (owned)
+                          const Tooltip(
+                            message: 'Owned by the VA objective engine',
+                            child: Icon(Icons.verified_rounded, size: 17, color: VaTheme.primary),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text('$start${end.isEmpty ? '' : ' – $end'}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    if (location.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(location, style: const TextStyle(color: VaTheme.textMuted)),
+                    ],
+                    if (attendees.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '${attendees.length} attendee${attendees.length == 1 ? '' : 's'}${pending > 0 ? ' · $pending awaiting response' : ' · responses received'}',
+                        style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (link.isNotEmpty) const Icon(Icons.open_in_new_rounded, size: 17, color: VaTheme.textMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _formatTime(String raw, {bool compact = false}) {
+    if (raw.trim().isEmpty) return '';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final local = parsed.toLocal();
+    if (raw.length == 10) return DateFormat('EEE d MMM').format(local);
+    return DateFormat(compact ? 'HH:mm' : 'EEE d MMM · HH:mm').format(local);
+  }
+}
+
 
 class _DocumentsView extends StatefulWidget {
   const _DocumentsView();

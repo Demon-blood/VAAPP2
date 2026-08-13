@@ -133,6 +133,25 @@ class CreatePaymentRequest(BaseModel):
     bank_account_id: int
 
 
+class CalendarObjectiveRequest(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=255)
+    operation: Literal["create", "update", "cancel"] = "create"
+    provider_event_id: str = ""
+    summary: str = ""
+    description: str = ""
+    location: str = ""
+    start: str = ""
+    end: str = ""
+    timezone: str = "Europe/Brussels"
+    attendees: list[str] = Field(default_factory=list)
+    send_updates: bool = True
+    avoid_conflicts: bool = True
+    expect_response: bool = False
+    follow_up_hours: int = Field(default=24, ge=1, le=168)
+    max_follow_up_attempts: int = Field(default=2, ge=1, le=4)
+    priority: str = "normal"
+
+
 class AutomationDecision(BaseModel):
     category: str
     financial_document_type: Literal["none", "payable_invoice", "paid_receipt", "statement_or_notice"] = "none"

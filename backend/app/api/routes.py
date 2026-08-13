@@ -37,7 +37,6 @@ from app.integrations.github_api import (
 from app.integrations.google_api import (
     GoogleConfigurationError,
     complete_google_authorization,
-    create_calendar_event,
     create_google_authorization,
     ensure_google_configured,
     send_gmail_message,
@@ -75,6 +74,7 @@ from app.schemas.api import (
     BankAutopilotPolicyResponse,
     BudgetEnvelopeRequest,
     BudgetEnvelopeResponse,
+    CalendarObjectiveRequest,
     CommunicationActionResultRequest,
     CommunicationBatchRequest,
     CommunicationEventResponse,
@@ -104,6 +104,7 @@ from app.services.audit import write_audit
 from app.services.autonomous_core import (
     get_objective as get_va_objective,
     list_objectives as list_va_objectives,
+    record_event as record_va_event,
     run_core_cycle,
     va_overview,
 )
@@ -197,6 +198,7 @@ async def system_info() -> dict:
             "dashboard",
             "gmail",
             "calendar",
+            "calendar_scheduling_agent",
             "tasks",
             "documents",
             "orders",
@@ -447,18 +449,33 @@ async def execute_task_action(
             await db.commit()
             await reconcile_action_queue(db)
             return {"executed": False, "action": "calendar_event", "message": "Calendar event already exists"}
-        event_id = await create_calendar_event(db, decision.calendar_event)
-        task.status = "completed"
+        plan = dict(decision.calendar_event)
+        plan.setdefault("operation", "create")
+        plan.setdefault("source_message_id", email.provider_message_id)
+        plan.setdefault("priority", email.priority or "normal")
+        plan.setdefault("avoid_conflicts", True)
+        event, created = await record_va_event(
+            db,
+            event_key=f"task:{task.id}:calendar-plan:v1",
+            source_type="email",
+            source_id=email.provider_message_id,
+            event_type="calendar_event_planned",
+            title=f"Schedule: {plan.get('summary') or email.subject or 'calendar event'}",
+            payload=plan,
+            occurred_at=email.received_at,
+        )
+        task.status = "waiting"
+        task.requires_approval = False
         await write_audit(
             db,
-            "calendar_event_created",
+            "calendar_event_queued",
             entity_type="email",
             entity_id=email.provider_message_id,
-            details={"calendar_event_id": event_id, "task_id": task.id, "manual_approval": True},
+            details={"va_event_id": event.id, "task_id": task.id, "created": created, "manual_trigger": True},
         )
         await db.commit()
         await reconcile_action_queue(db)
-        return {"executed": True, "action": "calendar_event", "message": "Calendar event created"}
+        return {"executed": True, "action": "calendar_event", "message": "Calendar objective queued for verified execution"}
 
     if task.source_type == "bill_review":
         raise HTTPException(status_code=409, detail="Review and approve this creditor in Money > Bills")
@@ -1499,6 +1516,85 @@ async def audit_log(
         }
         for row in rows
     ]
+
+@router.get("/api/calendar/status")
+async def calendar_ownership_status(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    from app.services.calendar_ownership import calendar_status
+
+    try:
+        return await calendar_status(db)
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/calendar/events")
+async def calendar_events(
+    days: int = Query(default=60, ge=1, le=730),
+    limit: int = Query(default=250, ge=1, le=1000),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    from app.services.calendar_ownership import list_calendar_mirror, sync_calendar
+
+    # First-use recovery: populate the mirror if the scheduler has not run yet.
+    rows = await list_calendar_mirror(db, days=days, limit=limit)
+    if not rows:
+        try:
+            await sync_calendar(db, days_back=30, days_forward=max(365, days))
+            rows = await list_calendar_mirror(db, days=days, limit=limit)
+        except GoogleConfigurationError:
+            return []
+    return rows
+
+
+@router.get("/api/calendar/availability")
+async def calendar_availability(
+    start: str = Query(min_length=8),
+    end: str = Query(min_length=8),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.services.calendar_ownership import find_calendar_conflicts
+
+    try:
+        conflicts = await find_calendar_conflicts(db, start=start, end=end)
+        return {"available": not conflicts, "conflicts": conflicts, "start": start, "end": end}
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/api/calendar/sync")
+async def calendar_sync_now(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    from app.services.calendar_ownership import sync_calendar
+
+    try:
+        return await sync_calendar(db)
+    except GoogleConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/api/calendar/objectives")
+async def create_calendar_objective(
+    payload: CalendarObjectiveRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    data = payload.model_dump()
+    event, created = await record_va_event(
+        db,
+        event_key=f"calendar-request:{payload.idempotency_key}",
+        source_type="calendar_request",
+        source_id=payload.provider_event_id or payload.idempotency_key,
+        event_type="calendar_event_planned",
+        title=f"Calendar {payload.operation}: {payload.summary or payload.provider_event_id or 'event'}",
+        payload=data,
+    )
+    return {"event_id": event.id, "created": created, "status": event.status}
+
 
 @router.post("/api/google/watch")
 async def enable_google_watch(

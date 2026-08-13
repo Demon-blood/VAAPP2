@@ -7,6 +7,7 @@ import json
 import logging
 import unicodedata
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from email.message import EmailMessage
 from typing import Any
 from urllib.parse import urlencode
@@ -624,39 +625,212 @@ async def list_gmail_history_added_message_ids(
     return message_ids, newest_history_id
 
 
-async def create_calendar_event(db: AsyncSession, event: dict[str, Any]) -> str:
-    service = await calendar_service(db)
-    body = {
-        "summary": event["summary"],
-        "description": event.get("description", "Created by Full-Time VA"),
-        "start": {"dateTime": event["start"], "timeZone": settings.default_timezone},
-        "end": {"dateTime": event["end"], "timeZone": settings.default_timezone},
+def _calendar_rfc3339(value: str, *, timezone_name: str | None = None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return raw
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo(timezone_name or settings.default_timezone))
+    return parsed.isoformat()
+
+
+async def _calendar_event_body(event: dict[str, Any], *, idempotency_key: str = "") -> dict[str, Any]:
+    timezone_name = str(event.get("timezone") or settings.default_timezone)
+    start_value = str(event.get("start") or "")
+    end_value = str(event.get("end") or "")
+    all_day = bool(event.get("all_day")) or (len(start_value) == 10 and len(end_value) == 10)
+    if all_day:
+        start = {"date": start_value[:10]}
+        end = {"date": end_value[:10]}
+    else:
+        start = {"dateTime": _calendar_rfc3339(start_value, timezone_name=timezone_name), "timeZone": timezone_name}
+        end = {"dateTime": _calendar_rfc3339(end_value, timezone_name=timezone_name), "timeZone": timezone_name}
+    body: dict[str, Any] = {
+        "summary": str(event.get("summary") or "Untitled event"),
+        "description": str(event.get("description") or "Created by Full-Time VA"),
+        "start": start,
+        "end": end,
     }
     if event.get("location"):
-        body["location"] = event["location"]
-    result = service.events().insert(calendarId="primary", body=body).execute()
-    return result["id"]
+        body["location"] = str(event["location"])
+    attendees: list[dict[str, Any]] = []
+    for item in event.get("attendees") or []:
+        if isinstance(item, str):
+            email = item.strip()
+            if email:
+                attendees.append({"email": email})
+        elif isinstance(item, dict) and str(item.get("email") or "").strip():
+            attendee = {"email": str(item.get("email") or "").strip()}
+            if item.get("displayName"):
+                attendee["displayName"] = str(item["displayName"])
+            if "optional" in item:
+                attendee["optional"] = bool(item["optional"])
+            attendees.append(attendee)
+    if attendees:
+        body["attendees"] = attendees
+    if event.get("transparency") in {"opaque", "transparent"}:
+        body["transparency"] = str(event["transparency"])
+    if idempotency_key:
+        body["extendedProperties"] = {
+            "private": {"vaappIdempotencyKey": idempotency_key[:200]}
+        }
+    return body
+
+
+async def insert_calendar_event(
+    db: AsyncSession,
+    event: dict[str, Any],
+    *,
+    event_id: str | None = None,
+    send_updates: bool = True,
+    idempotency_key: str = "",
+) -> dict[str, Any]:
+    service = await calendar_service(db)
+    body = await _calendar_event_body(event, idempotency_key=idempotency_key)
+    if event_id:
+        body["id"] = event_id
+    return await _execute_google_request(
+        lambda: service.events().insert(
+            calendarId="primary",
+            body=body,
+            sendUpdates="all" if send_updates and body.get("attendees") else "none",
+        ),
+        attempts=1,
+        retry_statuses=set(),
+    )
+
+
+async def create_calendar_event(db: AsyncSession, event: dict[str, Any]) -> str:
+    """Legacy-compatible one-shot wrapper.
+
+    Phase 3 uses insert_calendar_event through the durable CalendarMutation ledger;
+    older manual task execution keeps receiving just the provider event id.
+    """
+
+    result = await insert_calendar_event(db, event)
+    return str(result["id"])
+
+
+async def get_calendar_event(db: AsyncSession, event_id: str) -> dict[str, Any]:
+    service = await calendar_service(db)
+    return await _execute_google_request(
+        lambda: service.events().get(calendarId="primary", eventId=event_id),
+        attempts=1,
+        retry_statuses=set(),
+    )
+
+
+async def update_calendar_event(
+    db: AsyncSession,
+    event_id: str,
+    event: dict[str, Any],
+    *,
+    etag: str = "",
+    send_updates: bool = True,
+    idempotency_key: str = "",
+) -> dict[str, Any]:
+    service = await calendar_service(db)
+    body = await _calendar_event_body(event, idempotency_key=idempotency_key)
+
+    def request():
+        req = service.events().patch(
+            calendarId="primary",
+            eventId=event_id,
+            body=body,
+            sendUpdates="all" if send_updates and body.get("attendees") else "none",
+        )
+        if etag and hasattr(req, "headers"):
+            req.headers["If-Match"] = etag
+        return req
+
+    return await _execute_google_request(request, attempts=1, retry_statuses=set())
+
+
+async def delete_calendar_event(
+    db: AsyncSession,
+    event_id: str,
+    *,
+    etag: str = "",
+    send_updates: bool = True,
+) -> None:
+    service = await calendar_service(db)
+
+    def request():
+        req = service.events().delete(
+            calendarId="primary",
+            eventId=event_id,
+            sendUpdates="all" if send_updates else "none",
+        )
+        if etag and hasattr(req, "headers"):
+            req.headers["If-Match"] = etag
+        return req
+
+    await _execute_google_request(request, attempts=1, retry_statuses=set())
+
+
+async def list_calendar_events_window(
+    db: AsyncSession,
+    *,
+    days_back: int = 30,
+    days_forward: int = 365,
+    show_deleted: bool = True,
+    max_results: int = 2500,
+) -> list[dict[str, Any]]:
+    service = await calendar_service(db)
+    now = datetime.utcnow()
+    time_min = (now - timedelta(days=max(1, days_back))).isoformat(timespec="seconds") + "Z"
+    time_max = (now + timedelta(days=max(1, days_forward))).isoformat(timespec="seconds") + "Z"
+    items: list[dict[str, Any]] = []
+    page_token: str | None = None
+    while len(items) < max_results:
+        response = await _execute_google_request(
+            lambda page_token=page_token: service.events().list(
+                calendarId="primary",
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                showDeleted=show_deleted,
+                orderBy="startTime",
+                maxResults=min(250, max_results - len(items)),
+                pageToken=page_token,
+            ),
+            attempts=4,
+        )
+        items.extend(list(response.get("items") or []))
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+    return items
+
+
+async def query_calendar_freebusy(db: AsyncSession, *, start: str, end: str) -> dict[str, Any]:
+    service = await calendar_service(db)
+    body = {
+        "timeMin": _calendar_rfc3339(start),
+        "timeMax": _calendar_rfc3339(end),
+        "timeZone": settings.default_timezone,
+        "items": [{"id": "primary"}],
+    }
+    return await _execute_google_request(
+        lambda: service.freebusy().query(body=body),
+        attempts=4,
+    )
 
 
 async def list_upcoming_calendar_events(db: AsyncSession, *, days: int = 7, max_results: int = 20) -> list[dict[str, Any]]:
-    service = await calendar_service(db)
-    now = datetime.utcnow()
-    time_min = now.isoformat(timespec="seconds") + "Z"
-    time_max = (now + timedelta(days=max(1, min(days, 30)))).isoformat(timespec="seconds") + "Z"
-    result = (
-        service.events()
-        .list(
-            calendarId="primary",
-            timeMin=time_min,
-            timeMax=time_max,
-            singleEvents=True,
-            orderBy="startTime",
-            maxResults=max(1, min(max_results, 100)),
-        )
-        .execute()
+    items = await list_calendar_events_window(
+        db,
+        days_back=1,
+        days_forward=max(1, min(days, 30)),
+        show_deleted=False,
+        max_results=max(1, min(max_results, 100)),
     )
     events = []
-    for item in result.get("items", []) or []:
+    for item in items:
         events.append(
             {
                 "id": item.get("id"),
