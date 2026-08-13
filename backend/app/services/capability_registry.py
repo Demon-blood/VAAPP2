@@ -159,6 +159,18 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             detail="A payment-enabled account and live bank consent are required",
         ),
         _cap(
+            "financial_forecasting",
+            "Financial allocation and conservative cash forecasting",
+            bank_connected and enable_banking_configured,
+            "VAAPP forecast ledger + Enable Banking cash evidence",
+            resolution="user_connect" if not (bank_connected and enable_banking_configured) else "automatic",
+            detail=(
+                "Active bank consent and Enable Banking credentials are required"
+                if not (bank_connected and enable_banking_configured)
+                else "90-day source-backed forecast and same-scope surplus allocation are active"
+            ),
+        ),
+        _cap(
             "ai_decisioning",
             "AI decision engine",
             ai,

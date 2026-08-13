@@ -27,6 +27,7 @@
 ./android/lib/screens/communications_page.dart
 ./android/lib/screens/dashboard_page.dart
 ./android/lib/screens/finance_autopilot_page.dart
+./android/lib/screens/financial_forecast_page.dart
 ./android/lib/screens/home_shell.dart
 ./android/lib/screens/inbox_page.dart
 ./android/lib/screens/investments_page.dart
@@ -111,6 +112,7 @@
 ./backend/app/services/email_processor.py
 ./backend/app/services/financial_autopilot.py
 ./backend/app/services/financial_document_policy.py
+./backend/app/services/financial_forecasting.py
 ./backend/app/services/financial_learning.py
 ./backend/app/services/financial_reconciliation.py
 ./backend/app/services/gmail_delivery.py
@@ -175,6 +177,7 @@
 ./backend/tests/test_v093_relationship_memory.py
 ./backend/tests/test_v094_browser_portal_contract.py
 ./backend/tests/test_v095_documents_forms_deadlines_contract.py
+./backend/tests/test_v096_financial_allocation_forecasting_contract.py
 ./backend/tests/test_version_and_routes.py
 ./backend/tests/test_workflow_engine.py
 ./build_android.ps1
@@ -211,6 +214,7 @@
 ./docs/V0.9.3_CRM_RELATIONSHIP_MEMORY.md
 ./docs/V0.9.4_SECURE_BROWSER_PORTAL_OPERATOR.md
 ./docs/V0.9.5_DOCUMENTS_FORMS_DEADLINES.md
+./docs/V0.9.6_FINANCIAL_ALLOCATION_FORECASTING.md
 ./generate_enable_banking_keys.ps1
 ./render.yaml
 ./start_backend.ps1

@@ -613,6 +613,66 @@ class OwnAccountTransfer(Base):
     )
 
 
+class FinancialForecastRun(Base):
+    __tablename__ = "financial_forecast_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    horizon_days: Mapped[int] = mapped_column(Integer, default=90)
+    input_fingerprint: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(40), default="healthy", index=True)
+    base_min_cash: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0.00"))
+    conservative_min_cash: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0.00"))
+    snapshot_encrypted: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_financial_forecast_fingerprint_created", "input_fingerprint", "created_at"),
+    )
+
+
+class FinancialAllocationPlan(Base):
+    __tablename__ = "financial_allocation_plans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    forecast_run_id: Mapped[int] = mapped_column(ForeignKey("financial_forecast_runs.id", ondelete="CASCADE"), index=True)
+    account_scope: Mapped[str] = mapped_column(String(30), default="personal", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="planning", index=True)
+    starting_cash: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0.00"))
+    protected_floor: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0.00"))
+    base_min_cash: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0.00"))
+    conservative_min_cash: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0.00"))
+    allocatable_surplus: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0.00"))
+    details_encrypted: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("forecast_run_id", "account_scope", name="uq_financial_allocation_plan_run_scope"),
+    )
+
+
+class FinancialAllocationAction(Base):
+    __tablename__ = "financial_allocation_actions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    allocation_plan_id: Mapped[int] = mapped_column(ForeignKey("financial_allocation_plans.id", ondelete="CASCADE"), index=True)
+    source_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_accounts.id"), nullable=True, index=True)
+    destination_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_accounts.id"), nullable=True, index=True)
+    destination_role: Mapped[str] = mapped_column(String(30), default="savings", index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    status: Mapped[str] = mapped_column(String(40), default="planned", index=True)
+    own_account_transfer_id: Mapped[int | None] = mapped_column(ForeignKey("own_account_transfers.id"), nullable=True, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        Index("ix_financial_allocation_plan_status", "allocation_plan_id", "status"),
+    )
+
+
 class CommunicationEvent(Base):
     __tablename__ = "communication_events"
 

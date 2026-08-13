@@ -1,12 +1,12 @@
 {
-  "release": "0.9.5",
-  "android_version": "0.9.5+38",
+  "release": "0.9.6",
+  "android_version": "0.9.6+39",
   "baseline_repository": "Demon-blood/VAAPP2",
-  "baseline_commit": "2271d599bc11e2e4c17e5ca5a1fe6c6a59428df3",
-  "purpose": "Cumulative Phase 1-6 release: autonomous objectives, communications ownership, verified calendar scheduling, provenance-backed relationship memory, secure Chromium portal execution, and durable document/form/deadline ownership",
+  "baseline_commit": "0802b52d68036d7f120ea7e68dbfaf5b4984962b",
+  "purpose": "Cumulative Phase 1-7 release: autonomous objectives, communications ownership, verified calendar scheduling, provenance-backed relationship memory, secure Chromium portal execution, document/form/deadline ownership, and conservative financial allocation forecasting",
   "database_strategy": "additive_tables_only",
-  "phase": 6,
-  "phase_name": "Documents / Forms / Deadlines",
-  "next_phase": "Financial Allocation & Forecasting",
-  "version": "0.9.5"
+  "phase": 7,
+  "phase_name": "Financial Allocation & Forecasting",
+  "next_phase": "Calls / Telephony",
+  "version": "0.9.6"
 }

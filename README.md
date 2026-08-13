@@ -1,6 +1,6 @@
-# Full-Time VA v0.9.5 — Documents / Forms / Deadlines
+# Full-Time VA v0.9.6 — Financial Allocation & Forecasting
 
-v0.9.5 is the cumulative Phase 1–6 release candidate. It keeps the autonomous core, communications ownership, Calendar agent, relationship memory, and secure Chromium portal operator, and adds source-backed document intelligence, exact deadline ownership, verified profile facts, durable form submission, and provider-evidence completion.
+v0.9.6 is the cumulative Phase 1–7 release candidate. It keeps document/form/deadline ownership and adds a durable source-backed cash forecast, conservative safety scenarios, forecast-safe Personal/Pro allocation plans, and bank-verified surplus transfers.
 
 ## Cash structure
 
@@ -23,7 +23,7 @@ v0.9.5 is the cumulative Phase 1–6 release candidate. It keeps the autonomous 
 
 ## Release identity
 
-Backend `0.9.5` · Android `0.9.5+38` · APK `Full-Time-VA-Android-v0.9.5.apk`.
+Backend `0.9.6` · Android `0.9.6+39` · APK `Full-Time-VA-Android-v0.9.6.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -122,3 +122,16 @@ See `docs/V0.9.4_SECURE_BROWSER_PORTAL_OPERATOR.md` for the Phase-5 security, ex
 
 See `docs/V0.9.5_DOCUMENTS_FORMS_DEADLINES.md` for the Phase-6 extraction, ownership, execution and completion contract.
 
+
+## v0.9.6 Financial Allocation & Forecasting — Phase 7
+
+- VAAPP now persists encrypted 30–180 day forecast snapshots using effective bank balances, learned recurring cashflows, exact open bills, budget envelopes, account reserve floors and expected investment funding.
+- The default 90-day conservative scenario discounts uncertain income and increases debit assumptions; unknown future income is never invented.
+- Cash is allocatable only when the conservative minimum remains above the protected floor. Safety/emergency reserves and expected Revolut investment funding are therefore never classified as free surplus.
+- `FinancialForecastRun`, `FinancialAllocationPlan`, and `FinancialAllocationAction` create a durable evidence/intent ledger separate from the real `OwnAccountTransfer` provider ledger.
+- Same-scope allocation priority is controlled spending prefunding, tax contribution gap, reserve gap, then ordinary savings. Personal and Pro never rebalance silently across scopes.
+- Allocation actions persist before dispatch and use the existing ambiguity-safe Enable Banking own-account transfer executor. `creation_uncertain` is not replayed or treated as success; bank SCA remains Needs You.
+- The durable `banking.autopilot` workflow now runs forecast-aware allocation after financial reconciliation. Recent unchanged inputs are reused to prevent repeated work.
+- Money now includes a **Forecast** tab showing Personal/Pro protected floors, base/conservative minima, safe allocatable surplus, cash checkpoints, protected investment funding and provider-linked allocation actions.
+
+See `docs/V0.9.6_FINANCIAL_ALLOCATION_FORECASTING.md` for the Phase-7 forecast, allocation, idempotency and verification contract.

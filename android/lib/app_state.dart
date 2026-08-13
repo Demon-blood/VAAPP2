@@ -61,6 +61,7 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> documentObligations = [];
   List<Map<String, dynamic>> documentProfileFacts = [];
   Map<String, dynamic> financeOverview = {};
+  Map<String, dynamic> financeForecast = {};
   Map<String, dynamic> financeInvestments = {};
   List<Map<String, dynamic>> financeAccountPolicies = [];
   List<Map<String, dynamic>> budgetEnvelopes = [];
@@ -148,6 +149,7 @@ class AppState extends ChangeNotifier {
     documentObligations = [];
     documentProfileFacts = [];
     financeOverview = {};
+    financeForecast = {};
     financeInvestments = {};
     financeAccountPolicies = [];
     budgetEnvelopes = [];
@@ -175,11 +177,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.9.5')) {
+        if (!_versionAtLeast(backendVersion, '0.9.6')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.9.5 requires backend 0.9.5 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.9.6 requires backend 0.9.6 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -234,6 +236,7 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/documents/ownership/status', optional: true),
         _safeGet('/api/documents/obligations?limit=250', optional: true),
         _safeGet('/api/documents/profile-facts', optional: true),
+        _safeGet('/api/finance/forecast', optional: true),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -284,6 +287,7 @@ class AppState extends ChangeNotifier {
       if (results[41] is Map) documentOwnershipStatus = Map<String, dynamic>.from(results[41] as Map);
       if (results[42] is List) documentObligations = _list(results[42]);
       if (results[43] is List) documentProfileFacts = _list(results[43]);
+      if (results[44] is Map) financeForecast = Map<String, dynamic>.from(results[44] as Map);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -392,6 +396,7 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/finance/budgets'),
         _safeGet('/api/finance/transfers'),
         _safeGet('/api/finance/investments'),
+        _safeGet('/api/finance/forecast', optional: true),
       ]);
       if (results[0] is List) bills = _list(results[0]);
       if (results[1] is List) financialRecords = _list(results[1]);
@@ -403,6 +408,7 @@ class AppState extends ChangeNotifier {
       if (results[7] is List) budgetEnvelopes = _list(results[7]);
       if (results[8] is List) internalTransfers = _list(results[8]);
       if (results[9] is Map) financeInvestments = Map<String, dynamic>.from(results[9] as Map);
+      if (results[10] is Map) financeForecast = Map<String, dynamic>.from(results[10] as Map);
       if (endpointErrors.isNotEmpty && serverWarning == null) {
         final first = endpointErrors.entries.first;
         serverWarning = 'Some VA server functions are unavailable. ${first.key}: ${first.value}';
@@ -515,6 +521,18 @@ class AppState extends ChangeNotifier {
     late Map<String, dynamic> result;
     await _run(() async {
       result = Map<String, dynamic>.from(await api.postJson('/api/finance/autopilot/run') as Map);
+      await refreshMoneyData();
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> runFinancialForecastNow({int horizonDays = 90}) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/finance/forecast/run?horizon_days=$horizonDays') as Map,
+      );
+      financeForecast = result;
       await refreshMoneyData();
     });
     return result;

@@ -139,7 +139,6 @@ from app.services.financial_autopilot import (
     finance_overview,
     refresh_all_own_account_transfers,
     refresh_own_account_transfer,
-    run_budget_autopilot,
     sync_bank_transactions,
 )
 from app.services.bank_statement_import import (
@@ -167,6 +166,13 @@ from app.services.document_policy import document_retention_decision
 from app.services.financial_reconciliation import (
     reconcile_receipts_with_bank_transactions,
     reclassify_existing_nonpayable_bills,
+)
+from app.services.financial_forecasting import (
+    allocation_compatibility_summary,
+    forecast_public as financial_forecast_public,
+    generate_financial_forecast,
+    latest_financial_forecast,
+    run_financial_allocation_cycle,
 )
 from app.services.operations_service import cleanup_low_value_documents, sync_google_contacts
 from app.services.relationship_memory import (
@@ -237,6 +243,7 @@ async def system_info() -> dict:
             "relationship_memory",
             "secure_browser_portal_operator",
             "document_forms_deadlines",
+            "financial_allocation_forecasting",
             "tasks",
             "documents",
             "orders",
@@ -822,6 +829,31 @@ async def get_finance_overview(
     return await finance_overview(db)
 
 
+@router.get("/api/finance/forecast")
+async def get_financial_forecast(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    run = await latest_financial_forecast(db)
+    if run is None:
+        run = await generate_financial_forecast(db, horizon_days=90, force=False)
+    return await financial_forecast_public(db, run)
+
+
+@router.post("/api/finance/forecast/run")
+async def run_financial_forecast_now(
+    request: Request,
+    horizon_days: int = Query(default=90, ge=30, le=180),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await run_financial_allocation_cycle(
+        db,
+        redirect_url=str(request.url_for("own_transfer_authorization_callback")),
+        horizon_days=horizon_days,
+        force_forecast=True,
+    )
+
+
 @router.get("/api/finance/transfers", response_model=list[OwnAccountTransferResponse])
 async def list_own_account_transfers(
     _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
@@ -853,8 +885,11 @@ async def run_finance_autopilot_now(
         statement_reconciliation = await reconcile_statement_transactions_with_bank(db)
         transfer_refresh = await refresh_all_own_account_transfers(db)
         kraken_refresh = await refresh_all_kraken_funding(db)
-        budget = await run_budget_autopilot(
-            db, redirect_url=str(request.url_for("own_transfer_authorization_callback"))
+        allocation = await run_financial_allocation_cycle(
+            db,
+            redirect_url=str(request.url_for("own_transfer_authorization_callback")),
+            horizon_days=90,
+            force_forecast=True,
         )
         kraken = await run_kraken_funding_autopilot(
             db, redirect_url=str(request.url_for("kraken_funding_authorization_callback"))
@@ -865,7 +900,8 @@ async def run_finance_autopilot_now(
             "statement_reconciliation": statement_reconciliation,
             "transfer_refresh": transfer_refresh,
             "kraken_refresh": kraken_refresh,
-            "budget": budget,
+            "budget": allocation_compatibility_summary(allocation),
+            "forecast_allocation": allocation,
             "kraken_investment": kraken,
         }
     except EnableBankingConfigurationError as exc:
@@ -1276,8 +1312,14 @@ async def run_all_safe_actions(
             )
             result["payments_refreshed"] = await refresh_all_payments(db)
             result["internal_transfers_refreshed"] = await refresh_all_own_account_transfers(db)
-            result["budget_autopilot"] = await run_budget_autopilot(
-                db, redirect_url=str(request.url_for("own_transfer_authorization_callback"))
+            result["forecast_allocation"] = await run_financial_allocation_cycle(
+                db,
+                redirect_url=str(request.url_for("own_transfer_authorization_callback")),
+                horizon_days=90,
+                force_forecast=True,
+            )
+            result["budget_autopilot"] = allocation_compatibility_summary(
+                result["forecast_allocation"]
             )
         except Exception as exc:
             await db.rollback()

@@ -844,8 +844,11 @@ async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[
     from app.services.banking_service import refresh_all_payments, sync_all_banks
     from app.services.financial_autopilot import (
         refresh_all_own_account_transfers,
-        run_budget_autopilot,
         sync_bank_transactions,
+    )
+    from app.services.financial_forecasting import (
+        allocation_compatibility_summary,
+        run_financial_allocation_cycle,
     )
     from app.services.financial_reconciliation import reconcile_receipts_with_bank_transactions
     from app.services.bank_statement_import import reconcile_statement_transactions_with_bank
@@ -862,7 +865,12 @@ async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[
     base_url = str(settings.public_base_url).rstrip("/")
     transfer_callback = base_url + "/api/banking/transfer-callback"
     investment_callback = base_url + "/api/banking/investment-callback"
-    budget = await run_budget_autopilot(db, redirect_url=transfer_callback)
+    allocation = await run_financial_allocation_cycle(
+        db,
+        redirect_url=transfer_callback,
+        horizon_days=90,
+        force_forecast=False,
+    )
     kraken = await run_kraken_funding_autopilot(db, redirect_url=investment_callback)
     reconciled = await reconcile_action_queue(db)
     return {
@@ -874,7 +882,8 @@ async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[
         "payment_refresh": refreshed,
         "internal_transfer_refresh": transfer_refresh,
         "kraken_funding_refresh": kraken_refresh,
-        "budget_autopilot": budget,
+        "budget_autopilot": allocation_compatibility_summary(allocation),
+        "forecast_allocation": allocation,
         "kraken_investment_autopilot": kraken,
         "action_reconciliation": reconciled,
     }

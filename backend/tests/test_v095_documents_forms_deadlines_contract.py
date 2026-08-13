@@ -7,10 +7,10 @@ def _root() -> Path:
 
 def test_v095_release_identity() -> None:
     root = _root()
-    assert 'APP_VERSION = "0.9.5"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version = "0.9.5"' in (root / "backend/pyproject.toml").read_text()
-    assert 'version: 0.9.5+38' in (root / "android/pubspec.yaml").read_text()
-    assert "Full-Time-VA-Android-v0.9.5.apk" in (root / ".github/workflows/android-release.yml").read_text()
+    assert 'APP_VERSION = "0.9.6"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version = "0.9.6"' in (root / "backend/pyproject.toml").read_text()
+    assert 'version: 0.9.6+39' in (root / "android/pubspec.yaml").read_text()
+    assert "Full-Time-VA-Android-v0.9.6.apk" in (root / ".github/workflows/android-release.yml").read_text()
 
 
 def test_document_intelligence_and_form_ledgers_are_additive_and_sensitive_values_are_encrypted() -> None:
