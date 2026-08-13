@@ -3,6 +3,8 @@
 DEPLOYMENT.md
 MANIFEST.json
 README.md
+VAAPP_PROJECT_HANDOFF.md
+VAAPP_PROJECT_STATE.json
 android/analysis_options.yaml
 android/android/app/src/main/AndroidManifest.xml
 android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/MainActivity.kt
@@ -33,6 +35,7 @@ android/lib/screens/receipts_page.dart
 android/lib/screens/services_page.dart
 android/lib/screens/settings_page.dart
 android/lib/screens/tasks_page.dart
+android/lib/screens/va_operations_page.dart
 android/lib/screens/work_page.dart
 android/lib/services/api_client.dart
 android/lib/services/background_service.dart
@@ -84,6 +87,8 @@ backend/app/services/ai_policy.py
 backend/app/services/android_signing.py
 backend/app/services/audit.py
 backend/app/services/automation_engine.py
+backend/app/services/autonomous_core.py
+backend/app/services/autonomy_metrics.py
 backend/app/services/autonomy_policy.py
 backend/app/services/autopilot_planner.py
 backend/app/services/autopilot_service.py
@@ -91,6 +96,7 @@ backend/app/services/bank_statement_import.py
 backend/app/services/banking_service.py
 backend/app/services/beobank_statement_parser.py
 backend/app/services/briefing_service.py
+backend/app/services/capability_registry.py
 backend/app/services/cash_safety.py
 backend/app/services/certificate_service.py
 backend/app/services/communications_service.py
@@ -108,6 +114,7 @@ backend/app/services/revolut_investment_parser.py
 backend/app/services/revolut_statement_parser.py
 backend/app/services/runtime_config.py
 backend/app/services/scheduler.py
+backend/app/services/va_policy.py
 backend/app/services/workflow_engine.py
 backend/docker-compose.yml
 backend/pyproject.toml
@@ -149,6 +156,8 @@ backend/tests/test_v080_finance_structure.py
 backend/tests/test_v080_investment_parser.py
 backend/tests/test_v080_kraken_source_policy.py
 backend/tests/test_v081_investments_dashboard_contract.py
+backend/tests/test_v090_autonomous_core.py
+backend/tests/test_v090_autonomous_core_contract.py
 backend/tests/test_version_and_routes.py
 backend/tests/test_workflow_engine.py
 build_android.ps1
@@ -179,6 +188,7 @@ docs/V0.8.0_KRAKEN_PERSONAL_FUNDING_GUARD.md
 docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md
 docs/V0.8.0_VALIDATION.md
 docs/V0.8.1_INVESTMENTS_DASHBOARD.md
+docs/V0.9.0_AUTONOMOUS_CORE.md
 generate_enable_banking_keys.ps1
 render.yaml
 start_backend.ps1

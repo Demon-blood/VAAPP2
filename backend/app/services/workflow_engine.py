@@ -1038,3 +1038,10 @@ async def _daily_briefing(db: AsyncSession, payload: dict[str, Any]) -> dict[str
     from app.services.briefing_service import daily_briefing
 
     return await daily_briefing(db)
+
+
+@job_handler("va.core.cycle")
+async def _va_core_cycle(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.autonomous_core import run_core_cycle
+
+    return await run_core_cycle(db, create_manual_run=bool(payload.get("create_manual_run")))

@@ -8,6 +8,7 @@ import '../models/view_models.dart';
 import '../theme/va_theme.dart';
 import '../widgets/common_widgets.dart';
 import 'tasks_page.dart';
+import 'va_operations_page.dart';
 
 class WorkPage extends StatelessWidget {
   const WorkPage({this.onOpenBills, this.onOpenPayments, super.key});
@@ -17,12 +18,13 @@ class WorkPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-        length: 7,
+        length: 8,
         child: Column(
           children: [
             const TabBar(
               isScrollable: true,
               tabs: [
+                Tab(text: 'Operations'),
                 Tab(text: 'Tasks'),
                 Tab(text: 'Documents'),
                 Tab(text: 'Orders'),
@@ -35,6 +37,7 @@ class WorkPage extends StatelessWidget {
             Expanded(
               child: TabBarView(
                 children: [
+                  const VaOperationsPage(),
                   TasksPage(onOpenBills: onOpenBills, onOpenPayments: onOpenPayments),
                   const _DocumentsView(),
                   const _OrdersView(),

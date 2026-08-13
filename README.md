@@ -1,6 +1,6 @@
-# Full-Time VA v0.8.1 — Investments Dashboard
+# Full-Time VA v0.9.0 — Autonomous Core
 
-v0.8.0 builds on the verified v0.7.2 banking/history baseline and gives Financial Autopilot a structured model for Personal cash, Pro cash, recurring obligations, Revolut spending/investment funding, Revolut Securities portfolios, and optional Kraken investment funding.
+v0.9.0 keeps the verified v0.8.1 finance/investments baseline and introduces Phase 1 of the full-time-VA architecture: a durable autonomous operator core. Events become owned objectives, every executable step is policy/capability checked, external work is dispatched through the existing real workflow engine with stable idempotency keys, and objectives remain open until their outcome is independently verified.
 
 ## Cash structure
 
@@ -23,7 +23,7 @@ v0.8.0 builds on the verified v0.7.2 banking/history baseline and gives Financia
 
 ## Release identity
 
-Backend `0.8.1` · Android `0.8.1+32` · APK `Full-Time-VA-Android-v0.8.1.apk`.
+Backend `0.9.0` · Android `0.9.0+33` · APK `Full-Time-VA-Android-v0.9.0.apk`.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
@@ -31,3 +31,19 @@ See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance archite
 ## v0.8.1 Investments dashboard
 
 Money now includes a dedicated Investments tab for Revolut Brokerage/Robo statements and live Kraken balances, performance, contribution tracking and investment-autopilot status. Budget remains focused on cash flow, obligations and reserves.
+
+
+## v0.9.0 Autonomous Core — Phase 1
+
+- A unified durable event stream (`VAEvent`) converts currently actionable state into VA-owned objectives.
+- Objectives persist goals, state, risk, source context, execution steps, policy/capability decisions, follow-ups, and independently recorded outcome evidence.
+- The new core reuses the existing real `WorkflowRun`/`WorkflowJob` engine rather than introducing a parallel or simulated executor.
+- Every dispatched objective step has a stable idempotency key. Provider ambiguity is never resolved by blind duplicate execution.
+- Workflow completion is verified from durable workflow state; superseded work is accepted only when its replacement job is independently confirmed completed.
+- Existing payment/SCA and own-account-transfer blockers are reconciled back to the original real bank operation.
+- Provider-auth dead letters automatically resume only after the corresponding real capability is healthy again.
+- System/capability gaps remain VA-owned and do **not** appear in **Needs You**. Needs You is reserved for genuine provider authentication or material user decisions.
+- A scheduled `va.core.cycle` keeps the operator running automatically, while **Work → Operations** exposes autonomy metrics, live capabilities, Needs You, and the objective ledger.
+- Phase 1 intentionally does not claim browser, telephony, or future-domain executors that do not yet exist. Those are implemented in later phases.
+
+See `docs/V0.9.0_AUTONOMOUS_CORE.md` for the Phase-1 contract and validation requirements.

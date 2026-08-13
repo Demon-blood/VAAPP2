@@ -167,9 +167,9 @@ jobs:
 
           test -s build/app/outputs/flutter-apk/app-release.apk
           cp build/app/outputs/flutter-apk/app-release.apk \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.8.1.apk"
-          sha256sum "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.8.1.apk" \
-            | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.8.1.apk.sha256"
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.0.apk"
+          sha256sum "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.0.apk" \
+            | tee "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.0.apk.sha256"
 
       - name: Publish the APK as a GitHub prerelease
         env:
@@ -177,11 +177,11 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$RELEASE_TAG" \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.8.1.apk" \
-            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.8.1.apk.sha256" \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.0.apk" \
+            "$GITHUB_WORKSPACE/Full-Time-VA-Android-v0.9.0.apk.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Full-Time VA Android v0.8.1 · run ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
+            --title "Full-Time VA Android v0.9.0 · run ${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
             --notes "Automated Android release build for commit ${GITHUB_SHA}." \
             --prerelease
           {

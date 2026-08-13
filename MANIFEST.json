@@ -1,9 +1,12 @@
 {
-  "release": "0.8.1",
-  "android_version": "0.8.1+32",
+  "release": "0.9.0",
+  "android_version": "0.9.0+33",
   "baseline_repository": "Demon-blood/VAAPP2",
-  "baseline_commit": "52c7aa7a523feac58de1e66c695782f26b68bbf0",
-  "purpose": "Dedicated Investments dashboard with Revolut Brokerage/Robo holdings, live Kraken valuation, performance, contribution tracking, and Personal-only Kraken funding guard",
+  "baseline_commit": "b92ac998359057cfd1daba56576e0da44eef80b1",
+  "purpose": "Phase 1 Autonomous Core: durable event/objective lifecycle, central policy and real capability checks, idempotent execution, outcome verification, recovery, follow-ups, autonomy metrics, and Android Operations view",
   "database_strategy": "additive_tables_only",
-  "version": "0.8.1"
+  "phase": 1,
+  "phase_name": "Autonomous Core",
+  "next_phase": "Inbox & Communications Ownership",
+  "version": "0.9.0"
 }

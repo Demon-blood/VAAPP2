@@ -52,6 +52,9 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> financeAccountPolicies = [];
   List<Map<String, dynamic>> budgetEnvelopes = [];
   List<Map<String, dynamic>> internalTransfers = [];
+  Map<String, dynamic> vaOverview = {};
+  Map<String, dynamic> vaCapabilities = {};
+  List<Map<String, dynamic>> vaObjectives = [];
 
   Future<void> initialize() async {
     try {
@@ -123,6 +126,9 @@ class AppState extends ChangeNotifier {
     financeAccountPolicies = [];
     budgetEnvelopes = [];
     internalTransfers = [];
+    vaOverview = {};
+    vaCapabilities = {};
+    vaObjectives = [];
     systemInfo = {};
     endpointErrors = {};
     serverWarning = null;
@@ -143,11 +149,11 @@ class AppState extends ChangeNotifier {
       if (info is Map) {
         systemInfo = Map<String, dynamic>.from(info);
         final backendVersion = systemInfo['version']?.toString() ?? '';
-        if (!_versionAtLeast(backendVersion, '0.8.1')) {
+        if (!_versionAtLeast(backendVersion, '0.9.0')) {
           repairRecommended = true;
           serverWarning = backendVersion.isEmpty
               ? 'The connected server is missing version information and must be redeployed from the current repository.'
-              : 'The connected server is running backend $backendVersion. App 0.8.1 requires backend 0.8.1 or newer.';
+              : 'The connected server is running backend $backendVersion. App 0.9.0 requires backend 0.9.0 or newer.';
         } else {
           serverWarning = null;
           repairRecommended = false;
@@ -187,6 +193,9 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/finance/transfers'),
         _safeGet('/api/communications/rules'),
         _safeGet('/api/finance/investments'),
+        _safeGet('/api/va/overview'),
+        _safeGet('/api/va/capabilities'),
+        _safeGet('/api/va/objectives?limit=100'),
       ]);
 
       if (results[0] is Map) dashboard = DashboardData.fromJson(Map<String, dynamic>.from(results[0] as Map));
@@ -218,6 +227,9 @@ class AppState extends ChangeNotifier {
       if (results[26] is List) internalTransfers = _list(results[26]);
       if (results[27] is List) communicationRules = _list(results[27]);
       if (results[28] is Map) financeInvestments = Map<String, dynamic>.from(results[28] as Map);
+      if (results[29] is Map) vaOverview = Map<String, dynamic>.from(results[29] as Map);
+      if (results[30] is Map) vaCapabilities = Map<String, dynamic>.from(results[30] as Map);
+      if (results[31] is List) vaObjectives = _list(results[31]);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -513,6 +525,28 @@ class AppState extends ChangeNotifier {
     await _run(() async {
       result = Map<String, dynamic>.from(
         await api.postJson('/api/actions/run') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> runAutonomousCoreNow() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/va/run') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> recheckVaObjective(int objectiveId) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/va/objectives/$objectiveId/recheck') as Map,
       );
       await refreshAll(showBusy: false);
     });

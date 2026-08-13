@@ -109,6 +109,28 @@ async def housekeeping_enqueue_job() -> None:
             logger.exception("Failed to enqueue housekeeping Autopilot job")
 
 
+async def va_core_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            from app.services.runtime_config import get_runtime_value
+
+            enabled = (await get_runtime_value(db, "va_autonomous_core_enabled", "true")).lower() == "true"
+            if not enabled:
+                return
+            await enqueue_job(
+                db,
+                job_type="va.core.cycle",
+                payload={},
+                idempotency_key=_bucket_key("va.core.cycle", 1),
+                priority=12,
+                max_attempts=5,
+            )
+        except Exception:
+            logger.exception("Failed to enqueue autonomous-core job")
+
+
 async def provider_health_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
@@ -254,6 +276,16 @@ def start_scheduler() -> None:
         "interval",
         hours=6,
         id="housekeeping_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        va_core_enqueue_job,
+        "interval",
+        minutes=1,
+        id="va_core_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

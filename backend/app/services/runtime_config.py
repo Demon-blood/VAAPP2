@@ -17,6 +17,7 @@ CONFIG_SECTIONS: dict[str, dict[str, Any]] = {
         "title": "VA automation policy",
         "description": "Controls unattended execution. Safety checks and provider-required authorization remain enforced.",
         "fields": [
+            {"key": "va_autonomous_core_enabled", "label": "Run the autonomous VA core continuously", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
             {"key": "auto_pay_enabled", "label": "Automatically initiate eligible bills", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},
             {"key": "auto_pay_days_before_due", "label": "Pay this many days before due date", "type": "number", "required": True, "default": "3"},
             {"key": "connector_automation_enabled", "label": "Run scheduled service connector rules", "type": "choice", "choices": ["true", "false"], "required": True, "default": "true"},

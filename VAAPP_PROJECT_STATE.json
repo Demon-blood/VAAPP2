@@ -1,0 +1,72 @@
+{
+  "project": "VAAPP",
+  "repository": "Demon-blood/VAAPP2",
+  "branch": "main",
+  "repository_verified_before_upload": {
+    "commit": "b92ac998359057cfd1daba56576e0da44eef80b1",
+    "backend_version": "0.8.1",
+    "android_version": "0.8.1+32",
+    "latest_ci_run": 27,
+    "latest_ci_status": "success"
+  },
+  "release_candidate": {
+    "backend_version": "0.9.0",
+    "android_version": "0.9.0+33",
+    "apk": "Full-Time-VA-Android-v0.9.0.apk",
+    "phase": 1,
+    "phase_name": "Autonomous Core",
+    "status": "implemented_locally_awaiting_github_ci"
+  },
+  "validation": {
+    "python_compileall": "pass",
+    "local_static_regression_tests_passed": 26,
+    "workflow_yaml": "pass",
+    "pubspec_yaml": "pass",
+    "workflow_shell_blocks": "6/6 pass",
+    "dart_structural_scan": "pass",
+    "private_identifier_scan": "pass",
+    "raw_pdf_xlsx_scan": "pass",
+    "dependency_backed_behavior_tests": "pending_github_ci_local_aiosqlite_unavailable"
+  },
+  "phase1_capabilities": [
+    "unified idempotent VA event intake",
+    "durable objective lifecycle",
+    "durable ordered objective steps",
+    "central fail-closed policy decision",
+    "real shipped capability registry",
+    "stable external-action idempotency correlation",
+    "existing workflow engine execution",
+    "independent outcome evidence",
+    "workflow completion/supersession verification",
+    "payment/SCA and own-transfer reconciliation",
+    "safe provider-auth recovery",
+    "durable follow-up state without fake delivery",
+    "strict Needs You classification",
+    "autonomy quality metrics",
+    "Work Operations Android view"
+  ],
+  "non_negotiable_requirements": [
+    "No fake or placeholder executor presented as complete",
+    "No global paper/simulation mode",
+    "Routine work executes automatically where a real executor exists",
+    "Needs You only for unavoidable auth/material decision/physical action",
+    "External actions durable, idempotent, auditable, and outcome-verified",
+    "No blind retry after ambiguous external outcome",
+    "No private banking data/secrets/raw statements in public source",
+    "Kraken withdrawals disabled/not implemented",
+    "Revolut Pro cannot directly fund personal Kraken"
+  ],
+  "phase_order": [
+    "Autonomous Core",
+    "Inbox & Communications Ownership",
+    "Calendar & Scheduling Agent",
+    "CRM / Relationship Memory",
+    "Secure Browser / Portal Operator",
+    "Documents / Forms / Deadlines",
+    "Financial Allocation & Forecasting",
+    "Calls / Telephony",
+    "Purchasing / Travel / Logistics / Customer Service",
+    "Professional Product Cleanup / v1.0 Readiness"
+  ],
+  "next_action": "Upload Phase-1 v0.9.0 overlay, inspect GitHub Actions, fix until green, then mark Phase 1 complete and begin Phase 2."
+}

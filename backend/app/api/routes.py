@@ -101,6 +101,13 @@ from app.schemas.api import (
     TaskResponse,
 )
 from app.services.audit import write_audit
+from app.services.autonomous_core import (
+    get_objective as get_va_objective,
+    list_objectives as list_va_objectives,
+    run_core_cycle,
+    va_overview,
+)
+from app.services.capability_registry import capability_matrix as va_capability_matrix
 from app.services.autonomy_policy import learn_successful_reply
 from app.services.certificate_service import generate_enable_banking_keypair
 from app.services.android_signing import install_repository_signing, repository_signing_status
@@ -1078,6 +1085,67 @@ async def google_callback(code: str, state: str, db: AsyncSession = Depends(get_
         )
     except Exception as exc:
         return HTMLResponse(f"<html><body><h2>Connection failed</h2><p>{html.escape(str(exc))}</p></body></html>", status_code=400)
+
+
+@router.get("/api/va/overview")
+async def fulltime_va_overview(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await va_overview(db)
+
+
+@router.get("/api/va/capabilities")
+async def fulltime_va_capabilities(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await va_capability_matrix(db)
+
+
+@router.get("/api/va/objectives")
+async def fulltime_va_objectives(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    return await list_va_objectives(db, status=status, limit=limit)
+
+
+@router.get("/api/va/objectives/{objective_id}")
+async def fulltime_va_objective_detail(
+    objective_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = await get_va_objective(db, objective_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="VA objective not found")
+    return row
+
+
+@router.post("/api/va/objectives/{objective_id}/recheck")
+async def fulltime_va_objective_recheck(
+    objective_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if await get_va_objective(db, objective_id) is None:
+        raise HTTPException(status_code=404, detail="VA objective not found")
+    await run_core_cycle(db)
+    row = await get_va_objective(db, objective_id)
+    assert row is not None
+    return row
+
+
+@router.post("/api/va/run")
+async def run_fulltime_va_core(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    cycle = await run_core_cycle(db, create_manual_run=True)
+    return {"cycle": cycle, "overview": await va_overview(db)}
 
 
 @router.post("/api/actions/run")

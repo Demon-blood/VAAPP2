@@ -804,6 +804,131 @@ class WorkflowJobDependency(Base):
 
 
 
+# v0.9.0 Autonomous Core ------------------------------------------------------
+# Additive tables only. Existing deployments use metadata.create_all(), so the
+# autonomous core can be introduced without mutating legacy task/workflow rows.
+
+
+class VAEvent(Base):
+    __tablename__ = "va_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    source_type: Mapped[str] = mapped_column(String(80), index=True)
+    source_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    event_type: Mapped[str] = mapped_column(String(120), index=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(40), default="new", index=True)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class VAObjective(Base):
+    __tablename__ = "va_objectives"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    correlation_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    source_event_id: Mapped[int | None] = mapped_column(ForeignKey("va_events.id"), nullable=True, index=True)
+    source_type: Mapped[str] = mapped_column(String(80), default="manual", index=True)
+    source_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    title: Mapped[str] = mapped_column(Text)
+    goal: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(120), default="general", index=True)
+    priority: Mapped[str] = mapped_column(String(20), default="normal", index=True)
+    risk_level: Mapped[str] = mapped_column(String(20), default="low", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="detected", index=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    context_json: Mapped[str] = mapped_column(Text, default="{}")
+    plan_json: Mapped[str] = mapped_column(Text, default="{}")
+    needs_user_reason: Mapped[str] = mapped_column(Text, default="")
+    user_intervention_count: Mapped[int] = mapped_column(Integer, default=0)
+    blocked_reason: Mapped[str] = mapped_column(Text, default="")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class VAObjectiveStep(Base):
+    __tablename__ = "va_objective_steps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    objective_id: Mapped[int] = mapped_column(ForeignKey("va_objectives.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    action_type: Mapped[str] = mapped_column(String(120), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    parameters_json: Mapped[str] = mapped_column(Text, default="{}")
+    policy_json: Mapped[str] = mapped_column(Text, default="{}")
+    capability_json: Mapped[str] = mapped_column(Text, default="{}")
+    verification_type: Mapped[str] = mapped_column(String(120), default="internal_state")
+    workflow_run_id: Mapped[int | None] = mapped_column(ForeignKey("workflow_runs.id"), nullable=True, index=True)
+    external_ref: Mapped[str] = mapped_column(Text, default="")
+    outcome_json: Mapped[str] = mapped_column(Text, default="{}")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=5)
+    run_after: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("objective_id", "position", name="uq_va_objective_step_position"),
+        Index("ix_va_objective_steps_due", "status", "run_after", "objective_id"),
+    )
+
+
+class VAOutcomeEvidence(Base):
+    __tablename__ = "va_outcome_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    objective_id: Mapped[int] = mapped_column(ForeignKey("va_objectives.id", ondelete="CASCADE"), index=True)
+    step_id: Mapped[int | None] = mapped_column(ForeignKey("va_objective_steps.id", ondelete="CASCADE"), nullable=True, index=True)
+    evidence_type: Mapped[str] = mapped_column(String(120), index=True)
+    provider: Mapped[str] = mapped_column(String(80), default="")
+    external_ref: Mapped[str] = mapped_column(Text, default="")
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class VAFollowUp(Base):
+    __tablename__ = "va_follow_ups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    objective_id: Mapped[int] = mapped_column(ForeignKey("va_objectives.id", ondelete="CASCADE"), index=True)
+    channel: Mapped[str] = mapped_column(String(40), default="internal", index=True)
+    target: Mapped[str] = mapped_column(Text, default="")
+    purpose: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    due_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    recurrence_hours: Mapped[int] = mapped_column(Integer, default=48)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=4)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
+    last_external_ref: Mapped[str] = mapped_column(Text, default="")
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class AutonomyMetricDaily(Base):
+    __tablename__ = "autonomy_metrics_daily"
+
+    day_key: Mapped[str] = mapped_column(String(10), primary_key=True)
+    events_ingested: Mapped[int] = mapped_column(Integer, default=0)
+    objectives_created: Mapped[int] = mapped_column(Integer, default=0)
+    objectives_completed: Mapped[int] = mapped_column(Integer, default=0)
+    user_interventions: Mapped[int] = mapped_column(Integer, default=0)
+    provider_failures: Mapped[int] = mapped_column(Integer, default=0)
+    automatic_recoveries: Mapped[int] = mapped_column(Integer, default=0)
+    followups_due: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class OperationPreference(Base):
     __tablename__ = "operation_preferences"
 
