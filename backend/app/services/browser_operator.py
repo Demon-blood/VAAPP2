@@ -285,6 +285,17 @@ def validate_operation_plan(portal: BrowserPortal, steps: list[dict[str, Any]], 
     }
     if not any(key in verification for key in supported_verification):
         raise ValueError("Browser verification must include a URL, title, text, or selector postcondition")
+    settle_ms = int(verification.get("settle_ms") or 0)
+    if settle_ms < 0 or settle_ms > 15000:
+        raise ValueError("Browser verification settle_ms must be between 0 and 15000")
+    observation_rules = verification.get("observe_text_any") or {}
+    if not isinstance(observation_rules, dict) or len(observation_rules) > 20:
+        raise ValueError("Browser observe_text_any must be an object with at most 20 named states")
+    for state, values in observation_rules.items():
+        if not str(state).strip() or len(str(state)) > 80:
+            raise ValueError("Browser observation state names must be non-empty and at most 80 characters")
+        if not isinstance(values, (str, list)) or len(_as_list(values)) > 30:
+            raise ValueError("Browser observation states may contain at most 30 text alternatives")
     return {
         "steps": normalized_steps,
         "material_commitment": _material_commitment_from_plan(normalized_steps),
@@ -588,6 +599,9 @@ def _as_list(value: Any) -> list[str]:
 
 async def verify_page(page: Page, portal: BrowserPortal, verification: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
     assert_portal_url(portal, page.url)
+    settle_ms = max(0, min(int(verification.get("settle_ms") or 0), 15000))
+    if settle_ms:
+        await page.wait_for_timeout(settle_ms)
     results: dict[str, Any] = {}
     passed = True
     safe_url = _safe_url_for_log(page.url)
@@ -604,10 +618,11 @@ async def verify_page(page: Page, portal: BrowserPortal, verification: dict[str,
 
     text_needles = _as_list(verification.get("text_contains"))
     text_any_needles = _as_list(verification.get("text_any_contains"))
+    observation_rules = verification.get("observe_text_any") or {}
     body_text = ""
-    if text_needles or text_any_needles:
+    if text_needles or text_any_needles or observation_rules:
         try:
-            body_text = (await page.locator("body").inner_text(timeout=2000))[:200000]
+            body_text = (await page.locator("body").inner_text(timeout=4000))[:200000]
         except Exception:
             body_text = ""
     for needle in text_needles:
@@ -623,6 +638,22 @@ async def verify_page(page: Page, portal: BrowserPortal, verification: dict[str,
             any_match = any_match or matched
         results["text_any_contains"] = rows
         passed = passed and any_match
+
+    if isinstance(observation_rules, dict) and observation_rules:
+        observed: dict[str, Any] = {}
+        folded = body_text.casefold()
+        for state, raw_needles in observation_rules.items():
+            needles = _as_list(raw_needles)
+            matches = [needle.casefold() in folded for needle in needles]
+            observed[str(state)] = {
+                "matched": any(matches),
+                "alternatives": len(needles),
+                "matched_count": sum(1 for item in matches if item),
+                "term_hashes": [hashlib.sha256(needle.encode()).hexdigest() for needle, matched in zip(needles, matches) if matched],
+            }
+        # Observation matches are evidence only. They deliberately do not decide whether
+        # the browser operation itself passed its explicit provider-page postcondition.
+        results["observe_text_any"] = observed
 
     for selector in _as_list(verification.get("selector")):
         matched = await _visible(page, selector)

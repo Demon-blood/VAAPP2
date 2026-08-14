@@ -7,8 +7,8 @@ def _root() -> Path:
 
 def test_v080_release_identity_and_account_roles() -> None:
     root = _root()
-    assert 'APP_VERSION = "1.0.2"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version: 1.0.2+44' in (root / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.3"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version: 1.0.3+45' in (root / "android/pubspec.yaml").read_text()
     finance = (root / "backend/app/services/financial_autopilot.py").read_text()
     assert 'role == "spending"' in finance
     assert '"investment_contribution"' in finance

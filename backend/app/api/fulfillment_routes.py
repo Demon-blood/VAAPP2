@@ -48,6 +48,13 @@ async def fulfillment_status(
     return await fulfillment_service.fulfillment_status(db)
 
 
+@router.get("/api/fulfillment/provider-templates")
+async def fulfillment_provider_templates(
+    _: Annotated[Device, Depends(require_device)],
+):
+    return fulfillment_service.provider_templates()
+
+
 @router.get("/api/fulfillment/providers")
 async def fulfillment_providers(
     _: Annotated[Device, Depends(require_device)],

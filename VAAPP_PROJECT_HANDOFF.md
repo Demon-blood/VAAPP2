@@ -12,14 +12,14 @@ Verified baseline release: backend `1.0.0` / Android `1.0.0+42`.
 
 ## Current local candidate
 
-Backend `1.0.2` / Android `1.0.2+44`.
+Backend `1.0.3` / Android `1.0.3+45`.
 
-Current maintenance release: **v1.0.2 — Maintenance Reliability**.  
-Status: **implemented locally from the verified v1.0.1 baseline; awaiting upload and full GitHub CI**.
+Current maintenance release: **v1.0.3 — Logistics Tracking Ownership**.  
+Status: **implemented locally from the verified v1.0.2 baseline (commit `971762f25384faf6c337edcc4b61b64e366060cd`, Actions run #43 success); awaiting upload and full GitHub CI**.
 
-The patch normalizes Android UTC timestamps at the PostgreSQL persistence boundary, isolates failed batch records, and prevents Android from clearing encrypted queued events after a partial backend failure. It also makes configured fulfillment providers and browser portals editable from Android and adds source-backed order hygiene so payment receipts do not become parcel-tracking objectives. The v1.0.1 durable inbound outbox and communication diagnostics remain intact.
+The patch adds durable carrier observations and converts logistics into a long-running monitor/recheck lifecycle. Secure Browser page verification no longer completes a parcel objective by itself; delivered is a separate provider-backed terminal state. Android shows live tracking state/next check, and provider configuration includes an editable bpost Track & Trace starter. v1.0.2 phone-sync, editable-provider and false-order fixes remain intact.
 
-Next work after the v1.0.2 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.3 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 
@@ -73,6 +73,17 @@ No Phase-10 feature relaxes the core evidence rule. Provider/browser/call/paymen
 - `OrderRecord` is no longer sufficient evidence by itself for logistics ownership. Source-backed shipping/delivery/pickup/tracking evidence is required, with explicit handling for Google payment/app-store receipts and GPA-style payment identifiers.
 - Existing false-positive logistics objectives are deterministically dismissed during fulfillment reconciliation/read, and the Android Orders/Fulfillment screens expose **Not an order** for manual correction without deleting the original receipt/email evidence.
 
+## v1.0.3 logistics tracking ownership
+
+- `FulfillmentObservation` is an additive carrier-state ledger linked to the real fulfillment/browser action.
+- Browser provider-page verification and fulfillment outcome verification are separate. A tracking page reached successfully can still leave the objective waiting.
+- `pre_transit`, `in_transit`, `out_for_delivery`, `unknown`, `exception` and `returned` remain VA-owned with scheduled rechecks; ordinary logistics completes only on provider-backed `delivered`.
+- `available_for_pickup` surfaces as Needs You because physical collection has no software executor, but VAAPP keeps monitoring it.
+- Transient read-only tracking failures retry with bounded backoff rather than killing the objective.
+- Secure Browser `observe_text_any` stores state-match booleans/hashes without plaintext matched carrier text.
+- Fulfillment provider templates include a conservative bpost Track & Trace starter using a source-backed `tracking_url` and the allowlisted `track.bpost.cloud` portal.
+
+
 ## Finance constraints remain mandatory
 
 - Beobank Personal = operating/salary/critical obligations.
@@ -88,12 +99,12 @@ No Phase-10 feature relaxes the core evidence rule. Provider/browser/call/paymen
 - Kraken auto funding/trading remains off until explicitly configured.
 - Kraken withdrawals remain disabled/not implemented.
 
-## v1.0.2 release gate
+## v1.0.3 release gate
 
-1. Overlay the v1.0.2 maintenance package at repository root.
+1. Overlay the v1.0.3 logistics-tracking package at repository root.
 2. Commit the extracted files, not the ZIP.
-3. Push to `main` and allow the Render backend auto-deploy to reach 1.0.2.
-4. Confirm the full GitHub Actions workflow is green and install the signed Android 1.0.2 APK.
-5. In Communications Autopilot, run the phone sync and verify the reported scan/accepted/error counts.
+3. Push to `main` and allow the Render backend auto-deploy to reach 1.0.3.
+4. Confirm the full GitHub Actions workflow is green and install the signed Android 1.0.3 APK.
+5. Configure a real carrier portal/provider, run a logistics objective, and verify an in-transit observation remains waiting while delivered evidence completes it.
 
-Suggested commit message: `v1.0.2 — Maintenance Reliability`.
+Suggested commit message: `v1.0.3 — Logistics Tracking Ownership`.

@@ -18,6 +18,7 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
   String? error;
   Map<String, dynamic> status = {};
   List<Map<String, dynamic>> providers = [];
+  List<Map<String, dynamic>> providerTemplates = [];
   List<Map<String, dynamic>> portals = [];
   List<Map<String, dynamic>> requests = [];
 
@@ -42,6 +43,7 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
       final result = await Future.wait<dynamic>([
         api.getJson('/api/fulfillment/status'),
         api.getJson('/api/fulfillment/providers'),
+        api.getJson('/api/fulfillment/provider-templates'),
         api.getJson('/api/browser/portals'),
         api.getJson('/api/fulfillment/requests?limit=200'),
       ]);
@@ -49,8 +51,9 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
       setState(() {
         status = result[0] is Map ? Map<String, dynamic>.from(result[0] as Map) : {};
         providers = _rows(result[1]);
-        portals = _rows(result[2]);
-        requests = _rows(result[3]);
+        providerTemplates = _rows(result[2]);
+        portals = _rows(result[3]);
+        requests = _rows(result[4]);
       });
     } catch (requestError) {
       if (mounted) setState(() => error = '$requestError');
@@ -240,6 +243,7 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
     var accountScope = '${existing?['account_scope'] ?? 'personal'}';
     int? portalId = (existing?['browser_portal_id'] as num?)?.toInt();
     var enabled = existing?['enabled'] != false;
+    String? templateKey;
 
     final save = await showDialog<bool>(
       context: context,
@@ -251,6 +255,16 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
           if (portalId != null && !matchingPortals.any((row) => (row['id'] as num?)?.toInt() == portalId)) {
             portalId = null;
           }
+          Map<String, dynamic>? selectedTemplate;
+          if (templateKey != null) {
+            for (final row in providerTemplates) {
+              if ('${row['key']}' == templateKey) {
+                selectedTemplate = row;
+                break;
+              }
+            }
+          }
+          final selectedTemplateNotes = '${selectedTemplate?['notes'] ?? ''}';
           return AlertDialog(
             title: Text(editing ? 'Edit fulfillment provider' : 'Configure fulfillment provider'),
             content: SizedBox(
@@ -263,6 +277,47 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
                       'Link the provider to an allowlisted Secure Browser portal and/or a verified support phone. Provider recipes define the real steps and required provider evidence.',
                     ),
                     const SizedBox(height: 12),
+                    if (!editing && providerTemplates.isNotEmpty) ...[
+                      DropdownButtonFormField<String?>(
+                        initialValue: templateKey,
+                        decoration: const InputDecoration(
+                          labelText: 'Starter template (optional)',
+                          helperText: 'Templates provide conservative real-provider recipes; you can edit every field afterwards.',
+                        ),
+                        items: [
+                          const DropdownMenuItem<String?>(value: null, child: Text('Start from scratch')),
+                          for (final template in providerTemplates)
+                            DropdownMenuItem<String?>(
+                              value: '${template['key']}',
+                              child: Text('${template['name']}'),
+                            ),
+                        ],
+                        onChanged: (value) => setDialogState(() {
+                          templateKey = value;
+                          if (value == null) return;
+                          final template = providerTemplates.firstWhere((row) => '${row['key']}' == value);
+                          name.text = '${template['provider_name'] ?? template['name'] ?? ''}';
+                          slug.text = '${template['slug'] ?? ''}';
+                          providerType = '${template['provider_type'] ?? 'carrier'}';
+                          final templateRecipe = template['recipe'];
+                          recipe.text = const JsonEncoder.withIndent('  ').convert(
+                            templateRecipe is Map ? templateRecipe : <String, dynamic>{},
+                          );
+                          final baseUrl = '${template['portal_base_url'] ?? ''}'.trim();
+                          if (baseUrl.isNotEmpty) {
+                            for (final portal in portals) {
+                              if ('${portal['account_scope'] ?? 'personal'}' != accountScope) continue;
+                              final portalUrl = '${portal['base_url'] ?? ''}';
+                              if (portalUrl.startsWith(baseUrl) || baseUrl.startsWith(portalUrl)) {
+                                portalId = (portal['id'] as num?)?.toInt();
+                                break;
+                              }
+                            }
+                          }
+                        }),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     TextField(controller: name, decoration: const InputDecoration(labelText: 'Provider name')),
                     const SizedBox(height: 10),
                     TextField(
@@ -339,6 +394,16 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
                       value: enabled,
                       onChanged: (value) => setDialogState(() => enabled = value),
                     ),
+                    if (templateKey != null) ...[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          selectedTemplateNotes,
+                          style: const TextStyle(fontSize: 12, color: VaTheme.textMuted),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 6),
                     TextField(
                       controller: recipe,
@@ -480,6 +545,7 @@ class _StatusCard extends StatelessWidget {
                 Text('$needs need you', style: TextStyle(fontWeight: FontWeight.w800, color: needs > 0 ? VaTheme.warning : null)),
                 Text('$blocked blocked', style: TextStyle(fontWeight: FontWeight.w800, color: blocked > 0 ? VaTheme.warning : null)),
                 Text('${status['enabled_providers'] ?? 0} providers', style: const TextStyle(fontWeight: FontWeight.w800)),
+                Text('${status['tracking_waiting'] ?? 0} actively tracked', style: const TextStyle(fontWeight: FontWeight.w800)),
               ],
             ),
             const SizedBox(height: 8),
@@ -536,6 +602,10 @@ class _RequestCard extends StatelessWidget {
     final paymentType = request['request_type'] == 'purchase' || request['request_type'] == 'travel';
     final sourceOrderId = (request['order_id'] as num?)?.toInt();
     final amount = request['amount'] == null ? '' : ' · ${request['amount']} ${request['currency'] ?? 'EUR'}';
+    final tracking = request['tracking'] is Map ? Map<String, dynamic>.from(request['tracking'] as Map) : <String, dynamic>{};
+    final trackingState = '${tracking['state'] ?? ''}';
+    final trackingObserved = _shortTime('${tracking['observed_at'] ?? ''}');
+    final nextCheck = _shortTime('${tracking['next_check_at'] ?? ''}');
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -553,6 +623,31 @@ class _RequestCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text('${request['request_type']} · ${request['status']} · ${request['account_scope']}$amount'),
             if ('${request['provider_name'] ?? ''}'.isNotEmpty) Text('Provider: ${request['provider_name']}'),
+            if (request['request_type'] == 'logistics' && trackingState.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(
+                    trackingState == 'delivered'
+                        ? Icons.check_circle_outline_rounded
+                        : trackingState == 'available_for_pickup'
+                            ? Icons.store_mall_directory_outlined
+                            : Icons.radar_rounded,
+                    size: 18,
+                    color: tracking['stalled'] == true ? VaTheme.warning : VaTheme.secondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Tracking: ${trackingState.replaceAll('_', ' ')}'
+                      '${trackingObserved.isEmpty ? '' : ' · observed $trackingObserved'}'
+                      '${nextCheck.isEmpty || trackingState == 'delivered' ? '' : ' · next check $nextCheck'}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if ('${request['needs_user_reason'] ?? ''}'.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text('${request['needs_user_reason']}', style: const TextStyle(color: VaTheme.warning, fontWeight: FontWeight.w700)),
@@ -585,6 +680,18 @@ class _RequestCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static String _shortTime(String raw) {
+    if (raw.trim().isEmpty || raw == 'null') return '';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final local = parsed.toLocal();
+    final day = local.day.toString().padLeft(2, '0');
+    final month = local.month.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$day/$month $hour:$minute';
   }
 
   IconData _icon(String type) => switch (type) {

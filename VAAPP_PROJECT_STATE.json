@@ -7,11 +7,11 @@
   "verified_baseline_android_version": "1.0.0+42",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "local_candidate_version": "1.0.2",
-  "local_candidate_android_version": "1.0.2+44",
+  "local_candidate_version": "1.0.3",
+  "local_candidate_android_version": "1.0.3+45",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.2 Maintenance Reliability",
-  "phase_status": "implemented locally from verified v1.0.1 baseline; awaiting GitHub upload and full CI",
+  "current_phase_name": "v1.0.3 Logistics Tracking Ownership",
+  "phase_status": "implemented locally from verified v1.0.2 baseline; awaiting GitHub upload and full CI",
   "next_phase": "v1.x maintenance and real-world hardening",
   "database_strategy": "additive_tables_only",
   "v102_features": [
@@ -25,9 +25,20 @@
     "require source-backed shipping/delivery/pickup/tracking evidence before OrderRecord rows can create logistics ownership, suppressing Google payment/app-store receipt false positives",
     "allow false-positive order/logistics rows to be marked Not an order without deleting the original Gmail or financial receipt evidence"
   ],
-  "verified_maintenance_commit": "8baeefa6c2e95ba1e7a66e42ee01f13db828d9d9",
-  "verified_maintenance_version": "1.0.1",
-  "verified_maintenance_android_version": "1.0.1+43",
-  "verified_maintenance_actions_run": 42,
-  "verified_maintenance_actions_conclusion": "success"
+  "verified_maintenance_commit": "971762f25384faf6c337edcc4b61b64e366060cd",
+  "verified_maintenance_version": "1.0.2",
+  "verified_maintenance_android_version": "1.0.2+44",
+  "verified_maintenance_actions_run": 43,
+  "verified_maintenance_actions_conclusion": "success",
+  "v103_features": [
+    "persist additive FulfillmentObservation rows for each real carrier check",
+    "separate Secure Browser provider-page verification from logistics terminal completion",
+    "keep pre-transit/in-transit/out-for-delivery/unknown carrier states waiting_provider with automatic bounded rechecks",
+    "surface available-for-pickup as needs_user only because physical collection requires a real-world executor while monitoring continues",
+    "complete ordinary logistics only from provider-backed delivered observation evidence",
+    "retry transient read-only tracking failures with bounded backoff instead of failing the objective",
+    "support observation-only Secure Browser text-state evidence without leaking raw matched text to plaintext evidence",
+    "offer an editable bpost Track & Trace starter template based on a source-backed tracking URL and allowlisted track.bpost.cloud portal",
+    "show latest carrier state, observation time, next check and stalled state in Android Fulfillment"
+  ]
 }

@@ -1,10 +1,25 @@
-# Full-Time VA v1.0.2 — Maintenance Reliability
+# Full-Time VA v1.0.3 — Logistics Tracking Ownership
 
-Full-Time VA v1.0.2 is the second maintenance release on the cumulative Phase 1–10 production baseline. It combines the autonomous core with provider-verified communications, calendar ownership, relationship memory, secure browser operations, document/form/deadline ownership, conservative financial allocation, real PSTN telephony, and fulfillment ownership for purchasing/travel/logistics/customer service.
+Full-Time VA v1.0.3 is the third maintenance release on the cumulative Phase 1–10 production baseline. It combines the autonomous core with provider-verified communications, calendar ownership, relationship memory, secure browser operations, document/form/deadline ownership, conservative financial allocation, real PSTN telephony, and fulfillment ownership for purchasing/travel/logistics/customer service.
 
-The v1.0.2 patch does not add a simulated executor. It fixes the production PostgreSQL phone-ingestion boundary and partial-batch recovery, makes browser/fulfillment configuration editable from Android, and prevents payment-only receipts from being promoted into logistics objectives. The v1.0 evidence contract remains unchanged.
+The v1.0.3 patch does not add a simulated executor. It turns carrier tracking into a durable observation/recheck lifecycle so an in-transit page is not mistaken for fulfillment completion, and it adds conservative provider starter templates such as bpost Track & Trace. The v1.0 evidence contract remains unchanged.
 
 **Completion rule:** external work is complete only when the relevant domain ledger contains independent provider/source evidence for the requested postcondition. A local button press, dispatched browser action, initiated payment, placed call, or configured provider is not completion evidence.
+
+
+## v1.0.3 logistics tracking ownership
+
+- Logistics browser runs now separate **provider-page verification** from the **business outcome**. Reaching a real carrier tracking page is evidence that an observation happened; it is not evidence that a parcel was delivered.
+- A new additive `FulfillmentObservation` ledger records provider, normalized tracking state, stalled/terminal flags, encrypted observation details and the source browser operation.
+- Supported tracking states include `pre_transit`, `in_transit`, `out_for_delivery`, `available_for_pickup`, `delivered`, `exception`, `returned` and `unknown`. Only a provider-backed delivered state completes an ordinary logistics objective.
+- Non-terminal states remain `waiting_provider` and schedule bounded automatic rechecks. Out-for-delivery, pickup, unknown and normal transit intervals are independently configurable in the provider recipe.
+- Transient read-only tracking failures use bounded exponential retry rather than failing the whole objective. Ambiguous browser side effects remain blocked; tracking recipes are expected to be read-only.
+- A parcel reported ready for pickup becomes `needs_user` because physical collection requires a real-world executor, while VAAPP continues monitoring the carrier state.
+- Secure Browser verification can record `observe_text_any` state signals without those signals deciding whether the browser operation itself passed its explicit provider-page postcondition. Raw matched carrier text is not written to plaintext evidence.
+- Android Fulfillment shows the latest tracking state, observation time, next check and stalled state.
+- Fulfillment provider configuration includes editable starter templates. The built-in bpost starter uses the source-backed `tracking_url` and the allowlisted `track.bpost.cloud` portal; it never invents a barcode or treats navigation alone as delivery.
+
+See `docs/V1.0.3_LOGISTICS_TRACKING_OWNERSHIP.md` for the maintenance contract and bpost setup notes.
 
 
 ## v1.0.2 maintenance reliability
@@ -42,9 +57,9 @@ See `docs/V1.0.2_MAINTENANCE_RELIABILITY.md` for the maintenance contract and ve
 
 ## Release identity
 
-Backend `1.0.2` · Android `1.0.2+44` · APK `Full-Time-VA-Android-v1.0.2.apk`.
+Backend `1.0.3` · Android `1.0.3+45` · APK `Full-Time-VA-Android-v1.0.3.apk`.
 
-Verified v1.0 baseline: commit `66c09040326ac553a1402cd06fa6771344195d45`, GitHub Actions run #41 successful.
+Verified maintenance baseline: commit `971762f25384faf6c337edcc4b61b64e366060cd` (`v1.0.2 — Maintenance Reliability`), GitHub Actions run #43 successful.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 

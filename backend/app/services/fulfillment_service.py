@@ -10,10 +10,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import decrypt_text, encrypt_text
-from app.models.entities import BrowserOperation, BrowserPortal, EmailMessage, OrderRecord, SupportCase, VAObjective
+from app.models.entities import (
+    BrowserEvidence,
+    BrowserOperation,
+    BrowserPortal,
+    EmailMessage,
+    OrderRecord,
+    SupportCase,
+    VAObjective,
+)
 from app.models.fulfillment_entities import (
     FulfillmentAction,
     FulfillmentEvidence,
+    FulfillmentObservation,
     FulfillmentProvider,
     FulfillmentRequest,
 )
@@ -31,6 +40,26 @@ _BROWSER_SUCCESS = {"verified"}
 _BROWSER_USER = {"needs_user", "needs_user_auth", "blocked_user", "awaiting_auth"}
 _BROWSER_FAILURE = {"failed", "cancelled", "dead_letter", "creation_uncertain"}
 _CALL_TERMINAL = {"completed", "failed", "busy", "no-answer", "no_answer", "cancelled", "canceled"}
+
+_TRACKING_STATES = {
+    "pre_transit",
+    "in_transit",
+    "out_for_delivery",
+    "available_for_pickup",
+    "delivered",
+    "exception",
+    "returned",
+    "unknown",
+}
+_TRACKING_STATE_PRIORITY = (
+    "delivered",
+    "available_for_pickup",
+    "exception",
+    "returned",
+    "out_for_delivery",
+    "in_transit",
+    "pre_transit",
+)
 
 
 _FULFILLMENT_SOURCE_TERMS = (
@@ -103,6 +132,266 @@ def _host(value: str) -> str:
         return (urlsplit(value).hostname or "").lower().rstrip(".")
     except ValueError:
         return ""
+
+
+def provider_templates() -> list[dict[str, Any]]:
+    """Built-in conservative starter recipes for common fulfillment providers.
+
+    Templates never bypass the Secure Browser allowlist. The bpost template follows an
+    already-known tracking URL from order/source evidence; it does not invent a barcode or
+    claim delivery from navigation alone.
+    """
+    return [
+        {
+            "key": "bpost_track_trace",
+            "name": "bpost Track & Trace",
+            "provider_name": "bpost",
+            "slug": "bpost",
+            "provider_type": "carrier",
+            "portal_name": "bpost Track & Trace",
+            "portal_base_url": "https://track.bpost.cloud/btr/web/",
+            "required_variables": ["tracking_url"],
+            "recipe": {
+                "track": {
+                    "mode": "observe",
+                    "steps": [
+                        {
+                            "kind": "goto",
+                            "url": "{{tracking_url}}",
+                            "replay_safe": True,
+                            "side_effect": False,
+                            "timeout_ms": 30000,
+                        }
+                    ],
+                    "verification": {
+                        "url_contains": "track.bpost.cloud",
+                        "settle_ms": 3500,
+                        "observe_text_any": {
+                            "delivered": [
+                                "your parcel has been delivered",
+                                "the parcel has been delivered",
+                                "je pakje is geleverd",
+                                "het pakje is geleverd",
+                                "votre colis a été livré",
+                                "le colis a été livré",
+                            ],
+                            "available_for_pickup": [
+                                "available at a pick-up point",
+                                "ready for collection",
+                                "klaar om af te halen",
+                                "beschikbaar in een afhaalpunt",
+                                "disponible dans un point d'enlèvement",
+                                "prêt à être retiré",
+                            ],
+                            "out_for_delivery": [
+                                "out for delivery",
+                                "being delivered today",
+                                "wordt vandaag geleverd",
+                                "onderweg voor levering",
+                                "en cours de livraison",
+                            ],
+                            "in_transit": [
+                                "in transit",
+                                "your parcel is on its way",
+                                "je pakje is onderweg",
+                                "votre colis est en route",
+                            ],
+                            "pre_transit": [
+                                "being prepared by the sender",
+                                "not yet handed over to bpost",
+                                "wordt voorbereid door de afzender",
+                                "nog niet overhandigd aan bpost",
+                                "préparé par l'expéditeur",
+                            ],
+                            "exception": [
+                                "could not be delivered",
+                                "delivery failed",
+                                "kon niet worden geleverd",
+                                "levering mislukt",
+                                "n'a pas pu être livré",
+                            ],
+                            "returned": [
+                                "returned to sender",
+                                "teruggestuurd naar de afzender",
+                                "renvoyé à l'expéditeur",
+                            ],
+                        },
+                    },
+                    "tracking": {
+                        "recheck_minutes": 180,
+                        "out_for_delivery_recheck_minutes": 60,
+                        "pickup_recheck_minutes": 360,
+                        "unknown_recheck_minutes": 90,
+                        "error_recheck_minutes": 60,
+                        "stalled_after_hours": 120,
+                    },
+                }
+            },
+            "notes": (
+                "Uses the source-backed bpost tracking URL. Delivery is complete only after "
+                "the provider page observation matches a delivered state; navigation alone is not completion evidence."
+            ),
+        }
+    ]
+
+
+def _tracking_config(recipe: dict[str, Any]) -> dict[str, int]:
+    raw = recipe.get("tracking") if isinstance(recipe, dict) else None
+    raw = raw if isinstance(raw, dict) else {}
+
+    def bounded(key: str, default: int, minimum: int = 5, maximum: int = 10080) -> int:
+        try:
+            value = int(raw.get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(value, maximum))
+
+    return {
+        "recheck_minutes": bounded("recheck_minutes", 180),
+        "out_for_delivery_recheck_minutes": bounded("out_for_delivery_recheck_minutes", 60),
+        "pickup_recheck_minutes": bounded("pickup_recheck_minutes", 360),
+        "unknown_recheck_minutes": bounded("unknown_recheck_minutes", 90),
+        "error_recheck_minutes": bounded("error_recheck_minutes", 60),
+        "stalled_after_hours": bounded("stalled_after_hours", 120, minimum=12, maximum=720),
+    }
+
+
+def _tracking_state_from_matches(matches: dict[str, Any]) -> str:
+    for state in _TRACKING_STATE_PRIORITY:
+        value = matches.get(state)
+        if isinstance(value, dict) and bool(value.get("matched")):
+            return state
+        if value is True:
+            return state
+    return "unknown"
+
+
+def _tracking_recheck_at(state: str, config: dict[str, int], *, now: datetime | None = None) -> datetime:
+    current = now or utcnow()
+    if state == "out_for_delivery":
+        minutes = config["out_for_delivery_recheck_minutes"]
+    elif state == "available_for_pickup":
+        minutes = config["pickup_recheck_minutes"]
+    elif state == "unknown":
+        minutes = config["unknown_recheck_minutes"]
+    else:
+        minutes = config["recheck_minutes"]
+    return current + timedelta(minutes=minutes)
+
+
+async def _latest_browser_observation_matches(
+    db: AsyncSession, operation: BrowserOperation
+) -> dict[str, Any]:
+    evidence = (
+        await db.execute(
+            select(BrowserEvidence)
+            .where(
+                BrowserEvidence.browser_operation_id == operation.id,
+                BrowserEvidence.evidence_type == "browser_postcondition_verified",
+            )
+            .order_by(BrowserEvidence.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if evidence is None:
+        return {}
+    details = _loads(evidence.details_json, {})
+    observed = details.get("observe_text_any") if isinstance(details, dict) else None
+    return observed if isinstance(observed, dict) else {}
+
+
+async def _tracking_is_stalled(
+    db: AsyncSession,
+    request: FulfillmentRequest,
+    *,
+    state: str,
+    threshold_hours: int,
+) -> bool:
+    if state in {"unknown", "delivered", "available_for_pickup", "out_for_delivery"}:
+        return False
+    rows = list(
+        (
+            await db.execute(
+                select(FulfillmentObservation)
+                .where(FulfillmentObservation.request_id == request.id)
+                .order_by(FulfillmentObservation.observed_at.desc(), FulfillmentObservation.id.desc())
+                .limit(50)
+            )
+        ).scalars()
+    )
+    if not rows or rows[0].state != state:
+        return False
+    same_since = rows[0].observed_at
+    for row in rows[1:]:
+        if row.state != state:
+            break
+        same_since = row.observed_at
+    return (utcnow() - same_since) >= timedelta(hours=threshold_hours)
+
+
+async def _record_tracking_observation(
+    db: AsyncSession,
+    request: FulfillmentRequest,
+    action: FulfillmentAction,
+    *,
+    provider: FulfillmentProvider,
+    operation: BrowserOperation,
+    state: str,
+    matches: dict[str, Any],
+    stalled: bool,
+) -> FulfillmentObservation:
+    key = f"fulfillment:{request.id}:tracking:{operation.id}"[:255]
+    existing = (
+        await db.execute(
+            select(FulfillmentObservation)
+            .where(FulfillmentObservation.observation_key == key)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    row = FulfillmentObservation(
+        request_id=request.id,
+        action_id=action.id,
+        observation_key=key,
+        provider=provider.slug[:80],
+        state=state if state in _TRACKING_STATES else "unknown",
+        terminal=state == "delivered",
+        stalled=stalled,
+        external_ref=str(operation.id),
+        details_encrypted=encrypt_text(
+            _dump(
+                {
+                    "browser_operation_id": operation.id,
+                    "matched_states": sorted(
+                        name
+                        for name, value in matches.items()
+                        if (isinstance(value, dict) and bool(value.get("matched"))) or value is True
+                    ),
+                    "provider_page_verified": True,
+                    "stalled": stalled,
+                }
+            )
+        ),
+    )
+    db.add(row)
+    await db.flush()
+    await _record_evidence(
+        db,
+        request,
+        action=action,
+        evidence_type="tracking_state_observed",
+        provider=provider.slug,
+        external_ref=str(operation.id),
+        details={
+            "state": row.state,
+            "stalled": stalled,
+            "provider_page_verified": True,
+            "browser_operation_id": operation.id,
+        },
+        evidence_key=f"fulfillment:{request.id}:tracking-state:{operation.id}",
+    )
+    return row
 
 
 async def _record_evidence(
@@ -814,6 +1103,141 @@ async def _complete_request(
     await _sync_va_state(db, request)
 
 
+async def _reconcile_tracking_browser_action(
+    db: AsyncSession,
+    request: FulfillmentRequest,
+    action: FulfillmentAction,
+    operation: BrowserOperation,
+) -> None:
+    provider = await db.get(FulfillmentProvider, request.provider_id) if request.provider_id else None
+    if provider is None or not provider.enabled:
+        action.status = "blocked_capability"
+        action.last_error = "Tracking provider is missing or disabled"
+        request.status = "blocked_capability"
+        request.needs_user_reason = action.last_error
+        await _sync_va_state(db, request)
+        return
+
+    recipe = await _recipe_for(provider, "logistics")
+    config = _tracking_config(recipe)
+    matches = await _latest_browser_observation_matches(db, operation)
+    state = _tracking_state_from_matches(matches)
+    stalled = await _tracking_is_stalled(
+        db,
+        request,
+        state=state,
+        threshold_hours=config["stalled_after_hours"],
+    )
+    observation = await _record_tracking_observation(
+        db,
+        request,
+        action,
+        provider=provider,
+        operation=operation,
+        state=state,
+        matches=matches,
+        stalled=stalled,
+    )
+    action.status = "completed"
+    action.completed_at = action.completed_at or utcnow()
+    action.last_error = ""
+
+    order = await db.get(OrderRecord, request.order_id) if request.order_id else None
+    if order is not None and state != "unknown":
+        order.status = "exception" if state == "returned" else state
+
+    if state == "delivered":
+        await _complete_request(
+            db,
+            request,
+            provider=provider.slug,
+            external_ref=str(observation.id),
+            details={
+                "tracking_observation_id": observation.id,
+                "tracking_state": state,
+                "browser_operation_id": operation.id,
+                "provider_postcondition_verified": True,
+            },
+        )
+        return
+
+    request.completed_at = None
+    request.last_error = ""
+    request.next_action_at = _tracking_recheck_at(state, config)
+    request.requires_user_action = False
+    request.needs_user_reason = ""
+    if state == "available_for_pickup":
+        request.status = "needs_user"
+        request.requires_user_action = True
+        request.needs_user_reason = (
+            "The carrier reports the parcel is ready for physical pickup. VAAPP will keep monitoring, "
+            "but collection requires a person or another real-world executor."
+        )
+    else:
+        request.status = "waiting_provider"
+        if state in {"exception", "returned"}:
+            request.last_error = (
+                f"Carrier tracking reports {state.replace('_', ' ')}. VAAPP retains ownership and will recheck; "
+                "provider-specific support escalation can be configured separately."
+            )
+        elif stalled:
+            request.last_error = (
+                f"Carrier tracking has remained {state.replace('_', ' ')} beyond the configured stall threshold; "
+                "VAAPP will continue bounded rechecks instead of declaring the objective complete."
+            )
+    await _sync_va_state(db, request)
+
+
+async def _tracking_browser_failure(
+    db: AsyncSession,
+    request: FulfillmentRequest,
+    action: FulfillmentAction,
+    operation: BrowserOperation,
+) -> None:
+    if operation.status == "creation_uncertain":
+        action.status = "blocked_system"
+        action.last_error = operation.last_error or operation.status
+        request.status = "blocked_system"
+        request.last_error = action.last_error
+        request.next_action_at = utcnow() + timedelta(hours=12)
+        await _sync_va_state(db, request)
+        return
+
+    provider = await db.get(FulfillmentProvider, request.provider_id) if request.provider_id else None
+    recipe = await _recipe_for(provider, "logistics") if provider is not None else {}
+    config = _tracking_config(recipe)
+    recent = list(
+        (
+            await db.execute(
+                select(FulfillmentAction)
+                .where(FulfillmentAction.request_id == request.id)
+                .order_by(FulfillmentAction.sequence.desc())
+                .limit(8)
+            )
+        ).scalars()
+    )
+    consecutive_failures = 1
+    for previous in recent:
+        if previous.id == action.id:
+            continue
+        if previous.status != "failed":
+            break
+        consecutive_failures += 1
+    base = config["error_recheck_minutes"]
+    retry_minutes = min(720, base * (2 ** min(consecutive_failures - 1, 3)))
+    action.status = "failed"
+    action.completed_at = action.completed_at or utcnow()
+    action.last_error = operation.last_error or operation.status
+    request.status = "waiting_provider"
+    request.requires_user_action = False
+    request.needs_user_reason = ""
+    request.last_error = (
+        f"Carrier tracking check failed ({action.last_error}); retry {consecutive_failures} is scheduled automatically."
+    )[:8000]
+    request.next_action_at = utcnow() + timedelta(minutes=retry_minutes)
+    await _sync_va_state(db, request)
+
+
 async def _reconcile_existing_action(db: AsyncSession, request: FulfillmentRequest, action: FulfillmentAction) -> None:
     if action.browser_operation_id:
         operation = await db.get(BrowserOperation, action.browser_operation_id)
@@ -825,6 +1249,9 @@ async def _reconcile_existing_action(db: AsyncSession, request: FulfillmentReque
             await _sync_va_state(db, request)
             return
         if operation.status in _BROWSER_SUCCESS or operation.verified_at is not None:
+            if request.request_type == "logistics":
+                await _reconcile_tracking_browser_action(db, request, action, operation)
+                return
             action.status = "completed"
             action.completed_at = action.completed_at or utcnow()
             await _record_evidence(
@@ -852,6 +1279,9 @@ async def _reconcile_existing_action(db: AsyncSession, request: FulfillmentReque
             await _sync_va_state(db, request)
             return
         if operation.status in _BROWSER_FAILURE:
+            if request.request_type == "logistics":
+                await _tracking_browser_failure(db, request, action, operation)
+                return
             action.status = "blocked_system" if operation.status == "creation_uncertain" else "failed"
             action.last_error = operation.last_error or operation.status
             request.status = "blocked_system" if operation.status == "creation_uncertain" else "failed"
@@ -1224,6 +1654,34 @@ async def serialize_request(db: AsyncSession, request: FulfillmentRequest, *, in
         "created_at": request.created_at,
         "updated_at": request.updated_at,
     }
+    if request.request_type == "logistics":
+        latest_observation = (
+            await db.execute(
+                select(FulfillmentObservation)
+                .where(FulfillmentObservation.request_id == request.id)
+                .order_by(FulfillmentObservation.observed_at.desc(), FulfillmentObservation.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        payload["tracking"] = (
+            {
+                "state": latest_observation.state,
+                "provider": latest_observation.provider,
+                "terminal": latest_observation.terminal,
+                "stalled": latest_observation.stalled,
+                "external_ref": latest_observation.external_ref,
+                "details": _decrypt_json(latest_observation.details_encrypted),
+                "observed_at": latest_observation.observed_at,
+                "next_check_at": request.next_action_at,
+            }
+            if latest_observation is not None
+            else {
+                "state": "not_observed",
+                "terminal": False,
+                "stalled": False,
+                "next_check_at": request.next_action_at,
+            }
+        )
     if include_actions:
         actions = list(
             (
@@ -1272,6 +1730,30 @@ async def serialize_request(db: AsyncSession, request: FulfillmentRequest, *, in
             }
             for item in evidence
         ]
+        if request.request_type == "logistics":
+            observations = list(
+                (
+                    await db.execute(
+                        select(FulfillmentObservation)
+                        .where(FulfillmentObservation.request_id == request.id)
+                        .order_by(FulfillmentObservation.observed_at.desc(), FulfillmentObservation.id.desc())
+                        .limit(30)
+                    )
+                ).scalars()
+            )
+            payload["observations"] = [
+                {
+                    "id": item.id,
+                    "provider": item.provider,
+                    "state": item.state,
+                    "terminal": item.terminal,
+                    "stalled": item.stalled,
+                    "external_ref": item.external_ref,
+                    "details": _decrypt_json(item.details_encrypted),
+                    "observed_at": item.observed_at,
+                }
+                for item in observations
+            ]
     return payload
 
 
@@ -1336,6 +1818,16 @@ async def fulfillment_status(db: AsyncSession) -> dict[str, Any]:
             )
         ).scalar_one()
     )
+    tracking_waiting = int(
+        (
+            await db.execute(
+                select(func.count(FulfillmentRequest.id)).where(
+                    FulfillmentRequest.request_type == "logistics",
+                    FulfillmentRequest.status.in_(["waiting_provider", "verifying", "needs_user"]),
+                )
+            )
+        ).scalar_one()
+    )
     return {
         "status": "needs_user" if needs_user else "blocked" if blocked and open_count else "active",
         "total": total,
@@ -1343,6 +1835,7 @@ async def fulfillment_status(db: AsyncSession) -> dict[str, Any]:
         "needs_user": needs_user,
         "blocked": blocked,
         "enabled_providers": providers,
+        "tracking_waiting": tracking_waiting,
         "auto_purchase_enabled": (await get_runtime_value(db, "fulfillment_auto_purchase_enabled", "false")).lower() == "true",
         "auto_travel_enabled": (await get_runtime_value(db, "fulfillment_auto_travel_enabled", "false")).lower() == "true",
         "tracking_enabled": (await get_runtime_value(db, "fulfillment_tracking_enabled", "true")).lower() == "true",

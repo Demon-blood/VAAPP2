@@ -92,6 +92,22 @@ class FulfillmentAction(Base):
     )
 
 
+class FulfillmentObservation(Base):
+    __tablename__ = "fulfillment_observations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("fulfillment_requests.id"), index=True)
+    action_id: Mapped[int | None] = mapped_column(ForeignKey("fulfillment_actions.id"), nullable=True, index=True)
+    observation_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    provider: Mapped[str] = mapped_column(String(80), default="")
+    state: Mapped[str] = mapped_column(String(40), default="unknown", index=True)
+    terminal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    stalled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    external_ref: Mapped[str] = mapped_column(String(500), default="")
+    details_encrypted: Mapped[str] = mapped_column(Text, default="")
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
 class FulfillmentEvidence(Base):
     __tablename__ = "fulfillment_evidence"
 
