@@ -7,11 +7,11 @@
   "verified_baseline_android_version": "1.0.0+42",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "local_candidate_version": "1.0.3",
-  "local_candidate_android_version": "1.0.3+45",
+  "local_candidate_version": "1.0.4",
+  "local_candidate_android_version": "1.0.4+46",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.3 Logistics Tracking Ownership",
-  "phase_status": "implemented locally from verified v1.0.2 baseline; awaiting GitHub upload and full CI",
+  "current_phase_name": "v1.0.4 Execution Readiness & Setup Assistant",
+  "phase_status": "implemented locally from verified v1.0.3 baseline; awaiting GitHub upload and full CI",
   "next_phase": "v1.x maintenance and real-world hardening",
   "database_strategy": "additive_tables_only",
   "v102_features": [
@@ -25,10 +25,10 @@
     "require source-backed shipping/delivery/pickup/tracking evidence before OrderRecord rows can create logistics ownership, suppressing Google payment/app-store receipt false positives",
     "allow false-positive order/logistics rows to be marked Not an order without deleting the original Gmail or financial receipt evidence"
   ],
-  "verified_maintenance_commit": "971762f25384faf6c337edcc4b61b64e366060cd",
-  "verified_maintenance_version": "1.0.2",
-  "verified_maintenance_android_version": "1.0.2+44",
-  "verified_maintenance_actions_run": 43,
+  "verified_maintenance_commit": "fedf9a47864f1337c0100c1ed6d9b36daffb4017",
+  "verified_maintenance_version": "1.0.3",
+  "verified_maintenance_android_version": "1.0.3+45",
+  "verified_maintenance_actions_run": 44,
   "verified_maintenance_actions_conclusion": "success",
   "v103_features": [
     "persist additive FulfillmentObservation rows for each real carrier check",
@@ -40,5 +40,15 @@
     "support observation-only Secure Browser text-state evidence without leaking raw matched text to plaintext evidence",
     "offer an editable bpost Track & Trace starter template based on a source-backed tracking URL and allowlisted track.bpost.cloud portal",
     "show latest carrier state, observation time, next check and stalled state in Android Fulfillment"
+  ],
+  "v104_features": [
+    "make Work Operations capability rows interactive with exact setup destination and capability-specific steps",
+    "add safe in-app Gmail watch activation through the existing authenticated /api/google/watch endpoint",
+    "require Google OAuth, Pub/Sub topic, Pub/Sub verification token and a non-expired Gmail watch bound to the configured topic before Gmail push is available",
+    "distinguish Gmail push READY from LIVE so an accepted watch is not confused with observed end-to-end Pub/Sub delivery",
+    "require at least one enabled fulfillment provider to be actually linked to an enabled browser portal or to a support phone with live telephony before fulfillment reports available",
+    "open Services, Communications, Calls, Fulfillment or Work Portals directly from capability setup guidance",
+    "construct the Pub/Sub callback guidance from the paired backend URL without returning or exposing stored secrets",
+    "preserve executor-readiness versus provider-outcome evidence separation throughout the setup UI"
   ]
 }

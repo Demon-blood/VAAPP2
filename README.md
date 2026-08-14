@@ -1,10 +1,24 @@
-# Full-Time VA v1.0.3 — Logistics Tracking Ownership
+# Full-Time VA v1.0.4 — Execution Readiness & Setup Assistant
 
-Full-Time VA v1.0.3 is the third maintenance release on the cumulative Phase 1–10 production baseline. It combines the autonomous core with provider-verified communications, calendar ownership, relationship memory, secure browser operations, document/form/deadline ownership, conservative financial allocation, real PSTN telephony, and fulfillment ownership for purchasing/travel/logistics/customer service.
+Full-Time VA v1.0.4 is the fourth maintenance release on the cumulative Phase 1–10 production baseline. It keeps the existing autonomous executors and adds capability-specific readiness checks plus in-app setup guidance so an OFFLINE badge explains exactly what is missing instead of forcing the user to reverse-engineer configuration.
 
-The v1.0.3 patch does not add a simulated executor. It turns carrier tracking into a durable observation/recheck lifecycle so an in-transit page is not mistaken for fulfillment completion, and it adds conservative provider starter templates such as bpost Track & Trace. The v1.0 evidence contract remains unchanged.
+The v1.0.4 patch does not add a simulated executor. It makes capability reporting stricter: Gmail push requires an active Gmail watch for the configured Pub/Sub topic and verification token, and fulfillment only reports available when an enabled provider is actually linked to an enabled browser portal or to a support phone with live telephony. The v1.0 evidence contract remains unchanged.
 
-**Completion rule:** external work is complete only when the relevant domain ledger contains independent provider/source evidence for the requested postcondition. A local button press, dispatched browser action, initiated payment, placed call, or configured provider is not completion evidence.
+**Completion rule:** external work is complete only when the relevant domain ledger contains independent provider/source evidence for the requested postcondition. A local button press, dispatched browser action, initiated payment, placed call, configured provider, or READY capability is not completion evidence.
+
+
+## v1.0.4 execution readiness and setup assistant
+
+- Work → Operations capability rows are now interactive. Tapping a capability opens its current executor state, exact setup location, and capability-specific configuration steps.
+- The setup sheet can open Services, Communications, Calls, Fulfillment, or the Work → Portals tab directly for the relevant executor.
+- Gmail push has a safe **Activate watch** action that calls the existing authenticated `/api/google/watch` endpoint, refreshes the capability matrix, and reports the provider watch expiration.
+- Gmail push no longer becomes available merely because a topic string exists. It requires Google OAuth, a Pub/Sub topic, a verification token, and a non-expired Gmail watch bound to that topic.
+- Gmail push distinguishes `READY` from `LIVE`: an accepted Gmail watch is ready to receive events, while real Pub/Sub delivery is separately marked verified only after VAAPP has actually observed a notification.
+- Fulfillment availability no longer combines unrelated providers and portals. At least one enabled provider must be linked to an enabled browser portal, or have a configured support phone while real telephony is live.
+- Setup metadata never includes secret values. The Pub/Sub callback shown in guidance is constructed on-device from the paired backend URL and tells the user to reuse the private verification token already stored in Services.
+- Capability setup guidance preserves the product evidence rule: executor configuration/readiness is never treated as proof that an external objective completed.
+
+See `docs/V1.0.4_EXECUTION_READINESS_SETUP_ASSISTANT.md` for the maintenance contract and readiness semantics.
 
 
 ## v1.0.3 logistics tracking ownership
@@ -57,9 +71,9 @@ See `docs/V1.0.2_MAINTENANCE_RELIABILITY.md` for the maintenance contract and ve
 
 ## Release identity
 
-Backend `1.0.3` · Android `1.0.3+45` · APK `Full-Time-VA-Android-v1.0.3.apk`.
+Backend `1.0.4` · Android `1.0.4+46` · APK `Full-Time-VA-Android-v1.0.4.apk`.
 
-Verified maintenance baseline: commit `971762f25384faf6c337edcc4b61b64e366060cd` (`v1.0.2 — Maintenance Reliability`), GitHub Actions run #43 successful.
+Verified maintenance baseline: commit `fedf9a47864f1337c0100c1ed6d9b36daffb4017` (`v1.0.3 — Logistics Tracking Ownership`), GitHub Actions run #44 successful.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 

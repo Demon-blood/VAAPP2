@@ -3,6 +3,10 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../theme/va_theme.dart';
+import 'communications_page.dart';
+import 'fulfillment_page.dart';
+import 'services_page.dart';
+import 'telephony_page.dart';
 
 class VaOperationsPage extends StatelessWidget {
   const VaOperationsPage({super.key});
@@ -70,7 +74,7 @@ class VaOperationsPage extends StatelessWidget {
           const SizedBox(height: 20),
           const _SectionHeader(
             title: 'Execution capabilities',
-            subtitle: 'Only real executors and live connections are shown as available.',
+            subtitle: 'Real executors only. READY means configured but not yet proven by end-to-end provider delivery.',
           ),
           const SizedBox(height: 8),
           Card(
@@ -79,7 +83,10 @@ class VaOperationsPage extends StatelessWidget {
               child: Column(
                 children: [
                   for (final raw in capabilities) ...[
-                    _CapabilityRow(row: Map<String, dynamic>.from(raw)),
+                    _CapabilityRow(
+                      row: Map<String, dynamic>.from(raw),
+                      onTap: () => _showCapabilitySetup(context, Map<String, dynamic>.from(raw)),
+                    ),
                     if (raw != capabilities.last) const Divider(height: 18),
                   ],
                   if (capabilities.isEmpty)
@@ -134,6 +141,228 @@ class VaOperationsPage extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
       }
+    }
+  }
+
+  Future<void> _showCapabilitySetup(BuildContext context, Map<String, dynamic> row) async {
+    final setup = row['setup'] is Map
+        ? Map<String, dynamic>.from(row['setup'] as Map)
+        : <String, dynamic>{};
+    final backend = ((await context.read<AppState>().api.serverUrl) ?? '').replaceAll(RegExp(r'/+$'), '');
+    if (!context.mounted) return;
+
+    final steps = (setup['steps'] as List? ?? const [])
+        .map((step) => '$step'.replaceAll('{{backend}}', backend.isEmpty ? '<your VA backend>' : backend))
+        .where((step) => step.trim().isNotEmpty)
+        .toList();
+    final action = '${setup['action'] ?? ''}'.trim();
+    final destination = '${setup['destination'] ?? ''}'.trim();
+    final available = row['available'] == true;
+    final readiness = '${row['readiness'] ?? (available ? 'live' : 'offline')}';
+    final readyOnly = readiness.toLowerCase() == 'ready';
+    final verified = row['verified'];
+    final detail = '${row['detail'] ?? ''}'.trim();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            18,
+            20,
+            20 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      readyOnly
+                          ? Icons.pending_outlined
+                          : available
+                              ? Icons.check_circle_rounded
+                              : Icons.build_circle_outlined,
+                      color: readyOnly
+                          ? VaTheme.cyan
+                          : available
+                              ? VaTheme.success
+                              : VaTheme.warning,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${row['title'] ?? row['key'] ?? 'Capability'}',
+                        style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    _CapabilityStateBadge(readiness: readiness, verified: verified == true),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  detail.isEmpty ? '${row['executor'] ?? ''}' : detail,
+                  style: const TextStyle(color: VaTheme.textMuted),
+                ),
+                if (available && '${row['executor'] ?? ''}'.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Executor: ${row['executor']}',
+                    style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+                  ),
+                ],
+                if (destination.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  const Text('Setup location', style: TextStyle(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 4),
+                  Text(destination),
+                ],
+                if (steps.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  const Text('What to configure', style: TextStyle(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  for (var index = 0; index < steps.length; index++) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          child: Text(
+                            '${index + 1}.',
+                            style: const TextStyle(fontWeight: FontWeight.w900, color: VaTheme.primaryBright),
+                          ),
+                        ),
+                        Expanded(child: Text(steps[index])),
+                      ],
+                    ),
+                    if (index != steps.length - 1) const SizedBox(height: 8),
+                  ],
+                ],
+                if (action.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  if (action == 'gmail_push')
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              _openCapabilitySetup(context, 'services');
+                            },
+                            icon: const Icon(Icons.settings_outlined),
+                            label: const Text('Open Services'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              _activateGmailWatch(context);
+                            },
+                            icon: const Icon(Icons.sync_rounded),
+                            label: const Text('Activate watch'),
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _openCapabilitySetup(context, action);
+                        },
+                        icon: const Icon(Icons.open_in_new_rounded),
+                        label: const Text('Open setup'),
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 10),
+                const Text(
+                  'A configured executor is not completion evidence. VAAPP still requires the provider/source postcondition before an objective is marked complete.',
+                  style: TextStyle(color: VaTheme.textMuted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _activateGmailWatch(BuildContext context) async {
+    try {
+      final result = await context.read<AppState>().activateGmailWatch();
+      if (!context.mounted) return;
+      final expiration = (result['expiration'] as num?)?.toInt();
+      final expiresAt = expiration == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(expiration).toLocal();
+      final suffix = expiresAt == null
+          ? ''
+          : ' until ${expiresAt.day.toString().padLeft(2, '0')}/${expiresAt.month.toString().padLeft(2, '0')} '
+              '${expiresAt.hour.toString().padLeft(2, '0')}:${expiresAt.minute.toString().padLeft(2, '0')}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Gmail watch accepted$suffix. The capability becomes delivery-verified after a real Pub/Sub notification reaches VAAPP.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not activate Gmail watch: $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openCapabilitySetup(BuildContext context, String action) async {
+    if (!context.mounted) return;
+    switch (action) {
+      case 'services':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => Scaffold(
+              appBar: AppBar(title: const Text('Services')),
+              body: const ServicesPage(),
+            ),
+          ),
+        );
+        break;
+      case 'browser_portals':
+        DefaultTabController.of(context).animateTo(3);
+        break;
+      case 'fulfillment':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const FulfillmentPage()),
+        );
+        break;
+      case 'telephony':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => Scaffold(
+              appBar: AppBar(title: const Text('Calls')),
+              body: const TelephonyPage(),
+            ),
+          ),
+        );
+        break;
+      case 'communications':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const CommunicationsPage()),
+        );
+        break;
+    }
+    if (context.mounted) {
+      await context.read<AppState>().refreshAll(showBusy: false);
     }
   }
 }
@@ -247,44 +476,87 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _CapabilityRow extends StatelessWidget {
-  const _CapabilityRow({required this.row});
+  const _CapabilityRow({required this.row, required this.onTap});
   final Map<String, dynamic> row;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final available = row['available'] == true;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          available ? Icons.check_circle_rounded : Icons.link_off_rounded,
-          color: available ? VaTheme.success : VaTheme.warning,
-          size: 20,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${row['title'] ?? row['key'] ?? 'Capability'}', style: const TextStyle(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 2),
-              Text(
-                available ? '${row['executor'] ?? ''}' : '${row['detail'] ?? 'Connection unavailable'}',
-                style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+    final readiness = '${row['readiness'] ?? (available ? 'live' : 'offline')}';
+    final verified = row['verified'] == true;
+    final readyOnly = readiness.toLowerCase() == 'ready';
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              readyOnly
+                  ? Icons.pending_outlined
+                  : available
+                      ? Icons.check_circle_rounded
+                      : Icons.link_off_rounded,
+              color: readyOnly
+                  ? VaTheme.cyan
+                  : available
+                      ? VaTheme.success
+                      : VaTheme.warning,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${row['title'] ?? row['key'] ?? 'Capability'}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${row['detail'] ?? (available ? row['executor'] ?? '' : 'Connection unavailable')}',
+                    style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 8),
+            _CapabilityStateBadge(readiness: readiness, verified: verified),
+            const SizedBox(width: 2),
+            const Icon(Icons.chevron_right_rounded, size: 17, color: VaTheme.textMuted),
+          ],
         ),
-        const SizedBox(width: 8),
-        Text(
-          available ? 'LIVE' : 'OFFLINE',
-          style: TextStyle(
-            color: available ? VaTheme.success : VaTheme.warning,
-            fontWeight: FontWeight.w900,
-            fontSize: 10,
-          ),
-        ),
-      ],
+      ),
+    );
+  }
+}
+
+class _CapabilityStateBadge extends StatelessWidget {
+  const _CapabilityStateBadge({required this.readiness, required this.verified});
+
+  final String readiness;
+  final bool verified;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = readiness.toLowerCase();
+    final label = normalized == 'ready' ? 'READY' : normalized == 'live' ? 'LIVE' : 'OFFLINE';
+    final color = normalized == 'live'
+        ? VaTheme.success
+        : normalized == 'ready'
+            ? VaTheme.cyan
+            : VaTheme.warning;
+    return Tooltip(
+      message: verified
+          ? 'Real provider delivery has been observed.'
+          : normalized == 'ready'
+              ? 'Executor is configured, but end-to-end delivery has not yet been observed.'
+              : label,
+      child: Text(
+        label,
+        style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 10),
+      ),
     );
   }
 }

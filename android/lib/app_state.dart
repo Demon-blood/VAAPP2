@@ -442,6 +442,17 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>> activateGmailWatch() async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/google/watch') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
   Future<void> refreshCommunications({bool syncDeviceHistory = false}) async {
     if (syncDeviceHistory) {
       busy = true;

@@ -7,11 +7,11 @@ def _root() -> Path:
 
 def test_v090_release_identity_and_core_routes() -> None:
     root = _root()
-    assert 'APP_VERSION = "1.0.3"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version = "1.0.3"' in (root / "backend/pyproject.toml").read_text()
-    assert 'version: 1.0.3+45' in (root / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.4"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version = "1.0.4"' in (root / "backend/pyproject.toml").read_text()
+    assert 'version: 1.0.4+46' in (root / "android/pubspec.yaml").read_text()
     workflow = (root / ".github/workflows/android-release.yml").read_text()
-    assert "Full-Time-VA-Android-v1.0.3.apk" in workflow
+    assert "Full-Time-VA-Android-v1.0.4.apk" in workflow
     routes = (root / "backend/app/api/routes.py").read_text()
     for route in (
         '"/api/va/overview"',
@@ -91,7 +91,7 @@ def test_v090_android_has_professional_operator_view() -> None:
     assert "Full-Time VA operator" in page
     assert "rate == null ? '—'" in page
     assert "Needs You" in page
-    assert "Only real executors and live connections are shown as available." in page
+    assert "Real executors only. READY means configured but not yet proven by end-to-end provider delivery." in page
     assert "VA-owned work" in page
     assert "runAutonomousCoreNow" in state
     assert "recheckVaObjective" in state

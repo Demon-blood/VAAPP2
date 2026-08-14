@@ -7,7 +7,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import get_settings
-from app.models.entities import BankAccount, BankConnection, BrowserPortal, Device, OAuthConnection, ServiceConnector
+from app.models.entities import (
+    BankAccount,
+    BankConnection,
+    BrowserPortal,
+    Device,
+    GmailMailboxState,
+    OAuthConnection,
+    ServiceConnector,
+)
 from app.models.fulfillment_entities import FulfillmentProvider
 from app.services.runtime_config import get_runtime_value
 
@@ -20,15 +28,30 @@ def _cap(
     *,
     resolution: str = "automatic",
     detail: str = "",
+    readiness: str | None = None,
+    verified: bool | None = None,
+    setup_action: str = "",
+    setup_destination: str = "",
+    setup_steps: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    return {
+    row: dict[str, Any] = {
         "key": key,
         "title": title,
         "available": bool(available),
         "executor": executor,
         "resolution": resolution,
         "detail": detail,
+        "readiness": readiness or ("live" if available else "offline"),
     }
+    if verified is not None:
+        row["verified"] = bool(verified)
+    if setup_action or setup_destination or setup_steps:
+        row["setup"] = {
+            "action": setup_action,
+            "destination": setup_destination,
+            "steps": list(setup_steps),
+        }
+    return row
 
 
 async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
@@ -65,6 +88,28 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
     )
     ai = bool(await get_runtime_value(db, "ai_api_key", "") and await get_runtime_value(db, "ai_model", ""))
     gmail_topic = (await get_runtime_value(db, "google_pubsub_topic", "")).strip()
+    gmail_verification_token = (await get_runtime_value(db, "google_pubsub_verification_token", "")).strip()
+    gmail_state = (
+        await db.execute(
+            select(GmailMailboxState)
+            .order_by(GmailMailboxState.updated_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    now = datetime.utcnow()
+    gmail_watch_active = bool(
+        gmail_state
+        and gmail_state.watch_expiration_at is not None
+        and gmail_state.watch_expiration_at > now + timedelta(minutes=5)
+        and gmail_state.watch_topic == gmail_topic
+    )
+    gmail_push_observed = bool(gmail_state and gmail_state.last_push_at is not None)
+    gmail_push_available = bool(
+        google
+        and gmail_topic
+        and gmail_verification_token
+        and gmail_watch_active
+    )
     generic_connector = bool(
         (
             await db.execute(
@@ -75,13 +120,14 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             )
         ).scalar_one()
     )
-    browser_portal = bool(
+    enabled_portal_ids = set(
         (
             await db.execute(
-                select(func.count(BrowserPortal.id)).where(BrowserPortal.enabled.is_(True))
+                select(BrowserPortal.id).where(BrowserPortal.enabled.is_(True))
             )
-        ).scalar_one()
+        ).scalars()
     )
+    browser_portal = bool(enabled_portal_ids)
     recent_device_cutoff = datetime.utcnow() - timedelta(hours=24)
     device = bool(
         (
@@ -100,19 +146,58 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
         await get_runtime_value(db, "enable_banking_application_id", "")
         and (runtime_bank_key or settings.enable_banking_key_exists)
     )
-    fulfillment_provider = bool(
+    fulfillment_providers = list(
         (
             await db.execute(
-                select(func.count(FulfillmentProvider.id)).where(FulfillmentProvider.enabled.is_(True))
+                select(FulfillmentProvider).where(FulfillmentProvider.enabled.is_(True))
             )
-        ).scalar_one()
+        ).scalars()
     )
+    fulfillment_provider = bool(fulfillment_providers)
     telephony_enabled = (await get_runtime_value(db, "telephony_enabled", "true")).lower() == "true"
     twilio_configured = bool(
         await get_runtime_value(db, "twilio_account_sid", "")
         and await get_runtime_value(db, "twilio_auth_token", "")
         and await get_runtime_value(db, "twilio_from_number", "")
     )
+    telephony_live = bool(telephony_enabled and twilio_configured and ai)
+    fulfillment_browser_executor = any(
+        provider.browser_portal_id in enabled_portal_ids
+        for provider in fulfillment_providers
+        if provider.browser_portal_id is not None
+    )
+    fulfillment_phone_executor = bool(
+        telephony_live
+        and any(bool(provider.support_phone_encrypted) for provider in fulfillment_providers)
+    )
+    fulfillment_executor_ready = bool(
+        fulfillment_provider and (fulfillment_browser_executor or fulfillment_phone_executor)
+    )
+
+    if not google:
+        gmail_push_detail = "Connect Google OAuth before Gmail push notifications can run"
+    elif not gmail_topic:
+        gmail_push_detail = "Configure the full Google Pub/Sub topic name in Services"
+    elif not gmail_verification_token:
+        gmail_push_detail = "Configure a Pub/Sub verification token in Services"
+    elif not gmail_watch_active:
+        gmail_push_detail = "The Gmail watch is not active for the configured topic; activate/renew it"
+    elif not gmail_push_observed:
+        gmail_push_detail = "Gmail accepted the watch; no Pub/Sub delivery has been observed yet"
+    else:
+        gmail_push_detail = "Gmail watch is active and Pub/Sub delivery has been observed"
+
+    if not fulfillment_provider:
+        fulfillment_detail = "Configure at least one enabled fulfillment provider"
+    elif not fulfillment_executor_ready:
+        fulfillment_detail = (
+            "Enabled providers exist, but none is linked to an enabled browser portal "
+            "or to a support phone with live telephony"
+        )
+    else:
+        fulfillment_detail = (
+            "At least one enabled provider has a real linked browser or telephone executor"
+        )
 
     rows = [
         _cap("workflow_engine", "Durable workflow execution", True, "VAAPP workflow engine"),
@@ -123,14 +208,38 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Google Gmail API",
             resolution="user_connect" if not google else "automatic",
             detail="Google OAuth connection required" if not google else "Connected Google account",
+            setup_action="services",
+            setup_destination="Services → Google Gmail, Calendar, Drive and Contacts",
+            setup_steps=(
+                "Configure the Google OAuth Web client in Services.",
+                "Authorize the Google account used by the VA.",
+                "Use Test in Services to confirm the Google APIs are reachable.",
+            ),
         ),
         _cap(
             "gmail_push",
             "Real-time Gmail change notifications",
-            google and bool(gmail_topic),
+            gmail_push_available,
             "Gmail watch + Google Cloud Pub/Sub",
-            resolution="user_connect" if not (google and gmail_topic) else "automatic",
-            detail="Google OAuth and a configured Pub/Sub topic are required" if not (google and gmail_topic) else "Durable history-sync notifications enabled",
+            resolution="user_connect" if not gmail_push_available else "automatic",
+            detail=gmail_push_detail,
+            readiness=(
+                "live"
+                if gmail_push_available and gmail_push_observed
+                else "ready"
+                if gmail_push_available
+                else "offline"
+            ),
+            verified=gmail_push_observed,
+            setup_action="gmail_push",
+            setup_destination="Services → Google + Google Cloud Pub/Sub",
+            setup_steps=(
+                "Connect Google OAuth in Services.",
+                "Create a Pub/Sub topic and grant gmail-api-push@system.gserviceaccount.com the Pub/Sub Publisher role on that topic.",
+                "Enter the full projects/.../topics/... topic name and a private verification token in Services.",
+                "Create a Google Cloud push subscription to {{backend}}/api/google/pubsub?token=<the same verification token>.",
+                "Tap Activate Gmail watch below; VAAPP only reports LIVE after the watch is active, and marks delivery verified after a real Pub/Sub notification is observed.",
+            ),
         ),
         _cap(
             "calendar",
@@ -139,6 +248,12 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Google Calendar API",
             resolution="user_connect" if not google else "automatic",
             detail="Google OAuth connection required" if not google else "Connected Google account",
+            setup_action="services",
+            setup_destination="Services → Google Gmail, Calendar, Drive and Contacts",
+            setup_steps=(
+                "Connect the Google OAuth account in Services.",
+                "Use the Google service Test action to verify Calendar access.",
+            ),
         ),
         _cap(
             "contacts",
@@ -147,6 +262,9 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Google People API",
             resolution="user_connect" if not google else "automatic",
             detail="Google OAuth connection required" if not google else "Connected Google account",
+            setup_action="services",
+            setup_destination="Services → Google Gmail, Calendar, Drive and Contacts",
+            setup_steps=("Connect Google OAuth in Services; People API access is checked through the same connection.",),
         ),
         _cap(
             "documents",
@@ -155,6 +273,9 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Google Drive API",
             resolution="user_connect" if not google else "automatic",
             detail="Google OAuth connection required" if not google else "Connected Google account",
+            setup_action="services",
+            setup_destination="Services → Google Gmail, Calendar, Drive and Contacts",
+            setup_steps=("Connect Google OAuth in Services; Drive access is checked through the same connection.",),
         ),
         _cap(
             "banking_read",
@@ -162,7 +283,18 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             bank_connected and enable_banking_configured,
             "Enable Banking",
             resolution="user_connect" if not (bank_connected and enable_banking_configured) else "automatic",
-            detail="Active bank consent and Enable Banking application credentials required",
+            detail=(
+                "Active bank consent and Enable Banking application credentials required"
+                if not (bank_connected and enable_banking_configured)
+                else "Enable Banking consent and account synchronization are available"
+            ),
+            setup_action="services",
+            setup_destination="Services → Enable Banking, then Money → Accounts",
+            setup_steps=(
+                "Configure the Enable Banking application ID and private key in Services.",
+                "Connect the required bank consent.",
+                "Verify the synchronized account in Money → Accounts.",
+            ),
         ),
         _cap(
             "banking_payments",
@@ -170,7 +302,18 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             bank_connected and payment_account and enable_banking_configured,
             "Enable Banking PIS",
             resolution="user_connect" if not (bank_connected and payment_account and enable_banking_configured) else "automatic",
-            detail="A payment-enabled account and live bank consent are required",
+            detail=(
+                "A payment-enabled account and live bank consent are required"
+                if not (bank_connected and payment_account and enable_banking_configured)
+                else "At least one synchronized account is explicitly payment-enabled"
+            ),
+            setup_action="services",
+            setup_destination="Services → Enable Banking, then Money → Accounts",
+            setup_steps=(
+                "Connect Enable Banking and a live bank consent.",
+                "Open Money → Accounts and explicitly enable approved automatic payments on the source account.",
+                "Keep the account safety reserve configured; payment policy remains enforced.",
+            ),
         ),
         _cap(
             "financial_forecasting",
@@ -191,6 +334,12 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Configured OpenAI-compatible provider",
             resolution="user_connect" if not ai else "automatic",
             detail="AI credentials/model required" if not ai else "Configured",
+            setup_action="services",
+            setup_destination="Services → AI decision engine",
+            setup_steps=(
+                "Configure the provider base URL, model and API credential in Services.",
+                "Use Test to verify the selected model before unattended execution.",
+            ),
         ),
         _cap(
             "service_connectors",
@@ -198,7 +347,17 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             generic_connector,
             "VAAPP service connector runtime",
             resolution="user_connect" if not generic_connector else "automatic",
-            detail="At least one live/configured service connector required",
+            detail=(
+                "At least one live/configured service connector required"
+                if not generic_connector
+                else "At least one service connector is configured"
+            ),
+            setup_action="services",
+            setup_destination="Services → Service catalog / Universal connectors",
+            setup_steps=(
+                "Choose a built-in service integration or add a universal connector.",
+                "Configure the provider credential and run its Test action.",
+            ),
         ),
         _cap(
             "browser_portal",
@@ -206,7 +365,18 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             browser_portal,
             "Playwright Chromium portal operator",
             resolution="user_connect" if not browser_portal else "automatic",
-            detail="Configure at least one allowlisted browser portal" if not browser_portal else "Encrypted portal/session executor configured",
+            detail=(
+                "Configure at least one allowlisted browser portal"
+                if not browser_portal
+                else "At least one enabled HTTPS portal is allowlisted for the real Chromium executor"
+            ),
+            setup_action="browser_portals",
+            setup_destination="Work → Portals",
+            setup_steps=(
+                "Add the real HTTPS portal the VA is allowed to operate.",
+                "Keep the allowlist limited to the provider and legitimate authentication hosts.",
+                "Add encrypted credentials only when that provider actually requires login; OTP/MFA remains one-time.",
+            ),
         ),
         _cap(
             "document_form_automation",
@@ -223,31 +393,35 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
         _cap(
             "fulfillment_automation",
             "Purchasing, travel, logistics and customer-service ownership",
-            fulfillment_provider and (browser_portal or (telephony_enabled and twilio_configured and ai)),
+            fulfillment_executor_ready,
             "VAAPP fulfillment ledger + secure browser/telephony executors",
-            resolution=(
-                "user_connect"
-                if fulfillment_provider and not (browser_portal or (telephony_enabled and twilio_configured and ai))
-                else "automatic" if fulfillment_provider else "user_connect"
-            ),
-            detail=(
-                "Configure at least one fulfillment provider and its allowlisted browser portal or verified support phone executor"
-                if not fulfillment_provider
-                else "A fulfillment provider exists but no real browser/telephony executor is currently available"
-                if not (browser_portal or (telephony_enabled and twilio_configured and ai))
-                else "Orders/support are durably owned; configured providers execute with explicit postconditions and standing-limit payment policy"
+            resolution="automatic" if fulfillment_executor_ready else "user_connect",
+            detail=fulfillment_detail,
+            setup_action="fulfillment",
+            setup_destination="Fulfillment → Configured providers",
+            setup_steps=(
+                "Create or edit an enabled fulfillment provider.",
+                "Link that provider to an enabled Secure Browser portal, or configure its support phone while autonomous telephony is LIVE.",
+                "For logistics, use a tracking recipe/template that observes carrier state; a page visit alone is never completion evidence.",
             ),
         ),
         _cap(
             "telephony_call",
             "Autonomous PSTN telephone calls",
-            telephony_enabled and twilio_configured and ai,
+            telephony_live,
             "Twilio Programmable Voice + VAAPP voice decision engine",
-            resolution="user_connect" if not (telephony_enabled and twilio_configured and ai) else "automatic",
+            resolution="user_connect" if not telephony_live else "automatic",
             detail=(
                 "Twilio Account SID/Auth Token/caller number and the AI decision engine are required"
-                if not (telephony_enabled and twilio_configured and ai)
+                if not telephony_live
                 else "Signed voice/status webhooks, encrypted transcripts, bounded retries, and counterparty verification are active"
+            ),
+            setup_action="telephony",
+            setup_destination="Calls / Services → Telephony",
+            setup_steps=(
+                "Configure Twilio Account SID, Auth Token and caller number.",
+                "Keep the AI decision engine configured.",
+                "Use the Calls workspace for real outbound objectives; material commitments remain policy-bound.",
             ),
         ),
         _cap(
@@ -257,6 +431,13 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Android SmsManager",
             resolution="user_connect" if not device else "automatic",
             detail="A recently paired Android device is required; SEND_SMS permission is enforced on-device at execution time",
+            setup_action="communications",
+            setup_destination="Services → Communications Autopilot",
+            setup_steps=(
+                "Keep this Android device paired with the backend.",
+                "Grant SMS read/send/receive permissions and the default SMS role where required.",
+                "Run phone history/policy sync and resolve any backend error shown by the app.",
+            ),
         ),
         _cap(
             "notification_reply",
@@ -265,6 +446,12 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Android RemoteInput",
             resolution="user_connect" if not device else "automatic",
             detail="Replies require a live notification that exposes a RemoteInput action; this does not claim arbitrary message initiation",
+            setup_action="communications",
+            setup_destination="Services → Communications Autopilot",
+            setup_steps=(
+                "Grant notification access to VAAPP.",
+                "Messaging-app history is not imported; only new notifications with a RemoteInput reply action can be answered automatically.",
+            ),
         ),
         _cap(
             "android_device",
@@ -273,6 +460,12 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             "Paired Android device",
             resolution="user_connect" if not device else "automatic",
             detail="A paired device must have checked in during the last 24 hours",
+            setup_action="communications",
+            setup_destination="Services → Communications Autopilot",
+            setup_steps=(
+                "Keep the Android app paired with the current backend.",
+                "Refresh or run a phone sync so the device check-in remains current.",
+            ),
         ),
     ]
     return {

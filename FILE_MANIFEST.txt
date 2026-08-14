@@ -196,6 +196,7 @@
 ./backend/tests/test_v102_fulfillment_configuration_order_hygiene.py
 ./backend/tests/test_v102_phone_sync_postgres_hotfix.py
 ./backend/tests/test_v103_logistics_tracking_contract.py
+./backend/tests/test_v104_execution_readiness_contract.py
 ./backend/tests/test_version_and_routes.py
 ./backend/tests/test_workflow_engine.py
 ./build_android.ps1
@@ -239,6 +240,7 @@
 ./docs/V1.0.1_COMMUNICATIONS_RELIABILITY.md
 ./docs/V1.0.2_MAINTENANCE_RELIABILITY.md
 ./docs/V1.0.3_LOGISTICS_TRACKING_OWNERSHIP.md
+./docs/V1.0.4_EXECUTION_READINESS_SETUP_ASSISTANT.md
 ./generate_enable_banking_keys.ps1
 ./render.yaml
 ./start_backend.ps1

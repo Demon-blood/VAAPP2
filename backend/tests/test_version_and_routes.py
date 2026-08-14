@@ -7,7 +7,7 @@ from app.core.version import APP_VERSION
 
 
 def test_backend_version_matches_release() -> None:
-    assert APP_VERSION == "1.0.3"
+    assert APP_VERSION == "1.0.4"
 
 
 def test_required_system_and_connector_routes_exist() -> None:
