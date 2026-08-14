@@ -12,14 +12,14 @@ Verified baseline release: backend `1.0.0` / Android `1.0.0+42`.
 
 ## Current local candidate
 
-Backend `1.0.1` / Android `1.0.1+43`.
+Backend `1.0.2` / Android `1.0.2+44`.
 
-Current maintenance release: **v1.0.1 — Communications Reliability**.  
-Status: **implemented locally from the verified v1.0 baseline; awaiting upload and full GitHub CI**.
+Current maintenance release: **v1.0.2 — Maintenance Reliability**.  
+Status: **implemented locally from the verified v1.0.1 baseline; awaiting upload and full GitHub CI**.
 
-The patch makes Android inbound communications durable before network dispatch, makes phone history/policy synchronization observable, bounds history uploads, and adds RCS/message-notification capture without weakening the evidence or authorization model.
+The patch normalizes Android UTC timestamps at the PostgreSQL persistence boundary, isolates failed batch records, and prevents Android from clearing encrypted queued events after a partial backend failure. It also makes configured fulfillment providers and browser portals editable from Android and adds source-backed order hygiene so payment receipts do not become parcel-tracking objectives. The v1.0.1 durable inbound outbox and communication diagnostics remain intact.
 
-Next work after the v1.0.1 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.2 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 
@@ -61,13 +61,17 @@ Android exposes **Product Status** from the main app bar. It reports release com
 
 No Phase-10 feature relaxes the core evidence rule. Provider/browser/call/payment intent can be `initiated`, `dispatching`, `creation_uncertain`, `needs_user`, `blocked_capability`, or `blocked_system`; terminal completion still requires the relevant domain's independent provider/source postcondition.
 
-## v1.0.1 communications reliability
+## v1.0.2 maintenance reliability
 
 - Native SMS events are encrypted to a local outbox before backend dispatch. Temporary Render/network failure is retried by WorkManager; a failed HTTP call is no longer silent.
 - `Sync SMS/call history & policies now` returns visible counts and errors instead of discarding the native result.
 - RECEIVE_SMS is part of the displayed permission health. Native backend-link errors and locally queued inbound-event counts are visible in Communications Autopilot.
 - History imports are sent in bounded chunks and do not consume one AI decision call per historical record.
 - Google Messages/Samsung Messages notifications are accepted through the notification listener for RCS/message visibility where Android exposes a notification. Provider chat-history scraping is not claimed.
+- Configured fulfillment providers can be edited, enabled/disabled, relinked to a named Secure Browser portal, and have their provider recipe/support number updated without recreating the provider.
+- Secure Browser portals can be edited in place, including URLs, allowlisted hosts, scope and enabled state; leaving credentials blank preserves the encrypted credentials already stored.
+- `OrderRecord` is no longer sufficient evidence by itself for logistics ownership. Source-backed shipping/delivery/pickup/tracking evidence is required, with explicit handling for Google payment/app-store receipts and GPA-style payment identifiers.
+- Existing false-positive logistics objectives are deterministically dismissed during fulfillment reconciliation/read, and the Android Orders/Fulfillment screens expose **Not an order** for manual correction without deleting the original receipt/email evidence.
 
 ## Finance constraints remain mandatory
 
@@ -84,12 +88,12 @@ No Phase-10 feature relaxes the core evidence rule. Provider/browser/call/paymen
 - Kraken auto funding/trading remains off until explicitly configured.
 - Kraken withdrawals remain disabled/not implemented.
 
-## v1.0.1 release gate
+## v1.0.2 release gate
 
-1. Overlay the v1.0.1 maintenance package at repository root.
+1. Overlay the v1.0.2 maintenance package at repository root.
 2. Commit the extracted files, not the ZIP.
-3. Push to `main` and allow the Render backend auto-deploy to reach 1.0.1.
-4. Confirm the full GitHub Actions workflow is green and install the signed Android 1.0.1 APK.
+3. Push to `main` and allow the Render backend auto-deploy to reach 1.0.2.
+4. Confirm the full GitHub Actions workflow is green and install the signed Android 1.0.2 APK.
 5. In Communications Autopilot, run the phone sync and verify the reported scan/accepted/error counts.
 
-Suggested commit message: `v1.0.1 — Communications Reliability`.
+Suggested commit message: `v1.0.2 — Maintenance Reliability`.

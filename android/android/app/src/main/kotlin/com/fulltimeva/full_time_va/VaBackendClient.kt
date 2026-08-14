@@ -114,6 +114,8 @@ object VaBackendClient {
         val size = chunkSize.coerceIn(1, 100)
         var processed = 0
         var duplicates = 0
+        var failed = 0
+        var failureDetail = ""
         var submitted = 0
         var chunks = 0
         var start = 0
@@ -132,15 +134,26 @@ object VaBackendClient {
             submitted += chunk.length()
             processed += response.optInt("processed", 0)
             duplicates += response.optInt("duplicates", 0)
+            val chunkFailed = response.optInt("failed", 0)
+            failed += chunkFailed
+            if (chunkFailed > 0 && failureDetail.isBlank()) {
+                val failures = response.optJSONArray("failures")
+                val first = failures?.optJSONObject(0)
+                failureDetail = first?.optString("error").orEmpty().ifBlank {
+                    "$chunkFailed communication record${if (chunkFailed == 1) "" else "s"} failed on the VA backend"
+                }
+            }
             chunks += 1
             start = end
         }
         return JSONObject()
-            .put("success", true)
+            .put("success", failed == 0)
             .put("submitted", submitted)
             .put("processed", processed)
             .put("duplicates", duplicates)
+            .put("failed", failed)
             .put("chunks", chunks)
+            .put("error", if (failed > 0) failureDetail else "")
     }
 
     fun flushPendingCommunicationEvents(context: Context): JSONObject {

@@ -318,6 +318,7 @@ async def upsert_portal(
     portal = (
         await db.execute(select(BrowserPortal).where(BrowserPortal.slug == slug).limit(1))
     ).scalar_one_or_none()
+    is_new = portal is None
     if portal is None:
         portal = BrowserPortal(slug=slug, name=name, base_url=base_url)
         db.add(portal)
@@ -325,7 +326,11 @@ async def upsert_portal(
     portal.base_url = base_url.strip()
     portal.login_url = login_url.strip()
     portal.allowed_hosts_json = _dump(normalized_hosts)
-    portal.login_recipe_json = _dump(login_recipe or {})
+    # The Android edit form intentionally does not expose low-level selector recipes.
+    # An empty edit payload therefore means "keep the current recipe", not "erase it".
+    # New portals still start with an empty recipe and can rely on safe auto-detection.
+    if is_new or login_recipe:
+        portal.login_recipe_json = _dump(login_recipe or {})
     portal.account_scope = account_scope
     portal.enabled = bool(enabled)
     await db.flush()

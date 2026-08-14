@@ -106,6 +106,11 @@ from app.schemas.api import (
     UserProfileFactRequest,
 )
 from app.services.audit import write_audit
+from app.services.fulfillment_service import (
+    dismiss_order_record,
+    order_is_fulfillment_candidate,
+    restore_order_record,
+)
 from app.services.autonomous_core import (
     get_objective as get_va_objective,
     list_objectives as list_va_objectives,
@@ -1073,11 +1078,33 @@ async def communication_batch_ingest(
 ) -> dict:
     processed = 0
     duplicates = 0
+    failed = 0
+    failures: list[dict[str, str]] = []
     for event in payload.events:
-        result = await ingest_communication(db, event)
+        try:
+            result = await ingest_communication(db, event)
+        except Exception as exc:
+            # One malformed/provider-specific record must not poison the whole
+            # history catch-up transaction. Roll back this event and continue so
+            # other real SMS/call evidence is still durably ingested.
+            await db.rollback()
+            failed += 1
+            if len(failures) < 20:
+                failures.append(
+                    {
+                        "external_id": event.external_id[:255],
+                        "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                    }
+                )
+            continue
         processed += 1
         duplicates += int(result.get("duplicate") is True)
-    return {"processed": processed, "duplicates": duplicates}
+    return {
+        "processed": processed,
+        "duplicates": duplicates,
+        "failed": failed,
+        "failures": failures,
+    }
 
 
 @router.get("/api/communications/events", response_model=list[CommunicationEventResponse])
@@ -2116,26 +2143,64 @@ async def browser_evidence_png_route(
 
 @router.get("/api/orders")
 async def list_orders(
-    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+    include_dismissed: bool = Query(default=False),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     rows = list(
         (await db.execute(select(OrderRecord).order_by(OrderRecord.id.desc()).limit(500))).scalars()
     )
-    return [
-        {
-            "id": row.id,
-            "merchant": row.merchant,
-            "order_number": row.order_number,
-            "status": row.status,
-            "total_amount": row.total_amount,
-            "currency": row.currency,
-            "expected_delivery_at": row.expected_delivery_at,
-            "tracking_url": row.tracking_url,
-            "account_scope": row.account_scope,
-            "updated_at": row.updated_at,
-        }
-        for row in rows
-    ]
+    result: list[dict] = []
+    for row in rows:
+        candidate, reason = await order_is_fulfillment_candidate(db, row)
+        if not include_dismissed and not candidate:
+            continue
+        result.append(
+            {
+                "id": row.id,
+                "merchant": row.merchant,
+                "order_number": row.order_number,
+                "status": row.status,
+                "total_amount": row.total_amount,
+                "currency": row.currency,
+                "expected_delivery_at": row.expected_delivery_at,
+                "tracking_url": row.tracking_url,
+                "account_scope": row.account_scope,
+                "fulfillment_candidate": candidate,
+                "classification_reason": reason,
+                "updated_at": row.updated_at,
+            }
+        )
+    return result
+
+
+@router.post("/api/orders/{order_id}/dismiss")
+async def dismiss_order_route(
+    order_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = await db.get(OrderRecord, order_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return await dismiss_order_record(
+        db,
+        row,
+        reason="User marked this record as a payment/receipt rather than a fulfillment order",
+        explicit=True,
+    )
+
+
+@router.post("/api/orders/{order_id}/restore")
+async def restore_order_route(
+    order_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = await db.get(OrderRecord, order_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return await restore_order_record(db, row)
 
 
 @router.get("/api/subscriptions")

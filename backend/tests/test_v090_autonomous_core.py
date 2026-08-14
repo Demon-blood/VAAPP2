@@ -324,8 +324,8 @@ def test_v090_release_and_routes_contract():
     routes = (root / "backend/app/api/routes.py").read_text()
     scheduler = (root / "backend/app/services/scheduler.py").read_text()
     workflow = (root / "backend/app/services/workflow_engine.py").read_text()
-    assert 'APP_VERSION = "1.0.1"' in version
-    assert "version: 1.0.1+43" in pubspec
+    assert 'APP_VERSION = "1.0.2"' in version
+    assert "version: 1.0.2+44" in pubspec
     for path in (
         "/api/va/overview",
         "/api/va/capabilities",

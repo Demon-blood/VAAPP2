@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import decrypt_text, encrypt_text
-from app.models.entities import BrowserOperation, BrowserPortal, OrderRecord, SupportCase, VAObjective
+from app.models.entities import BrowserOperation, BrowserPortal, EmailMessage, OrderRecord, SupportCase, VAObjective
 from app.models.fulfillment_entities import (
     FulfillmentAction,
     FulfillmentEvidence,
@@ -24,13 +24,30 @@ from app.services.runtime_config import get_runtime_value
 from app.services.telephony_service import create_outbound_call, reconcile_call
 
 
-TERMINAL_REQUEST_STATES = {"completed", "cancelled", "failed"}
+TERMINAL_REQUEST_STATES = {"completed", "cancelled", "dismissed", "failed"}
 ORDER_TERMINAL_STATES = {"delivered", "completed", "cancelled", "canceled", "returned", "refunded"}
 SUPPORT_TERMINAL_STATES = {"resolved", "closed"}
 _BROWSER_SUCCESS = {"verified"}
 _BROWSER_USER = {"needs_user", "needs_user_auth", "blocked_user", "awaiting_auth"}
 _BROWSER_FAILURE = {"failed", "cancelled", "dead_letter", "creation_uncertain"}
 _CALL_TERMINAL = {"completed", "failed", "busy", "no-answer", "no_answer", "cancelled", "canceled"}
+
+
+_FULFILLMENT_SOURCE_TERMS = (
+    "order confirmation", "order confirmed", "your order", "order #", "order no",
+    "shipping", "shipped", "shipment", "delivery", "delivered", "dispatch",
+    "parcel", "package", "tracking", "track & trace", "track and trace", "pickup",
+    "bestelling", "bestelbevestiging", "verzonden", "verzending", "levering",
+    "geleverd", "pakket", "track & trace", "afhaal",
+)
+_PAYMENT_ONLY_SOURCE_TERMS = (
+    "payment confirmation", "payment receipt", "payment to", "you paid", "charged",
+    "transaction", "receipt", "google play", "google payments", "purchase receipt",
+    "betalingsbevestiging", "betaling aan", "betaald", "transactie", "aankoopbewijs",
+)
+_GOOGLE_PAYMENT_SENDER_TERMS = (
+    "googlepayments", "payments-noreply", "googleplay", "google play", "google payments",
+)
 
 
 def utcnow() -> datetime:
@@ -162,6 +179,7 @@ async def _sync_va_state(db: AsyncSession, request: FulfillmentRequest) -> None:
         "blocked_system": "blocked_system",
         "failed": "failed",
         "cancelled": "cancelled",
+        "dismissed": "cancelled",
         "completed": "completed",
     }
     target = mapping.get(request.status, "planned")
@@ -236,9 +254,19 @@ async def upsert_provider(
 
 async def list_providers(db: AsyncSession) -> list[dict[str, Any]]:
     rows = list((await db.execute(select(FulfillmentProvider).order_by(FulfillmentProvider.name))).scalars())
+    portal_ids = {row.browser_portal_id for row in rows if row.browser_portal_id}
+    portals = {
+        portal.id: portal
+        for portal in (
+            await db.execute(select(BrowserPortal).where(BrowserPortal.id.in_(portal_ids)))
+            if portal_ids
+            else []
+        ).scalars()
+    } if portal_ids else {}
     result: list[dict[str, Any]] = []
     for row in rows:
         recipe = _decrypt_json(row.recipe_encrypted)
+        portal = portals.get(row.browser_portal_id)
         result.append(
             {
                 "id": row.id,
@@ -246,8 +274,11 @@ async def list_providers(db: AsyncSession) -> list[dict[str, Any]]:
                 "name": row.name,
                 "provider_type": row.provider_type,
                 "browser_portal_id": row.browser_portal_id,
+                "browser_portal_name": portal.name if portal else "",
                 "account_scope": row.account_scope,
+                "support_phone": _decrypt_text(row.support_phone_encrypted),
                 "support_phone_configured": bool(row.support_phone_encrypted),
+                "recipe": recipe,
                 "recipe_actions": sorted(recipe.keys()),
                 "enabled": row.enabled,
                 "created_at": row.created_at,
@@ -255,6 +286,134 @@ async def list_providers(db: AsyncSession) -> list[dict[str, Any]]:
             }
         )
     return result
+
+
+async def order_is_fulfillment_candidate(
+    db: AsyncSession, order: OrderRecord
+) -> tuple[bool, str]:
+    """Return whether an OrderRecord represents a real fulfillment lifecycle.
+
+    Payment processors and app-store receipts often expose transaction IDs that an AI can
+    mistake for order numbers. Fulfillment must require source-backed shipping/order evidence
+    rather than treating every paid receipt as logistics work.
+    """
+    status = (order.status or "").casefold().strip()
+    if status == "not_order":
+        return False, "Order was explicitly dismissed as a non-order"
+    if status == "confirmed_order":
+        return True, "Order was explicitly confirmed by the user"
+    if (order.tracking_url or "").strip() or order.expected_delivery_at is not None:
+        return True, "Tracking URL or expected delivery evidence is present"
+    if status in {"shipped", "dispatched", "in_transit", "in transit", "out_for_delivery", "out for delivery", "delivered"}:
+        return True, f"Order ledger has fulfillment status: {order.status}"
+
+    source = None
+    if order.source_message_id:
+        source = (
+            await db.execute(
+                select(EmailMessage)
+                .where(EmailMessage.provider_message_id == order.source_message_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    if source is None:
+        # Do not destroy an older/manual order merely because its source email is unavailable.
+        return True, "Source email is unavailable; retain existing order conservatively"
+
+    sender = (source.sender or "").casefold()
+    source_text = " ".join(
+        part for part in (source.sender, source.subject, source.snippet) if part
+    ).casefold()
+    has_fulfillment_signal = any(term in source_text for term in _FULFILLMENT_SOURCE_TERMS)
+    google_payment_source = any(term in sender or term in source_text for term in _GOOGLE_PAYMENT_SENDER_TERMS)
+    google_purchase_id = (order.order_number or "").strip().upper().startswith("GPA.")
+    payment_only_signal = any(term in source_text for term in _PAYMENT_ONLY_SOURCE_TERMS)
+
+    if (google_payment_source or google_purchase_id) and not has_fulfillment_signal:
+        return False, "Google payment/app-store receipt has no shipping, delivery, pickup or tracking evidence"
+    if payment_only_signal and not has_fulfillment_signal:
+        return False, "Payment/receipt evidence is present without a fulfillment lifecycle"
+    if has_fulfillment_signal:
+        return True, "Source email contains order/shipping/delivery evidence"
+    return False, "No source-backed shipping, delivery, pickup or tracking evidence"
+
+
+async def dismiss_order_record(
+    db: AsyncSession, order: OrderRecord, *, reason: str, explicit: bool = False
+) -> dict[str, Any]:
+    order.status = "not_order"
+    requests = list(
+        (
+            await db.execute(
+                select(FulfillmentRequest).where(
+                    (FulfillmentRequest.order_id == order.id)
+                    | (
+                        (FulfillmentRequest.source_type == "order")
+                        & (FulfillmentRequest.source_id == str(order.id))
+                    )
+                )
+            )
+        ).scalars()
+    )
+    dismissed = 0
+    for request in requests:
+        if request.status == "dismissed":
+            continue
+        request.status = "dismissed"
+        request.requires_user_action = False
+        request.needs_user_reason = ""
+        request.next_action_at = None
+        request.last_error = reason[:8000]
+        request.completed_at = request.completed_at or utcnow()
+        await _sync_va_state(db, request)
+        actions = list(
+            (
+                await db.execute(
+                    select(FulfillmentAction).where(FulfillmentAction.request_id == request.id)
+                )
+            ).scalars()
+        )
+        for action in actions:
+            if action.status not in {"completed", "failed", "cancelled"}:
+                action.status = "cancelled"
+                action.last_error = reason[:8000]
+                action.completed_at = action.completed_at or utcnow()
+        dismissed += 1
+    await write_audit(
+        db,
+        "order_reclassified_as_non_fulfillment",
+        entity_type="order",
+        entity_id=str(order.id),
+        details={"reason": reason, "explicit": explicit, "fulfillment_requests_dismissed": dismissed},
+    )
+    await db.commit()
+    return {"order_id": order.id, "dismissed_requests": dismissed, "reason": reason}
+
+
+async def restore_order_record(db: AsyncSession, order: OrderRecord) -> dict[str, Any]:
+    order.status = "confirmed_order"
+    requests = list(
+        (await db.execute(select(FulfillmentRequest).where(FulfillmentRequest.order_id == order.id))).scalars()
+    )
+    restored = 0
+    for request in requests:
+        if request.status != "dismissed":
+            continue
+        request.status = "planned"
+        request.last_error = ""
+        request.completed_at = None
+        request.next_action_at = utcnow()
+        await _sync_va_state(db, request)
+        restored += 1
+    await write_audit(
+        db,
+        "order_restored_as_fulfillment",
+        entity_type="order",
+        entity_id=str(order.id),
+        details={"fulfillment_requests_restored": restored},
+    )
+    await db.commit()
+    return {"order_id": order.id, "restored_requests": restored}
 
 
 async def _provider_for_order(db: AsyncSession, order: OrderRecord) -> FulfillmentProvider | None:
@@ -868,6 +1027,11 @@ async def ingest_existing_operations(db: AsyncSession) -> dict[str, int]:
     for order in orders:
         if not order.merchant or not order.order_number:
             continue
+        candidate, reason = await order_is_fulfillment_candidate(db, order)
+        if not candidate:
+            if order.status != "not_order":
+                await dismiss_order_record(db, order, reason=reason, explicit=False)
+            continue
         key = f"order:{order.merchant.casefold()}:{order.order_number}"[:255]
         existing = (
             await db.execute(select(FulfillmentRequest).where(FulfillmentRequest.idempotency_key == key).limit(1))
@@ -1117,8 +1281,25 @@ async def list_requests(db: AsyncSession, *, limit: int = 200, status: str | Non
     )
     if status:
         query = query.where(FulfillmentRequest.status == status)
+    else:
+        query = query.where(FulfillmentRequest.status != "dismissed")
     rows = list((await db.execute(query)).scalars())
-    return [await serialize_request(db, row, include_actions=False) for row in rows]
+    visible: list[FulfillmentRequest] = []
+    for row in rows:
+        if row.order_id and row.status != "dismissed":
+            order = await db.get(OrderRecord, row.order_id)
+            if order is not None:
+                candidate, reason = await order_is_fulfillment_candidate(db, order)
+                if not candidate:
+                    # Reclassification is deterministic reconciliation, not a user-facing
+                    # side effect. Correct stale Phase-9 logistics rows while they are read
+                    # so payment receipts disappear immediately rather than waiting for the
+                    # five-minute scheduler. Source Gmail/financial evidence remains intact.
+                    await dismiss_order_record(db, order, reason=reason, explicit=False)
+                    if not status:
+                        continue
+        visible.append(row)
+    return [await serialize_request(db, row, include_actions=False) for row in visible]
 
 
 async def fulfillment_status(db: AsyncSession) -> dict[str, Any]:

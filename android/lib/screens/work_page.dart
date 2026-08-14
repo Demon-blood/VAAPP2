@@ -319,7 +319,7 @@ class _PortalsView extends StatelessWidget {
           else
             ...portals.map((row) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: _PortalCard(row: row),
+                  child: _PortalCard(row: row, onEdit: () => _showAddPortalDialog(context, row)),
                 )),
           const SizedBox(height: 18),
           const Text('Portal operations', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
@@ -339,90 +339,125 @@ class _PortalsView extends StatelessWidget {
     );
   }
 
-  Future<void> _showAddPortalDialog(BuildContext context) async {
-    final name = TextEditingController();
-    final baseUrl = TextEditingController();
-    final loginUrl = TextEditingController();
-    final allowedHosts = TextEditingController();
+  Future<void> _showAddPortalDialog(BuildContext context, [Map<String, dynamic>? existing]) async {
+    final editing = existing != null;
+    final name = TextEditingController(text: '${existing?['name'] ?? ''}');
+    final baseUrl = TextEditingController(text: '${existing?['base_url'] ?? ''}');
+    final loginUrl = TextEditingController(text: '${existing?['login_url'] ?? ''}');
+    final allowedHosts = TextEditingController(
+      text: existing?['allowed_hosts'] is List
+          ? (existing!['allowed_hosts'] as List).map((value) => '$value').join(', ')
+          : '',
+    );
     final username = TextEditingController();
     final password = TextEditingController();
+    var accountScope = '${existing?['account_scope'] ?? 'personal'}';
+    var enabled = existing?['enabled'] != false;
     final formKey = GlobalKey<FormState>();
     final result = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add secure portal'),
-        content: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: name,
-                  decoration: const InputDecoration(labelText: 'Portal name'),
-                  validator: (value) => (value ?? '').trim().isEmpty ? 'Enter a portal name' : null,
-                ),
-                TextFormField(
-                  controller: baseUrl,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(labelText: 'Base URL', hintText: 'https://portal.example.com'),
-                  validator: (value) {
-                    final uri = Uri.tryParse((value ?? '').trim());
-                    if (uri == null || !uri.hasScheme || uri.host.isEmpty) return 'Enter a valid HTTPS portal URL';
-                    return null;
-                  },
-                ),
-                TextField(
-                  controller: loginUrl,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(labelText: 'Login URL (optional)'),
-                ),
-                TextField(
-                  controller: allowedHosts,
-                  decoration: const InputDecoration(
-                    labelText: 'Extra login hosts (optional)',
-                    hintText: 'login.microsoftonline.com, accounts.example.com',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(editing ? 'Edit secure portal' : 'Add secure portal'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Portal name'),
+                    validator: (value) => (value ?? '').trim().isEmpty ? 'Enter a portal name' : null,
                   ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: username,
-                  decoration: const InputDecoration(labelText: 'Username/email (optional)'),
-                  autocorrect: false,
-                ),
-                TextField(
-                  controller: password,
-                  decoration: const InputDecoration(labelText: 'Password (optional)'),
-                  obscureText: true,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Only username/password can be stored. One-time codes remain one-time and are cleared after use.',
-                  style: TextStyle(fontSize: 12, color: VaTheme.textMuted),
-                ),
-              ],
+                  TextFormField(
+                    controller: baseUrl,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(labelText: 'Base URL', hintText: 'https://portal.example.com'),
+                    validator: (value) {
+                      final uri = Uri.tryParse((value ?? '').trim());
+                      if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return 'Enter a valid HTTPS portal URL';
+                      return null;
+                    },
+                  ),
+                  TextField(
+                    controller: loginUrl,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(labelText: 'Login URL (optional)'),
+                  ),
+                  TextField(
+                    controller: allowedHosts,
+                    decoration: const InputDecoration(
+                      labelText: 'Allowed / extra login hosts (optional)',
+                      hintText: 'login.microsoftonline.com, accounts.example.com',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: accountScope,
+                    decoration: const InputDecoration(labelText: 'Scope'),
+                    items: const [
+                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(value: 'pro', child: Text('Pro')),
+                    ],
+                    onChanged: (value) => setDialogState(() => accountScope = value ?? accountScope),
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Portal enabled'),
+                    subtitle: const Text('Disabled portals remain saved but cannot execute browser work.'),
+                    value: enabled,
+                    onChanged: (value) => setDialogState(() => enabled = value),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: username,
+                    decoration: InputDecoration(
+                      labelText: editing ? 'Replace username/email (optional)' : 'Username/email (optional)',
+                    ),
+                    autocorrect: false,
+                  ),
+                  TextField(
+                    controller: password,
+                    decoration: InputDecoration(
+                      labelText: editing ? 'Replace password (optional)' : 'Password (optional)',
+                    ),
+                    obscureText: true,
+                    enableSuggestions: false,
+                    autocorrect: false,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    editing
+                        ? 'Leave login fields blank to keep the existing encrypted credentials. One-time codes are never stored.'
+                        : 'Only username/password can be stored. One-time codes remain one-time and are cleared after use.',
+                    style: const TextStyle(fontSize: 12, color: VaTheme.textMuted),
+                  ),
+                ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() != true) return;
+                Navigator.pop(dialogContext, true);
+              },
+              child: Text(editing ? 'Save changes' : 'Save portal'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() != true) return;
-              Navigator.pop(dialogContext, true);
-            },
-            child: const Text('Save portal'),
-          ),
-        ],
       ),
     );
     if (result != true || !context.mounted) return;
     final rawName = name.text.trim();
-    var slug = rawName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
-    slug = slug.replaceAll(RegExp(r'^-+|-+$'), '');
-    if (slug.length < 2) slug = 'portal-${DateTime.now().millisecondsSinceEpoch}';
+    var slug = '${existing?['slug'] ?? ''}'.trim();
+    if (!editing) {
+      slug = rawName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+      slug = slug.replaceAll(RegExp(r'^-+|-+$'), '');
+      if (slug.length < 2) slug = 'portal-${DateTime.now().millisecondsSinceEpoch}';
+    }
     try {
       await context.read<AppState>().addBrowserPortal(
             slug: slug,
@@ -436,9 +471,13 @@ class _PortalsView extends StatelessWidget {
                 .toList(),
             username: username.text,
             password: password.text,
+            accountScope: accountScope,
+            enabled: enabled,
           );
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Secure portal configured.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(editing ? 'Secure portal updated.' : 'Secure portal configured.')),
+        );
       }
     } catch (error) {
       if (context.mounted) {
@@ -446,6 +485,7 @@ class _PortalsView extends StatelessWidget {
       }
     }
   }
+
 }
 
 class _PortalMetric extends StatelessWidget {
@@ -488,8 +528,9 @@ class _PortalEmpty extends StatelessWidget {
 }
 
 class _PortalCard extends StatelessWidget {
-  const _PortalCard({required this.row});
+  const _PortalCard({required this.row, required this.onEdit});
   final Map<String, dynamic> row;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -512,6 +553,11 @@ class _PortalCard extends StatelessWidget {
                 const Icon(Icons.language_rounded, color: VaTheme.primary),
                 const SizedBox(width: 10),
                 Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w900))),
+                IconButton(
+                  tooltip: 'Edit portal',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined, size: 19),
+                ),
                 Text(session, style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
               ],
             ),
@@ -1088,7 +1134,7 @@ class _OrdersView extends StatelessWidget {
       return const EmptyState(
         icon: Icons.local_shipping_outlined,
         title: 'No tracked orders',
-        message: 'Order confirmations and delivery updates are extracted from live Gmail messages.',
+        message: 'Only source-backed physical orders and delivery updates are shown here. Payment receipts stay in the financial/email ledgers instead.',
       );
     }
     return ListView.builder(
@@ -1096,7 +1142,9 @@ class _OrdersView extends StatelessWidget {
       itemCount: rows.length,
       itemBuilder: (context, index) {
         final row = rows[index];
+        final id = (row['id'] as num?)?.toInt() ?? 0;
         final delivery = DateTime.tryParse('${row['expected_delivery_at'] ?? ''}');
+        final reason = '${row['classification_reason'] ?? ''}'.trim();
         return Card(
           child: ListTile(
             leading: const Icon(Icons.inventory_2_outlined),
@@ -1105,14 +1153,65 @@ class _OrdersView extends StatelessWidget {
               'Status: ${row['status']}',
               if (row['total_amount'] != null) money(row['total_amount'], '${row['currency'] ?? 'EUR'}'),
               if (delivery != null) 'Expected ${DateFormat('dd MMM yyyy').format(delivery)}',
+              if (reason.isNotEmpty) 'Evidence: $reason',
             ].join('\n')),
             onTap: '${row['tracking_url'] ?? ''}'.isEmpty
                 ? null
                 : () => launchUrl(Uri.parse('${row['tracking_url']}'), mode: LaunchMode.externalApplication),
+            trailing: id <= 0
+                ? null
+                : PopupMenuButton<String>(
+                    tooltip: 'Order actions',
+                    onSelected: (value) {
+                      if (value == 'not_order') _dismissOrder(context, id, row);
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'not_order',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.receipt_long_outlined),
+                          title: Text('Not an order'),
+                          subtitle: Text('Keep as receipt/payment evidence'),
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         );
       },
     );
+  }
+
+  Future<void> _dismissOrder(BuildContext context, int id, Map<String, dynamic> row) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Mark this as not an order?'),
+            content: Text(
+              '${row['merchant']} · ${row['order_number']} will stop being treated as a parcel/order. '
+              'The original Gmail/payment evidence is kept; only the fulfillment/tracking classification is dismissed.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Not an order')),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !context.mounted) return;
+    try {
+      await context.read<AppState>().dismissOrder(id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Removed from order tracking. Receipt/payment evidence was kept.')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not reclassify order: $error')));
+      }
+    }
   }
 }
 

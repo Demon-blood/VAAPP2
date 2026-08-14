@@ -42,13 +42,14 @@ class CommunicationsPage extends StatelessWidget {
     final calls = (result['calls_scanned'] as num?)?.toInt() ?? 0;
     final processed = (result['processed'] as num?)?.toInt() ?? 0;
     final duplicates = (result['duplicates'] as num?)?.toInt() ?? 0;
+    final failed = (result['failed'] as num?)?.toInt() ?? 0;
     final queued = (result['queued_processed'] as num?)?.toInt() ?? 0;
     final pending = (result['pending_after'] as num?)?.toInt() ?? 0;
     final policy = result['policy_synced'] == true;
     final error = '${result['error'] ?? result['reason'] ?? ''}'.trim();
     final message = success
         ? 'Phone sync complete · $sms SMS · $calls calls · $processed accepted · $duplicates already known'
-            '${queued > 0 ? ' · $queued queued events recovered' : ''}${policy ? ' · policies synced' : ''}'
+            '${failed > 0 ? ' · $failed failed' : ''}${queued > 0 ? ' · $queued queued events recovered' : ''}${policy ? ' · policies synced' : ''}'
         : 'Phone sync failed${error.isEmpty ? '' : ': $error'}${pending > 0 ? ' · $pending event${pending == 1 ? '' : 's'} kept safely for retry' : ''}';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), duration: const Duration(seconds: 6)),

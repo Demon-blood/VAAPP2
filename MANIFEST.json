@@ -1,12 +1,16 @@
 {
-  "release": "1.0.1",
-  "android_version": "1.0.1+43",
+  "release": "1.0.2",
+  "android_version": "1.0.2+44",
   "baseline_repository": "Demon-blood/VAAPP2",
   "baseline_commit": "66c09040326ac553a1402cd06fa6771344195d45",
-  "purpose": "v1.0.1 communications reliability patch: durable inbound Android message ingestion, observable phone history/policy sync, bounded history uploads, and RCS notification capture while preserving v1.0 executor/evidence safety",
+  "purpose": "v1.0.2 maintenance reliability: harden PostgreSQL phone sync, make fulfillment/browser configurations editable, and prevent payment receipts from becoming false logistics objectives",
   "database_strategy": "additive_tables_only",
   "phase": "maintenance",
-  "phase_name": "v1.0.1 Communications Reliability",
+  "phase_name": "v1.0.2 Maintenance Reliability",
   "next_phase": "v1.x maintenance and real-world hardening",
-  "version": "1.0.1"
+  "version": "1.0.2",
+  "maintenance_baseline_commit": "8baeefa6c2e95ba1e7a66e42ee01f13db828d9d9",
+  "maintenance_baseline_version": "1.0.1",
+  "maintenance_baseline_actions_run": 42,
+  "maintenance_baseline_actions_conclusion": "success"
 }

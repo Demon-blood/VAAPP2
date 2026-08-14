@@ -10,19 +10,19 @@ def _read(path: str) -> str:
 
 def test_v100_release_identity_is_consistent() -> None:
     version = _read("backend/app/core/version.py")
-    assert 'APP_VERSION = "1.0.1"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.1"' in version
-    assert 'version = "1.0.1"' in _read("backend/pyproject.toml")
-    assert "version: 1.0.1+43" in _read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.2"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.2"' in version
+    assert 'version = "1.0.2"' in _read("backend/pyproject.toml")
+    assert "version: 1.0.2+44" in _read("android/pubspec.yaml")
     workflow = _read(".github/workflows/android-release.yml")
-    assert "Full-Time-VA-Android-v1.0.1.apk" in workflow
-    assert "Full-Time VA Android v1.0.1" in workflow
+    assert "Full-Time-VA-Android-v1.0.2.apk" in workflow
+    assert "Full-Time VA Android v1.0.2" in workflow
 
 
 def test_android_uses_one_runtime_release_contract() -> None:
     contract = _read("android/lib/release_contract.dart")
-    assert "const String appRelease = '1.0.1';" in contract
-    assert "const String minimumBackendVersion = '1.0.1';" in contract
+    assert "const String appRelease = '1.0.2';" in contract
+    assert "const String minimumBackendVersion = '1.0.2';" in contract
 
     state = _read("android/lib/app_state.dart")
     assert "import 'release_contract.dart';" in state
@@ -43,7 +43,7 @@ def test_phone_deployment_requires_v100_backend_and_has_no_legacy_floor() -> Non
     assert "String requiredVersion = minimumBackendVersion" in deploy
     assert "requiredVersion: minimumBackendVersion" in onboarding
     assert "Verifying backend $minimumBackendVersion" in onboarding
-    assert "backend 1.0.1 or newer" in phone_docs
+    assert "backend 1.0.2 or newer" in phone_docs
 
     # The historical floor caused a real release-readiness defect. Keep it out of
     # executable Android setup/repair code so future version bumps have one source.
@@ -84,8 +84,8 @@ def test_v100_release_metadata_preserves_the_verified_v1_baseline() -> None:
     handoff = _read("VAAPP_PROJECT_HANDOFF.md")
     release_doc = _read("docs/V1.0.0_PRODUCT_RELEASE.md")
 
-    assert '"release": "1.0.1"' in manifest
-    assert '"android_version": "1.0.1+43"' in manifest
+    assert '"release": "1.0.2"' in manifest
+    assert '"android_version": "1.0.2+44"' in manifest
     assert '"baseline_commit": "66c09040326ac553a1402cd06fa6771344195d45"' in manifest
     assert '"verified_baseline_actions_run": 41' in state
     assert '"verified_baseline_actions_conclusion": "success"' in state

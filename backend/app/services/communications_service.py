@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -35,6 +35,21 @@ GENERIC_NOTIFICATION_TEXT = {
     "nieuw bericht", "u hebt een nieuw bericht", "je hebt een nieuw bericht",
 }
 ACK_ONLY = re.compile(r"^\s*(ok(?:ay)?|thanks?|thank you|dank(?:je| u)?|prima|top|👍|👌)[.! ]*\s*$", re.I)
+
+
+def _database_datetime(value: datetime | None) -> datetime:
+    """Normalize provider timestamps for the timezone-naive SQL schema.
+
+    Android emits RFC3339 UTC timestamps with a ``Z`` suffix. Pydantic parses
+    those as offset-aware datetimes, while the existing communication tables use
+    SQLAlchemy ``DateTime`` without ``timezone=True``. asyncpg/PostgreSQL rejects
+    that aware/naive mismatch even though SQLite accepts it in tests.
+    """
+    if value is None:
+        return datetime.utcnow()
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _text_sensitive(body: str) -> bool:
@@ -230,7 +245,7 @@ async def ingest_communication(db: AsyncSession, payload: CommunicationIngestReq
         body=payload.body,
         direction=payload.direction,
         event_type=payload.event_type,
-        occurred_at=payload.occurred_at or datetime.utcnow(),
+        occurred_at=_database_datetime(payload.occurred_at),
     )
     db.add(event)
     await db.flush()

@@ -7,19 +7,27 @@
   "verified_baseline_android_version": "1.0.0+42",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "local_candidate_version": "1.0.1",
-  "local_candidate_android_version": "1.0.1+43",
+  "local_candidate_version": "1.0.2",
+  "local_candidate_android_version": "1.0.2+44",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.1 Communications Reliability",
-  "phase_status": "implemented locally from verified v1.0 baseline; awaiting GitHub upload and full CI",
+  "current_phase_name": "v1.0.2 Maintenance Reliability",
+  "phase_status": "implemented locally from verified v1.0.1 baseline; awaiting GitHub upload and full CI",
   "next_phase": "v1.x maintenance and real-world hardening",
   "database_strategy": "additive_tables_only",
-  "v101_features": [
-    "phone history/policy sync returns visible accepted/duplicate/error counts instead of silently discarding native results",
-    "native Android backend-link and HTTP errors are surfaced in Communications Autopilot",
-    "inbound SMS is encrypted to a device outbox before network dispatch and recovered by WorkManager after transient failures",
-    "failed supported messaging notifications are retained record-only in the encrypted device outbox",
-    "SMS RECEIVE permission is verified alongside READ/SEND and RCS-capable notification packages are captured",
-    "SMS/call history uploads are chunked and history imports use deterministic local classification to avoid AI timeout/quota storms"
-  ]
+  "v102_features": [
+    "normalize offset-aware Android RFC3339 communication timestamps to naive UTC before writing the existing SQL DateTime columns",
+    "isolate failed communication batch records with rollback so one bad SMS/call cannot force the entire history sync to HTTP 500",
+    "return bounded per-record failure diagnostics to the paired Android device",
+    "treat backend partial batch failures as unsuccessful on Android so encrypted queued inbound events are retained for retry",
+    "show phone-sync failed-record counts in Communications Autopilot while preserving executor/evidence semantics",
+    "make configured fulfillment providers editable in place with a named Secure Browser portal selector, enabled state, scope, support number and recipe editing",
+    "make configured Secure Browser portals editable while preserving existing encrypted credentials when replacement fields are left blank",
+    "require source-backed shipping/delivery/pickup/tracking evidence before OrderRecord rows can create logistics ownership, suppressing Google payment/app-store receipt false positives",
+    "allow false-positive order/logistics rows to be marked Not an order without deleting the original Gmail or financial receipt evidence"
+  ],
+  "verified_maintenance_commit": "8baeefa6c2e95ba1e7a66e42ee01f13db828d9d9",
+  "verified_maintenance_version": "1.0.1",
+  "verified_maintenance_android_version": "1.0.1+43",
+  "verified_maintenance_actions_run": 42,
+  "verified_maintenance_actions_conclusion": "success"
 }

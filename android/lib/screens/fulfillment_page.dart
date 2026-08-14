@@ -18,6 +18,7 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
   String? error;
   Map<String, dynamic> status = {};
   List<Map<String, dynamic>> providers = [];
+  List<Map<String, dynamic>> portals = [];
   List<Map<String, dynamic>> requests = [];
 
   @override
@@ -41,13 +42,15 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
       final result = await Future.wait<dynamic>([
         api.getJson('/api/fulfillment/status'),
         api.getJson('/api/fulfillment/providers'),
+        api.getJson('/api/browser/portals'),
         api.getJson('/api/fulfillment/requests?limit=200'),
       ]);
       if (!mounted) return;
       setState(() {
         status = result[0] is Map ? Map<String, dynamic>.from(result[0] as Map) : {};
         providers = _rows(result[1]);
-        requests = _rows(result[2]);
+        portals = _rows(result[2]);
+        requests = _rows(result[3]);
       });
     } catch (requestError) {
       if (mounted) setState(() => error = '$requestError');
@@ -93,6 +96,35 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
     try {
       await context.read<AppState>().api.postJson('/api/fulfillment/requests/$id/authorize-payment');
       await _refresh();
+    } catch (requestError) {
+      if (mounted) setState(() => error = '$requestError');
+    }
+  }
+
+  Future<void> _dismissOrder(int orderId) async {
+    final approved = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('This is not an order?'),
+            content: const Text(
+              'VAAPP will stop treating this source record as a parcel/order and dismiss its logistics objective. The original email/payment receipt remains preserved as source evidence.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Not an order')),
+            ],
+          ),
+        ) ??
+        false;
+    if (!approved || !mounted) return;
+    try {
+      await context.read<AppState>().dismissOrder(orderId);
+      await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Dismissed false order tracking; source receipt/payment evidence was kept.')),
+        );
+      }
     } catch (requestError) {
       if (mounted) setState(() => error = '$requestError');
     }
@@ -195,80 +227,138 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
     }
   }
 
-  Future<void> _configureProvider() async {
-    final slug = TextEditingController();
-    final name = TextEditingController();
-    final portalId = TextEditingController();
-    final supportPhone = TextEditingController();
-    final recipe = TextEditingController(text: '{}');
-    var providerType = 'merchant';
-    var accountScope = 'personal';
+  Future<void> _configureProvider([Map<String, dynamic>? existing]) async {
+    final editing = existing != null;
+    final slug = TextEditingController(text: '${existing?['slug'] ?? ''}');
+    final name = TextEditingController(text: '${existing?['name'] ?? ''}');
+    final supportPhone = TextEditingController(text: '${existing?['support_phone'] ?? ''}');
+    final existingRecipe = existing?['recipe'];
+    final recipe = TextEditingController(
+      text: const JsonEncoder.withIndent('  ').convert(existingRecipe is Map ? existingRecipe : <String, dynamic>{}),
+    );
+    var providerType = '${existing?['provider_type'] ?? 'merchant'}';
+    var accountScope = '${existing?['account_scope'] ?? 'personal'}';
+    int? portalId = (existing?['browser_portal_id'] as num?)?.toInt();
+    var enabled = existing?['enabled'] != false;
+
     final save = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Configure fulfillment provider'),
-          content: SizedBox(
-            width: 620,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'A provider is not a generic web crawler. Link it to an existing allowlisted Secure Browser portal and/or a verified support phone. Recipes define the provider-specific real steps and required postcondition.',
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(controller: name, decoration: const InputDecoration(labelText: 'Provider name')),
-                  const SizedBox(height: 10),
-                  TextField(controller: slug, decoration: const InputDecoration(labelText: 'Slug')),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: providerType,
-                    decoration: const InputDecoration(labelText: 'Provider type'),
-                    items: const [
-                      DropdownMenuItem(value: 'merchant', child: Text('Merchant')),
-                      DropdownMenuItem(value: 'airline', child: Text('Airline')),
-                      DropdownMenuItem(value: 'hotel', child: Text('Hotel')),
-                      DropdownMenuItem(value: 'travel', child: Text('Travel')),
-                      DropdownMenuItem(value: 'carrier', child: Text('Carrier')),
-                      DropdownMenuItem(value: 'service', child: Text('Service')),
-                      DropdownMenuItem(value: 'general', child: Text('General')),
-                    ],
-                    onChanged: (value) => setDialogState(() => providerType = value ?? providerType),
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: accountScope,
-                    decoration: const InputDecoration(labelText: 'Scope'),
-                    items: const [
-                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
-                      DropdownMenuItem(value: 'pro', child: Text('Pro')),
-                    ],
-                    onChanged: (value) => setDialogState(() => accountScope = value ?? accountScope),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(controller: portalId, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Secure Browser portal ID (optional)')),
-                  const SizedBox(height: 10),
-                  TextField(controller: supportPhone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Verified support phone (optional)')),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: recipe,
-                    minLines: 6,
-                    maxLines: 14,
-                    decoration: const InputDecoration(
-                      labelText: 'Provider recipe JSON',
-                      helperText: 'Keys may include purchase, travel, track, return, refund, cancel, support.',
+        builder: (context, setDialogState) {
+          final matchingPortals = portals
+              .where((row) => '${row['account_scope'] ?? 'personal'}' == accountScope)
+              .toList();
+          if (portalId != null && !matchingPortals.any((row) => (row['id'] as num?)?.toInt() == portalId)) {
+            portalId = null;
+          }
+          return AlertDialog(
+            title: Text(editing ? 'Edit fulfillment provider' : 'Configure fulfillment provider'),
+            content: SizedBox(
+              width: 620,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Link the provider to an allowlisted Secure Browser portal and/or a verified support phone. Provider recipes define the real steps and required provider evidence.',
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    TextField(controller: name, decoration: const InputDecoration(labelText: 'Provider name')),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: slug,
+                      enabled: !editing,
+                      decoration: InputDecoration(
+                        labelText: 'Slug',
+                        helperText: editing ? 'The stable slug is kept when editing.' : null,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      initialValue: providerType,
+                      decoration: const InputDecoration(labelText: 'Provider type'),
+                      items: const [
+                        DropdownMenuItem(value: 'merchant', child: Text('Merchant')),
+                        DropdownMenuItem(value: 'airline', child: Text('Airline')),
+                        DropdownMenuItem(value: 'hotel', child: Text('Hotel')),
+                        DropdownMenuItem(value: 'travel', child: Text('Travel')),
+                        DropdownMenuItem(value: 'carrier', child: Text('Carrier')),
+                        DropdownMenuItem(value: 'service', child: Text('Service')),
+                        DropdownMenuItem(value: 'general', child: Text('General')),
+                      ],
+                      onChanged: (value) => setDialogState(() => providerType = value ?? providerType),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      initialValue: accountScope,
+                      decoration: const InputDecoration(labelText: 'Scope'),
+                      items: const [
+                        DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                        DropdownMenuItem(value: 'pro', child: Text('Pro')),
+                      ],
+                      onChanged: (value) => setDialogState(() {
+                        accountScope = value ?? accountScope;
+                        portalId = null;
+                      }),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<int?>(
+                      initialValue: portalId,
+                      decoration: const InputDecoration(labelText: 'Secure Browser portal'),
+                      items: [
+                        const DropdownMenuItem<int?>(value: null, child: Text('No browser portal')),
+                        for (final portal in matchingPortals)
+                          DropdownMenuItem<int?>(
+                            value: (portal['id'] as num?)?.toInt(),
+                            child: Text('${portal['name']}'),
+                          ),
+                      ],
+                      onChanged: (value) => setDialogState(() => portalId = value),
+                    ),
+                    if (matchingPortals.isEmpty) ...[
+                      const SizedBox(height: 6),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'No matching portal exists yet. Add it under Work → Portals first.',
+                          style: TextStyle(fontSize: 12, color: VaTheme.textMuted),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: supportPhone,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Verified support phone (optional)'),
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Provider enabled'),
+                      subtitle: const Text('Disabled providers remain saved but cannot execute new fulfillment work.'),
+                      value: enabled,
+                      onChanged: (value) => setDialogState(() => enabled = value),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: recipe,
+                      minLines: 6,
+                      maxLines: 14,
+                      decoration: const InputDecoration(
+                        labelText: 'Provider recipe JSON',
+                        helperText: 'Keys may include purchase, travel, track, return, refund, cancel, support.',
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
-          ],
-        ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(editing ? 'Save changes' : 'Save')),
+            ],
+          );
+        },
       ),
     );
     if (save != true || !mounted || name.text.trim().isEmpty || slug.text.trim().isEmpty) return;
@@ -279,13 +369,18 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
         'slug': slug.text.trim(),
         'name': name.text.trim(),
         'provider_type': providerType,
-        'browser_portal_id': int.tryParse(portalId.text.trim()),
+        'browser_portal_id': portalId,
         'account_scope': accountScope,
         'support_phone': supportPhone.text.trim(),
         'recipe': Map<String, dynamic>.from(decoded),
-        'enabled': true,
+        'enabled': enabled,
       });
       await _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(editing ? 'Provider updated.' : 'Provider configured.')),
+        );
+      }
     } catch (requestError) {
       if (mounted) setState(() => error = '$requestError');
     }
@@ -331,7 +426,7 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
             if (providers.isEmpty)
               const Card(child: ListTile(title: Text('No provider configured.'), subtitle: Text('Orders and support cases can still be owned, but external execution remains blocked_capability until a real executor is configured.')))
             else
-              for (final provider in providers) _ProviderTile(provider: provider),
+              for (final provider in providers) _ProviderTile(provider: provider, onEdit: () => _configureProvider(provider)),
             const Divider(height: 32),
             Row(
               children: [
@@ -345,7 +440,7 @@ class _FulfillmentPageState extends State<FulfillmentPage> {
             else if (requests.isEmpty)
               const Card(child: ListTile(title: Text('No fulfillment objectives yet.')))
             else
-              for (final request in requests) _RequestCard(request: request, onRun: _run, onAuthorize: _authorize),
+              for (final request in requests) _RequestCard(request: request, onRun: _run, onAuthorize: _authorize, onDismissOrder: _dismissOrder),
           ],
         ),
       ),
@@ -397,24 +492,40 @@ class _StatusCard extends StatelessWidget {
 }
 
 class _ProviderTile extends StatelessWidget {
-  const _ProviderTile({required this.provider});
+  const _ProviderTile({required this.provider, required this.onEdit});
   final Map<String, dynamic> provider;
+  final VoidCallback onEdit;
 
   @override
-  Widget build(BuildContext context) => Card(
-        child: ListTile(
-          leading: Icon(provider['enabled'] == true ? Icons.verified_outlined : Icons.pause_circle_outline),
-          title: Text('${provider['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: Text('${provider['provider_type']} · ${provider['account_scope']} · portal ${provider['browser_portal_id'] ?? '—'} · recipes ${(provider['recipe_actions'] as List?)?.join(', ') ?? 'none'}${provider['support_phone_configured'] == true ? ' · support phone configured' : ''}'),
+  Widget build(BuildContext context) {
+    final portalName = '${provider['browser_portal_name'] ?? ''}'.trim();
+    final portalLabel = portalName.isEmpty ? 'no browser portal' : portalName;
+    final actions = (provider['recipe_actions'] as List?)?.join(', ') ?? 'none';
+    return Card(
+      child: ListTile(
+        onTap: onEdit,
+        leading: Icon(provider['enabled'] == true ? Icons.verified_outlined : Icons.pause_circle_outline),
+        title: Text('${provider['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(
+          '${provider['provider_type']} · ${provider['account_scope']} · $portalLabel · recipes $actions'
+          '${provider['support_phone_configured'] == true ? ' · support phone configured' : ''}\nTap to edit',
         ),
-      );
+        trailing: IconButton(
+          tooltip: 'Edit provider',
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_outlined),
+        ),
+      ),
+    );
+  }
 }
 
 class _RequestCard extends StatelessWidget {
-  const _RequestCard({required this.request, required this.onRun, required this.onAuthorize});
+  const _RequestCard({required this.request, required this.onRun, required this.onAuthorize, required this.onDismissOrder});
   final Map<String, dynamic> request;
   final Future<void> Function(int id) onRun;
   final Future<void> Function(int id) onAuthorize;
+  final Future<void> Function(int orderId) onDismissOrder;
 
   bool get _terminal => const {'completed', 'cancelled', 'failed'}.contains('${request['status']}');
 
@@ -423,6 +534,7 @@ class _RequestCard extends StatelessWidget {
     final id = (request['id'] as num).toInt();
     final needsUser = request['requires_user_action'] == true || request['status'] == 'needs_user';
     final paymentType = request['request_type'] == 'purchase' || request['request_type'] == 'travel';
+    final sourceOrderId = (request['order_id'] as num?)?.toInt();
     final amount = request['amount'] == null ? '' : ' · ${request['amount']} ${request['currency'] ?? 'EUR'}';
     return Card(
       child: Padding(
@@ -460,6 +572,12 @@ class _RequestCard extends StatelessWidget {
                   FilledButton.tonal(onPressed: () => onRun(id), child: const Text('Run / reconcile')),
                   if (needsUser && paymentType)
                     FilledButton(onPressed: () => onAuthorize(id), child: const Text('Authorize payment')),
+                  if (sourceOrderId != null && sourceOrderId > 0)
+                    TextButton.icon(
+                      onPressed: () => onDismissOrder(sourceOrderId),
+                      icon: const Icon(Icons.receipt_long_outlined),
+                      label: const Text('Not an order'),
+                    ),
                 ],
               ),
             ],

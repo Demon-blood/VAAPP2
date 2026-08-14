@@ -711,6 +711,8 @@ class AppState extends ChangeNotifier {
     List<String> allowedHosts = const <String>[],
     String username = '',
     String password = '',
+    String accountScope = 'personal',
+    bool enabled = true,
   }) async {
     late Map<String, dynamic> portal;
     await _run(() async {
@@ -722,8 +724,8 @@ class AppState extends ChangeNotifier {
           'login_url': loginUrl,
           'allowed_hosts': allowedHosts,
           'login_recipe': <String, dynamic>{},
-          'account_scope': 'personal',
-          'enabled': true,
+          'account_scope': accountScope,
+          'enabled': enabled,
         }) as Map,
       );
       final portalId = (portal['id'] as num?)?.toInt() ?? 0;
@@ -888,6 +890,20 @@ class AppState extends ChangeNotifier {
   Future<void> setSupportCaseStatus(int caseId, String status) async {
     await _run(() async {
       await api.patchJson('/api/support-cases/$caseId/status?status=$status');
+      await refreshAll(showBusy: false);
+    });
+  }
+
+  Future<void> dismissOrder(int orderId) async {
+    await _run(() async {
+      await api.postJson('/api/orders/$orderId/dismiss');
+      await refreshAll(showBusy: false);
+    });
+  }
+
+  Future<void> restoreOrder(int orderId) async {
+    await _run(() async {
+      await api.postJson('/api/orders/$orderId/restore');
       await refreshAll(showBusy: false);
     });
   }

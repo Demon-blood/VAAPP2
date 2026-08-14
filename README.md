@@ -1,21 +1,25 @@
-# Full-Time VA v1.0.1 — Communications Reliability
+# Full-Time VA v1.0.2 — Maintenance Reliability
 
-Full-Time VA v1.0.1 is the first maintenance release on the cumulative Phase 1–10 production baseline. It combines the autonomous core with provider-verified communications, calendar ownership, relationship memory, secure browser operations, document/form/deadline ownership, conservative financial allocation, real PSTN telephony, and fulfillment ownership for purchasing/travel/logistics/customer service.
+Full-Time VA v1.0.2 is the second maintenance release on the cumulative Phase 1–10 production baseline. It combines the autonomous core with provider-verified communications, calendar ownership, relationship memory, secure browser operations, document/form/deadline ownership, conservative financial allocation, real PSTN telephony, and fulfillment ownership for purchasing/travel/logistics/customer service.
 
-The v1.0.1 patch does not add a simulated executor. It hardens Android communications ingestion and sync observability while preserving the v1.0 evidence contract. The v1.0 release cleanup aligned backend/Android compatibility, phone deployment verification, release metadata, diagnostics, and product-readiness reporting around one stable release contract.
+The v1.0.2 patch does not add a simulated executor. It fixes the production PostgreSQL phone-ingestion boundary and partial-batch recovery, makes browser/fulfillment configuration editable from Android, and prevents payment-only receipts from being promoted into logistics objectives. The v1.0 evidence contract remains unchanged.
 
 **Completion rule:** external work is complete only when the relevant domain ledger contains independent provider/source evidence for the requested postcondition. A local button press, dispatched browser action, initiated payment, placed call, or configured provider is not completion evidence.
 
 
-## v1.0.1 communications reliability
+## v1.0.2 maintenance reliability
 
-- Incoming SMS is persisted to an encrypted Android outbox **before** native network dispatch. If the backend or network is unavailable, WorkManager owns retry instead of silently losing the real event.
-- Manual phone synchronization now reports SMS/call rows scanned, records accepted, duplicates, queued-event recovery, policy synchronization and native backend errors.
-- Historical SMS/call uploads are chunked and classified deterministically during catch-up so a large phone history does not create an AI request/time-out storm.
-- Communications diagnostics now check RECEIVE_SMS as well as read/send, expose native backend-link failures, and show pending locally retained inbound events.
-- WhatsApp, Signal, Telegram, Messenger and supported RCS/message-app notifications remain notification-driven. The app does not claim access to those providers' complete historical chat databases.
+- Android RFC3339 `Z` timestamps are normalized to naive UTC before insertion into the existing timezone-naive SQL communication columns, avoiding the PostgreSQL/asyncpg aware-vs-naive datetime failure that surfaced as HTTP 500.
+- Communication batch ingestion rolls back only the failing record and continues with the rest of the real SMS/call evidence instead of aborting the whole catch-up request.
+- The paired Android client treats a backend partial failure as unsuccessful, keeps encrypted queued inbound events for retry, and surfaces the failed-record count.
+- The v1.0.1 durable inbound outbox, bounded 25-record history chunks, RECEIVE_SMS diagnostics, and supported messaging/RCS notification capture remain in force.
+- Configured fulfillment providers are editable in place, including enabled state, scope, support phone, recipe and a real Secure Browser portal dropdown instead of a numeric database ID.
+- Configured Secure Browser portals are editable in place; blank credential fields preserve the existing encrypted login rather than clearing it.
+- Order/logistics ownership now requires source-backed fulfillment evidence. Google payment/app-store receipts and other payment-only messages without shipping, delivery, pickup or tracking evidence are dismissed from logistics while their Gmail/financial receipt evidence remains preserved.
+- False positives can also be corrected manually with **Not an order** from either Work → Orders or Fulfillment.
+- No provider action is marked complete merely because ingestion or configuration succeeded; the existing executor/evidence rules are unchanged.
 
-See `docs/V1.0.1_COMMUNICATIONS_RELIABILITY.md` for the maintenance contract and verification notes.
+See `docs/V1.0.2_MAINTENANCE_RELIABILITY.md` for the maintenance contract and verification notes.
 
 ## Cash structure
 
@@ -38,7 +42,7 @@ See `docs/V1.0.1_COMMUNICATIONS_RELIABILITY.md` for the maintenance contract and
 
 ## Release identity
 
-Backend `1.0.1` · Android `1.0.1+43` · APK `Full-Time-VA-Android-v1.0.1.apk`.
+Backend `1.0.2` · Android `1.0.2+44` · APK `Full-Time-VA-Android-v1.0.2.apk`.
 
 Verified v1.0 baseline: commit `66c09040326ac553a1402cd06fa6771344195d45`, GitHub Actions run #41 successful.
 
