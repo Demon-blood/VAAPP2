@@ -1,12 +1,12 @@
 {
-  "release": "1.0.0",
-  "android_version": "1.0.0+42",
+  "release": "1.0.1",
+  "android_version": "1.0.1+43",
   "baseline_repository": "Demon-blood/VAAPP2",
-  "baseline_commit": "7e8be1f82cb86c66ae07b2b90fe2173858757aa7",
-  "purpose": "Production v1.0 release: cumulative Phase 1-9 autonomous VA capabilities plus professional release identity, deployment compatibility hardening, product-status diagnostics, and final product documentation",
+  "baseline_commit": "66c09040326ac553a1402cd06fa6771344195d45",
+  "purpose": "v1.0.1 communications reliability patch: durable inbound Android message ingestion, observable phone history/policy sync, bounded history uploads, and RCS notification capture while preserving v1.0 executor/evidence safety",
   "database_strategy": "additive_tables_only",
-  "phase": 10,
-  "phase_name": "Professional Product Cleanup / v1.0",
+  "phase": "maintenance",
+  "phase_name": "v1.0.1 Communications Reliability",
   "next_phase": "v1.x maintenance and real-world hardening",
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

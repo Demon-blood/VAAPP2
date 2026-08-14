@@ -169,6 +169,11 @@ def _normalize_decision(payload: CommunicationIngestRequest, decision: dict[str,
 
 async def _decision_for(db: AsyncSession, payload: CommunicationIngestRequest) -> dict[str, Any]:
     fallback = _local_decision(payload)
+    # Device-history catch-up can contain hundreds of records. It is evidence import,
+    # not a live reply opportunity, so keep it deterministic and avoid burning AI
+    # quota or holding one mobile HTTP request open across many provider calls.
+    if payload.provider in {"android_sms_history", "android_call_log"}:
+        return fallback
     if payload.channel == "call" or payload.direction != "incoming" or not payload.body.strip():
         return fallback
     try:

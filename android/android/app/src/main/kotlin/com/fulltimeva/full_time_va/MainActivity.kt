@@ -161,10 +161,13 @@ class MainActivity : FlutterActivity() {
             "call_screening_role" to callScreeningRole,
             "notification_access" to notificationAccess,
             "read_sms" to hasPermission(Manifest.permission.READ_SMS),
+            "receive_sms" to hasPermission(Manifest.permission.RECEIVE_SMS),
             "send_sms" to hasPermission(Manifest.permission.SEND_SMS),
             "read_call_log" to hasPermission(Manifest.permission.READ_CALL_LOG),
             "read_contacts" to hasPermission(Manifest.permission.READ_CONTACTS),
             "backend_linked" to VaBackendClient.hasCredentials(this),
+            "pending_communication_events" to VaBackendClient.pendingCommunicationEventCount(this),
+            "last_backend_error" to VaBackendClient.lastRequestError(this),
         )
     }
 
@@ -206,25 +209,57 @@ class MainActivity : FlutterActivity() {
 
     private fun syncRecentCommunications(result: MethodChannel.Result) {
         if (!VaBackendClient.hasCredentials(this)) {
-            result.success(mapOf("processed" to 0, "reason" to "backend_not_linked"))
+            result.success(
+                mapOf(
+                    "success" to false,
+                    "processed" to 0,
+                    "reason" to "backend_not_linked",
+                    "error" to "The native phone bridge is not linked to the VA backend.",
+                ),
+            )
             return
         }
         thread(name = "va-history-sync") {
+            val queued = VaBackendClient.flushPendingCommunicationEvents(this)
             val events = JSONArray()
-            collectSms(events, 180)
-            collectCalls(events, 120)
-            val response = if (events.length() > 0) VaBackendClient.postBatch(this, events) else JSONObject().put("processed", 0)
+            val smsScanned = collectSms(events, 180)
+            val callsScanned = collectCalls(events, 120)
+            val history = if (events.length() > 0) {
+                // Keep each request bounded. Historical ingestion commits real records
+                // and can otherwise exceed the native HTTP timeout on a large inbox.
+                VaBackendClient.postBatchChunked(this, events, 25)
+            } else {
+                JSONObject()
+                    .put("success", true)
+                    .put("submitted", 0)
+                    .put("processed", 0)
+                    .put("duplicates", 0)
+            }
+            val success = queued.optBoolean("success", true) && history.optBoolean("success", true)
+            val error = when {
+                !queued.optBoolean("success", true) -> queued.optString("error")
+                !history.optBoolean("success", true) -> history.optString("error")
+                else -> ""
+            }
             val payload = mapOf(
-                "submitted" to events.length(),
-                "processed" to (response?.optInt("processed", 0) ?: 0),
-                "duplicates" to (response?.optInt("duplicates", 0) ?: 0),
+                "success" to success,
+                "sms_scanned" to smsScanned,
+                "calls_scanned" to callsScanned,
+                "submitted" to history.optInt("submitted", 0),
+                "processed" to history.optInt("processed", 0),
+                "duplicates" to history.optInt("duplicates", 0),
+                "queued_submitted" to queued.optInt("submitted", 0),
+                "queued_processed" to queued.optInt("processed", 0),
+                "pending_after" to VaBackendClient.pendingCommunicationEventCount(this),
+                "error" to error,
             )
             runOnUiThread { result.success(payload) }
         }
     }
 
-    private fun collectSms(events: JSONArray, limit: Int) {
-        if (!hasPermission(Manifest.permission.READ_SMS)) return
+    private fun collectSms(events: JSONArray, limit: Int): Int {
+        if (!hasPermission(Manifest.permission.READ_SMS)) return 0
+        val before = events.length()
         try {
             contentResolver.query(
                 Telephony.Sms.CONTENT_URI,
@@ -266,10 +301,12 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
             // Permission/role diagnostics remain visible in the Flutter UI.
         }
+        return events.length() - before
     }
 
-    private fun collectCalls(events: JSONArray, limit: Int) {
-        if (!hasPermission(Manifest.permission.READ_CALL_LOG)) return
+    private fun collectCalls(events: JSONArray, limit: Int): Int {
+        if (!hasPermission(Manifest.permission.READ_CALL_LOG)) return 0
+        val before = events.length()
         try {
             contentResolver.query(
                 CallLog.Calls.CONTENT_URI,
@@ -319,5 +356,6 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
             // Permission/role diagnostics remain visible in the Flutter UI.
         }
+        return events.length() - before
     }
 }

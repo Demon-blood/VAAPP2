@@ -48,6 +48,7 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> communications = [];
   List<Map<String, dynamic>> communicationRules = [];
   Map<String, dynamic> communicationStatus = {};
+  Map<String, dynamic> lastCommunicationSync = {};
   List<Map<String, dynamic>> communicationThreads = [];
   Map<String, dynamic> communicationOwnership = {};
   Map<String, dynamic> gmailMailboxStatus = {};
@@ -136,6 +137,7 @@ class AppState extends ChangeNotifier {
     communications = [];
     communicationRules = [];
     communicationStatus = {};
+    lastCommunicationSync = {};
     communicationThreads = [];
     communicationOwnership = {};
     gmailMailboxStatus = {};
@@ -442,11 +444,23 @@ class AppState extends ChangeNotifier {
 
   Future<void> refreshCommunications({bool syncDeviceHistory = false}) async {
     if (syncDeviceHistory) {
+      busy = true;
+      error = null;
+      notifyListeners();
       await _syncDeviceLink();
       try {
-        await DeviceBridge.syncRecentCommunications();
-        await DeviceBridge.syncCallPolicy();
+        lastCommunicationSync = await DeviceBridge.syncRecentCommunications();
+        final policySynced = await DeviceBridge.syncCallPolicy();
+        lastCommunicationSync['policy_synced'] = policySynced;
+        if (lastCommunicationSync['success'] == false) {
+          final detail = '${lastCommunicationSync['error'] ?? lastCommunicationSync['reason'] ?? 'unknown error'}';
+          error = 'Phone communication sync failed: $detail';
+        }
       } catch (bridgeError) {
+        lastCommunicationSync = {
+          'success': false,
+          'error': '$bridgeError',
+        };
         error = 'Phone communication sync failed: $bridgeError';
       }
     }
@@ -465,6 +479,7 @@ class AppState extends ChangeNotifier {
     }
     if (results[3] is Map) gmailMailboxStatus = Map<String, dynamic>.from(results[3] as Map);
     await _refreshNativeCommunicationState();
+    if (syncDeviceHistory) busy = false;
     notifyListeners();
   }
 

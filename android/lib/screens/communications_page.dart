@@ -32,6 +32,29 @@ class CommunicationsPage extends StatelessWidget {
     await context.read<AppState>().sendSms(target: number.text.trim(), text: message.text.trim());
   }
 
+  Future<void> _syncPhone(BuildContext context) async {
+    final state = context.read<AppState>();
+    await state.refreshCommunications(syncDeviceHistory: true);
+    if (!context.mounted) return;
+    final result = state.lastCommunicationSync;
+    final success = result['success'] != false;
+    final sms = (result['sms_scanned'] as num?)?.toInt() ?? 0;
+    final calls = (result['calls_scanned'] as num?)?.toInt() ?? 0;
+    final processed = (result['processed'] as num?)?.toInt() ?? 0;
+    final duplicates = (result['duplicates'] as num?)?.toInt() ?? 0;
+    final queued = (result['queued_processed'] as num?)?.toInt() ?? 0;
+    final pending = (result['pending_after'] as num?)?.toInt() ?? 0;
+    final policy = result['policy_synced'] == true;
+    final error = '${result['error'] ?? result['reason'] ?? ''}'.trim();
+    final message = success
+        ? 'Phone sync complete · $sms SMS · $calls calls · $processed accepted · $duplicates already known'
+            '${queued > 0 ? ' · $queued queued events recovered' : ''}${policy ? ' · policies synced' : ''}'
+        : 'Phone sync failed${error.isEmpty ? '' : ': $error'}${pending > 0 ? ' · $pending event${pending == 1 ? '' : 's'} kept safely for retry' : ''}';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
+    );
+  }
+
   Future<void> _addCallRule(BuildContext context) async {
     final number = TextEditingController();
     var disposition = 'silence';
@@ -73,6 +96,9 @@ class CommunicationsPage extends StatelessWidget {
     final state = context.watch<AppState>();
     final status = state.communicationStatus;
     bool ok(String key) => status[key] == true;
+    final backendLinked = ok('backend_linked');
+    final pendingDeviceEvents = (status['pending_communication_events'] as num?)?.toInt() ?? 0;
+    final nativeError = '${status['last_backend_error'] ?? ''}'.trim();
     return Scaffold(
       appBar: AppBar(title: const Text('Communications Autopilot')),
       body: RefreshIndicator(
@@ -104,20 +130,37 @@ class CommunicationsPage extends StatelessWidget {
             const SizedBox(height: 6),
             const Text('Grant these Android roles once. After that, calls and messages feed the same Autopilot, Needs You and Daily Briefing as email.'),
             const SizedBox(height: 12),
-            _AccessTile(title: 'SMS read/send permissions', active: ok('read_sms') && ok('send_sms'), onTap: () => context.read<AppState>().requestCommunicationPermissions()),
+            if (!backendLinked || nativeError.isNotEmpty || pendingDeviceEvents > 0)
+              Card(
+                child: ListTile(
+                  leading: Icon(backendLinked && nativeError.isEmpty ? Icons.sync_problem_rounded : Icons.cloud_off_outlined, color: VaTheme.warning),
+                  title: Text(backendLinked ? 'Phone bridge needs attention' : 'Phone bridge is not linked to the VA backend', style: const TextStyle(fontWeight: FontWeight.w900)),
+                  subtitle: Text([
+                    if (nativeError.isNotEmpty) nativeError,
+                    if (pendingDeviceEvents > 0) '$pendingDeviceEvents inbound event${pendingDeviceEvents == 1 ? '' : 's'} stored safely on this phone for retry.',
+                    if (!backendLinked) 'Refresh the app after pairing; the VA will re-copy the backend link into Android secure storage.',
+                  ].join('\n')),
+                ),
+              ),
+            _AccessTile(title: 'SMS receive/read/send permissions', active: ok('read_sms') && ok('receive_sms') && ok('send_sms'), onTap: () => context.read<AppState>().requestCommunicationPermissions()),
             _AccessTile(title: 'Default SMS role', active: ok('sms_role'), onTap: () => context.read<AppState>().requestSmsRole()),
-            _AccessTile(title: 'WhatsApp / Signal / Telegram / Messenger access', active: ok('notification_access'), onTap: () => context.read<AppState>().openNotificationAccess()),
+            _AccessTile(title: 'WhatsApp / Signal / Telegram / Messenger / RCS access', active: ok('notification_access'), onTap: () => context.read<AppState>().openNotificationAccess()),
             _AccessTile(title: 'Incoming call screening', active: ok('call_screening_role'), onTap: () => context.read<AppState>().requestCallScreeningRole()),
             _AccessTile(title: 'Call-log access', active: ok('read_call_log'), onTap: () => context.read<AppState>().requestCommunicationPermissions()),
             const SizedBox(height: 8),
+            const Text(
+              'SMS and call logs can be backfilled. WhatsApp, Signal, Telegram, Messenger and RCS are captured from new Android notifications after notification access is enabled; Android does not expose their full past conversation history to this app.',
+              style: TextStyle(color: VaTheme.textMuted, fontSize: 12, height: 1.35),
+            ),
+            const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: state.busy ? null : () => context.read<AppState>().refreshCommunications(syncDeviceHistory: true),
+                  onPressed: state.busy ? null : () => _syncPhone(context),
                   icon: const Icon(Icons.sync_rounded),
-                  label: const Text('Sync phone history & policies now'),
+                  label: const Text('Sync SMS/call history & policies now'),
                 ),
                 FilledButton.tonalIcon(
                   onPressed: ok('send_sms') ? () => _sendSms(context) : null,

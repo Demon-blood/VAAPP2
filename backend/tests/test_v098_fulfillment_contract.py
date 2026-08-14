@@ -5,13 +5,13 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_v098_release_identity() -> None:
-    assert 'APP_VERSION = "1.0.0"' in (ROOT / "backend/app/core/version.py").read_text()
-    assert 'version = "1.0.0"' in (ROOT / "backend/pyproject.toml").read_text()
-    assert "version: 1.0.0+42" in (ROOT / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.1"' in (ROOT / "backend/app/core/version.py").read_text()
+    assert 'version = "1.0.1"' in (ROOT / "backend/pyproject.toml").read_text()
+    assert "version: 1.0.1+43" in (ROOT / "android/pubspec.yaml").read_text()
     state = (ROOT / "android/lib/app_state.dart").read_text()
     assert "_versionAtLeast(backendVersion, minimumBackendVersion)" in state
     workflow = (ROOT / ".github/workflows/android-release.yml").read_text()
-    assert "Full-Time-VA-Android-v1.0.0.apk" in workflow
+    assert "Full-Time-VA-Android-v1.0.1.apk" in workflow
 
 
 def test_fulfillment_ledger_is_additive_encrypted_and_idempotent() -> None:

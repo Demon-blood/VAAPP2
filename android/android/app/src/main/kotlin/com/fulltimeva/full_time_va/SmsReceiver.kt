@@ -37,46 +37,61 @@ class SmsReceiver : BroadcastReceiver() {
             }
         }
 
+        val event = JSONObject()
+            .put("external_id", externalId)
+            .put("channel", "sms")
+            .put("provider", "android_sms")
+            .put("package_name", context.packageName)
+            .put("thread_key", VaBackendClient.normalizeNumber(sender))
+            .put("sender", sender)
+            .put("recipient", "me")
+            .put("body", body)
+            .put("direction", "incoming")
+            .put("event_type", "message")
+            .put("occurred_at", VaBackendClient.isoTime(timestamp))
+            .put("supports_direct_reply", true)
+            .put("allow_action", true)
+
+        // Persist first. BroadcastReceiver lifetime is short and Android may stop the
+        // process after onReceive returns, so a real inbound SMS must be durable before
+        // any network request is attempted.
+        VaBackendClient.queueCommunicationEvent(context, event)
+
+        val pendingResult = goAsync()
         thread(name = "va-sms-ingest") {
-            val response = VaBackendClient.postEvent(
-                context,
-                JSONObject()
-                    .put("external_id", externalId)
-                    .put("channel", "sms")
-                    .put("provider", "android_sms")
-                    .put("package_name", context.packageName)
-                    .put("thread_key", VaBackendClient.normalizeNumber(sender))
-                    .put("sender", sender)
-                    .put("recipient", "me")
-                    .put("body", body)
-                    .put("direction", "incoming")
-                    .put("event_type", "message")
-                    .put("occurred_at", VaBackendClient.isoTime(timestamp))
-                    .put("supports_direct_reply", true)
-                    .put("allow_action", true),
-            ) ?: return@thread
-            val decision = response.optJSONObject("decision")
-            if (decision?.optBoolean("action_required", false) == true || decision?.optBoolean("protected", false) == true) {
-                VaBackendClient.notifyAttention(
-                    context,
-                    "Message needs you",
-                    if (sender.isBlank()) body else "$sender · $body",
-                    externalId,
-                )
-            }
-            val action = response.optJSONObject("device_action") ?: return@thread
-            if (action.optString("type") != "reply") return@thread
-            val actionId = action.optLong("id", -1L)
-            val text = action.optString("text")
-            if (actionId <= 0 || text.isBlank() || !VaBackendClient.markActionExecuted(context, actionId)) return@thread
             try {
-                VaSms.send(context, sender, text, actionId)
-                // SmsStatusReceiver reports real carrier send/delivery callbacks.
-                // Do not mark this action complete merely because SmsManager accepted the request.
-            } catch (exc: Exception) {
-                VaBackendClient.clearActionExecuted(context, actionId)
-                VaBackendClient.postActionResult(context, actionId, "failed", exc.toString())
+                val response = VaBackendClient.postEvent(context, event)
+                if (response == null) {
+                    VaCommunicationPendingWorker.scheduleImmediate(context)
+                    return@thread
+                }
+                VaBackendClient.removeQueuedCommunicationEvent(context, externalId)
+                val decision = response.optJSONObject("decision")
+                if (decision?.optBoolean("action_required", false) == true || decision?.optBoolean("protected", false) == true) {
+                    VaBackendClient.notifyAttention(
+                        context,
+                        "Message needs you",
+                        if (sender.isBlank()) body else "$sender · $body",
+                        externalId,
+                    )
+                }
+                val action = response.optJSONObject("device_action") ?: return@thread
+                if (action.optString("type") != "reply") return@thread
+                val actionId = action.optLong("id", -1L)
+                val text = action.optString("text")
+                if (actionId <= 0 || text.isBlank() || !VaBackendClient.markActionExecuted(context, actionId)) return@thread
+                try {
+                    VaSms.send(context, sender, text, actionId)
+                    // SmsStatusReceiver reports real carrier send/delivery callbacks.
+                    // Do not mark this action complete merely because SmsManager accepted the request.
+                } catch (exc: Exception) {
+                    VaBackendClient.clearActionExecuted(context, actionId)
+                    VaBackendClient.postActionResult(context, actionId, "failed", exc.toString())
+                }
+            } finally {
+                pendingResult.finish()
             }
         }
     }
+
 }

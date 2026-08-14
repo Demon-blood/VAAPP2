@@ -1211,6 +1211,18 @@ async def google_start(
 async def google_callback(code: str, state: str, db: AsyncSession = Depends(get_db)) -> HTMLResponse:
     try:
         connection = await complete_google_authorization(db, code, state)
+        topic = (await get_runtime_value(db, "google_pubsub_topic", "")).strip()
+        if topic:
+            from app.services.workflow_engine import enqueue_job
+
+            await enqueue_job(
+                db,
+                job_type="gmail.watch.ensure",
+                payload={"force": True},
+                idempotency_key=f"gmail.watch.oauth:{new_token(12)}",
+                priority=5,
+                max_attempts=5,
+            )
         return HTMLResponse(
             f"<html><body><h2>Google connected</h2><p>{html.escape(connection.account_key)}</p>"
             "<p>You may return to Full-Time VA.</p></body></html>"
@@ -2497,6 +2509,29 @@ async def configure_section(
     updated = next(item for item in await section_status(db) if item["slug"] == section_slug)
     await write_audit(db, "service_configuration_updated", entity_type="service", entity_id=section_slug)
     await db.commit()
+
+    # A newly configured Pub/Sub topic should become an executor now, not up to
+    # twelve hours later at the next periodic watch-renewal tick. The durable
+    # workflow still owns retries and Gmail provider errors.
+    if section_slug == "google" and str(values.get("google_pubsub_topic") or "").strip():
+        google_connected = bool(
+            (
+                await db.execute(
+                    select(func.count()).select_from(OAuthConnection).where(OAuthConnection.provider == "google")
+                )
+            ).scalar()
+        )
+        if google_connected:
+            from app.services.workflow_engine import enqueue_job
+
+            await enqueue_job(
+                db,
+                job_type="gmail.watch.ensure",
+                payload={"force": True},
+                idempotency_key=f"gmail.watch.configure:{new_token(12)}",
+                priority=5,
+                max_attempts=5,
+            )
     return updated
 
 

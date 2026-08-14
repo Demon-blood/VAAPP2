@@ -1,23 +1,25 @@
 # VAAPP project handoff
 
-Updated: 2026-08-13  
+Updated: 2026-08-14  
 Repository: `Demon-blood/VAAPP2`  
 Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–9 are complete on GitHub. The verified Phase-9 baseline is commit `7e8be1f82cb86c66ae07b2b90fe2173858757aa7` (`Phase 9 CI fix`). GitHub Actions run #40 completed successfully on 2026-08-13, including the full backend test suite, Flutter analysis/tests, persistent-signing Android release build, and GitHub prerelease publication.
+Phases 1–10 and production v1.0 are complete on GitHub. The verified v1.0 baseline is commit `66c09040326ac553a1402cd06fa6771344195d45` (`Phase 10 — Professional Product Cleanup / v1.0`). GitHub Actions run #41 completed successfully, including the full backend test suite, Flutter analysis/tests, persistent-signing Android release build, and GitHub prerelease publication.
 
-Verified baseline release: backend `0.9.8` / Android `0.9.8+41`.
+Verified baseline release: backend `1.0.0` / Android `1.0.0+42`.
 
 ## Current local candidate
 
-Backend `1.0.0` / Android `1.0.0+42`.
+Backend `1.0.1` / Android `1.0.1+43`.
 
-Current phase: **Phase 10 — Professional Product Cleanup / v1.0**.  
-Status: **implemented locally from the verified Phase-9 baseline; awaiting upload and full GitHub CI**.
+Current maintenance release: **v1.0.1 — Communications Reliability**.  
+Status: **implemented locally from the verified v1.0 baseline; awaiting upload and full GitHub CI**.
 
-Next work after the v1.0 gate is green: **v1.x maintenance and real-world hardening**.
+The patch makes Android inbound communications durable before network dispatch, makes phone history/policy synchronization observable, bounds history uploads, and adds RCS/message-notification capture without weakening the evidence or authorization model.
+
+Next work after the v1.0.1 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 
@@ -59,6 +61,14 @@ Android exposes **Product Status** from the main app bar. It reports release com
 
 No Phase-10 feature relaxes the core evidence rule. Provider/browser/call/payment intent can be `initiated`, `dispatching`, `creation_uncertain`, `needs_user`, `blocked_capability`, or `blocked_system`; terminal completion still requires the relevant domain's independent provider/source postcondition.
 
+## v1.0.1 communications reliability
+
+- Native SMS events are encrypted to a local outbox before backend dispatch. Temporary Render/network failure is retried by WorkManager; a failed HTTP call is no longer silent.
+- `Sync SMS/call history & policies now` returns visible counts and errors instead of discarding the native result.
+- RECEIVE_SMS is part of the displayed permission health. Native backend-link errors and locally queued inbound-event counts are visible in Communications Autopilot.
+- History imports are sent in bounded chunks and do not consume one AI decision call per historical record.
+- Google Messages/Samsung Messages notifications are accepted through the notification listener for RCS/message visibility where Android exposes a notification. Provider chat-history scraping is not claimed.
+
 ## Finance constraints remain mandatory
 
 - Beobank Personal = operating/salary/critical obligations.
@@ -74,12 +84,12 @@ No Phase-10 feature relaxes the core evidence rule. Provider/browser/call/paymen
 - Kraken auto funding/trading remains off until explicitly configured.
 - Kraken withdrawals remain disabled/not implemented.
 
-## v1.0 release gate
+## v1.0.1 release gate
 
-1. Overlay the Phase-10 package at repository root.
+1. Overlay the v1.0.1 maintenance package at repository root.
 2. Commit the extracted files, not the ZIP.
-3. Push to `main`.
-4. Confirm the full GitHub Actions workflow is green.
-5. If CI fails, fix v1.0 before declaring the roadmap complete.
+3. Push to `main` and allow the Render backend auto-deploy to reach 1.0.1.
+4. Confirm the full GitHub Actions workflow is green and install the signed Android 1.0.1 APK.
+5. In Communications Autopilot, run the phone sync and verify the reported scan/accepted/error counts.
 
-Suggested commit message: `Phase 10 — Professional Product Cleanup / v1.0`.
+Suggested commit message: `v1.0.1 — Communications Reliability`.

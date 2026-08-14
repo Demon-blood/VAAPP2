@@ -33,6 +33,9 @@ object VaBackendClient {
     private const val PREFS = "va_native"
     private const val KEY_ALIAS = "full_time_va_native_credentials_v1"
     private const val CHANNEL_ID = "va_communications_attention"
+    private const val KEY_PENDING_EVENTS = "pending_communication_events_v1"
+    private const val KEY_LAST_REQUEST_ERROR = "last_backend_error"
+    private const val MAX_PENDING_EVENTS = 200
 
     fun saveCredentials(context: Context, serverUrl: String?, deviceToken: String?) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -73,6 +76,104 @@ object VaBackendClient {
 
     fun postBatch(context: Context, events: JSONArray): JSONObject? =
         request(context, "POST", "/api/communications/batch", JSONObject().put("events", events))
+
+    fun lastRequestError(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_LAST_REQUEST_ERROR, "").orEmpty()
+
+    fun pendingCommunicationEventCount(context: Context): Int = loadPendingCommunicationEvents(context).length()
+
+    fun queueCommunicationEvent(context: Context, event: JSONObject): Boolean {
+        val pending = loadPendingCommunicationEvents(context)
+        val externalId = event.optString("external_id")
+        for (index in 0 until pending.length()) {
+            val existing = pending.optJSONObject(index) ?: continue
+            if (externalId.isNotBlank() && existing.optString("external_id") == externalId) return true
+        }
+        pending.put(JSONObject(event.toString()))
+        while (pending.length() > MAX_PENDING_EVENTS) pending.remove(0)
+        return persistPendingCommunicationEvents(context, pending)
+    }
+
+    fun removeQueuedCommunicationEvent(context: Context, externalId: String): Boolean {
+        if (externalId.isBlank()) return false
+        val pending = loadPendingCommunicationEvents(context)
+        val retained = JSONArray()
+        var removed = false
+        for (index in 0 until pending.length()) {
+            val event = pending.optJSONObject(index) ?: continue
+            if (event.optString("external_id") == externalId) {
+                removed = true
+            } else {
+                retained.put(event)
+            }
+        }
+        return if (removed) persistPendingCommunicationEvents(context, retained) else true
+    }
+
+    fun postBatchChunked(context: Context, events: JSONArray, chunkSize: Int = 25): JSONObject {
+        val size = chunkSize.coerceIn(1, 100)
+        var processed = 0
+        var duplicates = 0
+        var submitted = 0
+        var chunks = 0
+        var start = 0
+        while (start < events.length()) {
+            val chunk = JSONArray()
+            val end = minOf(start + size, events.length())
+            for (index in start until end) chunk.put(events.get(index))
+            val response = postBatch(context, chunk)
+                ?: return JSONObject()
+                    .put("success", false)
+                    .put("submitted", submitted)
+                    .put("processed", processed)
+                    .put("duplicates", duplicates)
+                    .put("chunks", chunks)
+                    .put("error", lastRequestError(context).ifBlank { "Backend upload failed" })
+            submitted += chunk.length()
+            processed += response.optInt("processed", 0)
+            duplicates += response.optInt("duplicates", 0)
+            chunks += 1
+            start = end
+        }
+        return JSONObject()
+            .put("success", true)
+            .put("submitted", submitted)
+            .put("processed", processed)
+            .put("duplicates", duplicates)
+            .put("chunks", chunks)
+    }
+
+    fun flushPendingCommunicationEvents(context: Context): JSONObject {
+        val pending = loadPendingCommunicationEvents(context)
+        if (pending.length() == 0) {
+            return JSONObject()
+                .put("success", true)
+                .put("submitted", 0)
+                .put("processed", 0)
+                .put("duplicates", 0)
+        }
+        val result = postBatchChunked(context, pending)
+        if (result.optBoolean("success", false)) persistPendingCommunicationEvents(context, JSONArray())
+        return result
+    }
+
+    private fun loadPendingCommunicationEvents(context: Context): JSONArray {
+        val encoded = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_PENDING_EVENTS, null)
+            ?: return JSONArray()
+        val decoded = decrypt(encoded) ?: return JSONArray()
+        return try { JSONArray(decoded) } catch (_: Exception) { JSONArray() }
+    }
+
+    private fun persistPendingCommunicationEvents(context: Context, events: JSONArray): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (events.length() == 0) {
+            prefs.edit().remove(KEY_PENDING_EVENTS).apply()
+            return true
+        }
+        val encrypted = encrypt(events.toString()) ?: return false
+        prefs.edit().putString(KEY_PENDING_EVENTS, encrypted).apply()
+        return true
+    }
 
     fun postActionResult(
         context: Context,
@@ -284,9 +385,12 @@ object VaBackendClient {
         path: String,
         body: JSONObject?,
     ): JSONObject? {
-        val base = serverUrl(context)?.trimEnd('/') ?: return null
-        val token = deviceToken(context) ?: return null
-        if (base.isBlank() || token.isBlank()) return null
+        val base = serverUrl(context)?.trimEnd('/')
+        val token = deviceToken(context)
+        if (base.isNullOrBlank() || token.isNullOrBlank()) {
+            saveLastRequestError(context, "Native VA backend link is missing")
+            return null
+        }
         var connection: HttpURLConnection? = null
         return try {
             connection = (URL(base + path).openConnection() as HttpURLConnection).apply {
@@ -304,11 +408,27 @@ object VaBackendClient {
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val text = if (stream == null) "" else BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).use { it.readText() }
-            if (code !in 200..299 || text.isBlank()) null else JSONObject(text)
-        } catch (_: Exception) {
+            if (code !in 200..299) {
+                saveLastRequestError(context, "HTTP $code ${text.take(700)}".trim())
+                null
+            } else if (text.isBlank()) {
+                saveLastRequestError(context, "Backend returned an empty response for $path")
+                null
+            } else {
+                saveLastRequestError(context, "")
+                JSONObject(text)
+            }
+        } catch (exc: Exception) {
+            saveLastRequestError(context, "${exc.javaClass.simpleName}: ${exc.message ?: exc.toString()}".take(800))
             null
         } finally {
             connection?.disconnect()
         }
+    }
+
+    private fun saveLastRequestError(context: Context, value: String) {
+        val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        if (value.isBlank()) editor.remove(KEY_LAST_REQUEST_ERROR) else editor.putString(KEY_LAST_REQUEST_ERROR, value)
+        editor.apply()
     }
 }

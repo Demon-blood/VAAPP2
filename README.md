@@ -1,10 +1,21 @@
-# Full-Time VA v1.0.0 — Production Release
+# Full-Time VA v1.0.1 — Communications Reliability
 
-Full-Time VA v1.0.0 is the cumulative Phase 1–10 production release. It combines the autonomous core with provider-verified communications, calendar ownership, relationship memory, secure browser operations, document/form/deadline ownership, conservative financial allocation, real PSTN telephony, and fulfillment ownership for purchasing/travel/logistics/customer service.
+Full-Time VA v1.0.1 is the first maintenance release on the cumulative Phase 1–10 production baseline. It combines the autonomous core with provider-verified communications, calendar ownership, relationship memory, secure browser operations, document/form/deadline ownership, conservative financial allocation, real PSTN telephony, and fulfillment ownership for purchasing/travel/logistics/customer service.
 
-The v1.0 release does not add a simulated executor. Its cleanup work aligns backend/Android compatibility, phone deployment verification, release metadata, diagnostics, and product-readiness reporting around one stable release contract.
+The v1.0.1 patch does not add a simulated executor. It hardens Android communications ingestion and sync observability while preserving the v1.0 evidence contract. The v1.0 release cleanup aligned backend/Android compatibility, phone deployment verification, release metadata, diagnostics, and product-readiness reporting around one stable release contract.
 
 **Completion rule:** external work is complete only when the relevant domain ledger contains independent provider/source evidence for the requested postcondition. A local button press, dispatched browser action, initiated payment, placed call, or configured provider is not completion evidence.
+
+
+## v1.0.1 communications reliability
+
+- Incoming SMS is persisted to an encrypted Android outbox **before** native network dispatch. If the backend or network is unavailable, WorkManager owns retry instead of silently losing the real event.
+- Manual phone synchronization now reports SMS/call rows scanned, records accepted, duplicates, queued-event recovery, policy synchronization and native backend errors.
+- Historical SMS/call uploads are chunked and classified deterministically during catch-up so a large phone history does not create an AI request/time-out storm.
+- Communications diagnostics now check RECEIVE_SMS as well as read/send, expose native backend-link failures, and show pending locally retained inbound events.
+- WhatsApp, Signal, Telegram, Messenger and supported RCS/message-app notifications remain notification-driven. The app does not claim access to those providers' complete historical chat databases.
+
+See `docs/V1.0.1_COMMUNICATIONS_RELIABILITY.md` for the maintenance contract and verification notes.
 
 ## Cash structure
 
@@ -27,9 +38,9 @@ The v1.0 release does not add a simulated executor. Its cleanup work aligns back
 
 ## Release identity
 
-Backend `1.0.0` · Android `1.0.0+42` · APK `Full-Time-VA-Android-v1.0.0.apk`.
+Backend `1.0.1` · Android `1.0.1+43` · APK `Full-Time-VA-Android-v1.0.1.apk`.
 
-Verified Phase-9 baseline: commit `7e8be1f82cb86c66ae07b2b90fe2173858757aa7`, GitHub Actions run #40 successful.
+Verified v1.0 baseline: commit `66c09040326ac553a1402cd06fa6771344195d45`, GitHub Actions run #41 successful.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 

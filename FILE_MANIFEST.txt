@@ -192,6 +192,7 @@
 ./backend/tests/test_v097_telephony_contract.py
 ./backend/tests/test_v098_fulfillment_contract.py
 ./backend/tests/test_v100_product_release_contract.py
+./backend/tests/test_v101_communications_reliability_contract.py
 ./backend/tests/test_version_and_routes.py
 ./backend/tests/test_workflow_engine.py
 ./build_android.ps1
@@ -232,6 +233,7 @@
 ./docs/V0.9.7_CALLS_TELEPHONY.md
 ./docs/V0.9.8_PURCHASING_TRAVEL_LOGISTICS_CUSTOMER_SERVICE.md
 ./docs/V1.0.0_PRODUCT_RELEASE.md
+./docs/V1.0.1_COMMUNICATIONS_RELIABILITY.md
 ./generate_enable_banking_keys.ps1
 ./render.yaml
 ./start_backend.ps1

@@ -7,11 +7,11 @@ def _root() -> Path:
 
 def test_v093_release_identity() -> None:
     root = _root()
-    assert 'APP_VERSION = "1.0.0"' in (root / 'backend/app/core/version.py').read_text()
-    assert 'version = "1.0.0"' in (root / 'backend/pyproject.toml').read_text()
-    assert 'version: 1.0.0+42' in (root / 'android/pubspec.yaml').read_text()
+    assert 'APP_VERSION = "1.0.1"' in (root / 'backend/app/core/version.py').read_text()
+    assert 'version = "1.0.1"' in (root / 'backend/pyproject.toml').read_text()
+    assert 'version: 1.0.1+43' in (root / 'android/pubspec.yaml').read_text()
     workflow = (root / '.github/workflows/android-release.yml').read_text()
-    assert 'Full-Time-VA-Android-v1.0.0.apk' in workflow
+    assert 'Full-Time-VA-Android-v1.0.1.apk' in workflow
 
 
 def test_relationship_memory_has_canonical_identity_and_provenance_ledgers() -> None:
