@@ -6,9 +6,9 @@ Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–10 and production v1.0 are complete on GitHub. The current verified maintenance baseline is commit `af339ac48e600b38bebababbb048e77464be3900` (`v1.0.4 — Execution Readiness & Setup Assistant`). GitHub Actions run #45 completed successfully end-to-end, including the backend suite, Flutter analysis/tests, persistent-signing Android release build, and GitHub prerelease publication.
+Phases 1–10 and production v1.0 are complete on GitHub. The current verified maintenance release is commit `752d69b224bb8b0bfb96663e1df5089a30442bfb` (`v1.0.5 — Human Boundary & Relationship-Aware Communications`). GitHub Actions run #49 completed successfully end-to-end, including the backend suite, Flutter analysis/tests, persistent-signing Android release build, and GitHub prerelease publication.
 
-Verified maintenance release: backend `1.0.4` / Android `1.0.4+46`.
+Verified maintenance release: backend `1.0.5` / Android `1.0.5+47`.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
@@ -17,7 +17,7 @@ Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa677
 Backend `1.0.5` / Android `1.0.5+47`.
 
 Current maintenance candidate: **v1.0.5 — Human Boundary & Relationship-Aware Communications**.
-Status: **recovered as a coherent source candidate; the complete backend gate passes locally and canonical GitHub Android release validation is pending.**
+Status: **verified by canonical GitHub Actions run #49; backend, Flutter, signed APK, and prerelease publication are green.**
 
 The candidate adds objective-bound Authorize/Decline decisions, repairs duplicate communication ownership/cross-transport SMS mirrors, adds user-explicit Phase-4 relationship reply preferences, and adds opt-in learned relationship writing style from device-observed non-VA sent history. Authorization remains distinct from completion evidence, and relationship style never grants financial/legal/security/browser/banking or other material execution authority.
 

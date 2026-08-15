@@ -86,7 +86,7 @@ See `docs/V1.0.2_MAINTENANCE_RELIABILITY.md` for the maintenance contract and ve
 
 Backend `1.0.5` · Android `1.0.5+47` · APK `Full-Time-VA-Android-v1.0.5.apk`.
 
-Verified maintenance baseline: commit `af339ac48e600b38bebababbb048e77464be3900` (`v1.0.4 — Execution Readiness & Setup Assistant`), GitHub Actions run #45 successful.
+Verified maintenance release: commit `752d69b224bb8b0bfb96663e1df5089a30442bfb` (`v1.0.5 — Human Boundary & Relationship-Aware Communications`), GitHub Actions run #49 successful.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 
