@@ -1,0 +1,326 @@
+name: v1.0.5 Final Source Repair v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v105-final-source-repair-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: v105-final-source-repair-v2
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+
+      - name: Verify current mixed state
+        run: |
+          set -euo pipefail
+
+          # Product source is still unrepaired.
+          grep -F 'APP_VERSION = "1.0.4"' backend/app/core/version.py
+          grep -F 'version: 1.0.4+46' android/pubspec.yaml
+
+          # The canonical Android workflow was already manually bumped to v1.0.5.
+          grep -F 'Full-Time-VA-Android-v1.0.5.apk' .github/workflows/android-release.yml
+          grep -F 'Full-Time VA Android v1.0.5' .github/workflows/android-release.yml
+
+          test -f repair_v105_after_partial_upload.py
+          test -f backend/tests/test_v105_human_boundary_relationship_contract.py
+          git diff --quiet
+          git diff --cached --quiet
+
+      - name: Apply v1.0.5 source repair in memory
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          script = Path("repair_v105_after_partial_upload.py").resolve()
+          source = script.read_text(encoding="utf-8")
+
+          # Base-lock the historical repair helper to the exact triggering commit,
+          # but only in memory so its clean-tree guard still sees a clean checkout.
+          old_base = 'REPAIR_BASE_COMMIT = "3bf8794c21ac30f61e1ccf84e452fc65785187a4"'
+          new_base = f'REPAIR_BASE_COMMIT = "{os.environ["GITHUB_SHA"]}"'
+          if source.count(old_base) != 1:
+              raise SystemExit("repair base marker missing or duplicated")
+          source = source.replace(old_base, new_base, 1)
+
+          # The user already manually updated android-release.yml to v1.0.5.
+          # Make the historical release patch idempotent for that one file while
+          # preserving all other product-source changes.
+          old_workflow_patch = '''    workflow = ".github/workflows/android-release.yml"
+              text = read(workflow)
+              for old, new in [
+                  ("backend 1.0.4", "backend 1.0.5"),
+                  ("Full-Time-VA-Android-v1.0.4.apk", "Full-Time-VA-Android-v1.0.5.apk"),
+                  ("Full-Time VA Android v1.0.4", "Full-Time VA Android v1.0.5"),
+              ]:
+                  if old not in text:
+                      fail(f"workflow baseline anchor missing: {old}")
+                  text = text.replace(old, new)
+              write(workflow, text)
+          '''
+          # Remove the indentation introduced by this workflow's Python literal.
+          old_workflow_patch = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in old_workflow_patch.splitlines()
+          ) + "\n"
+
+          new_workflow_patch = '''    workflow = ".github/workflows/android-release.yml"
+              text = read(workflow)
+              pairs = [
+                  ("backend 1.0.4", "backend 1.0.5"),
+                  ("Full-Time-VA-Android-v1.0.4.apk", "Full-Time-VA-Android-v1.0.5.apk"),
+                  ("Full-Time VA Android v1.0.4", "Full-Time VA Android v1.0.5"),
+              ]
+              if all(new in text for _old, new in pairs):
+                  pass
+              else:
+                  for old, new in pairs:
+                      if old not in text:
+                          fail(f"workflow baseline anchor missing: {old}")
+                      text = text.replace(old, new)
+                  write(workflow, text)
+          '''
+          new_workflow_patch = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in new_workflow_patch.splitlines()
+          ) + "\n"
+
+          if source.count(old_workflow_patch) != 1:
+              raise SystemExit("historical workflow patch block changed unexpectedly")
+          source = source.replace(old_workflow_patch, new_workflow_patch, 1)
+
+          ns = {
+              "__name__": "__main__",
+              "__file__": str(script),
+              "__package__": None,
+          }
+          exec(compile(source, str(script), "exec"), ns, ns)
+          PY
+
+      - name: Apply verified compatibility test updates
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".")
+          tests = root / "backend" / "tests"
+
+          replacements = {
+              'APP_VERSION = "1.0.4"': 'APP_VERSION = "1.0.5"',
+              'REQUIRED_ANDROID_VERSION = "1.0.4"': 'REQUIRED_ANDROID_VERSION = "1.0.5"',
+              'version = "1.0.4"': 'version = "1.0.5"',
+              'version: 1.0.4+46': 'version: 1.0.5+47',
+              "const String appRelease = '1.0.4';": "const String appRelease = '1.0.5';",
+              "const String minimumBackendVersion = '1.0.4';": "const String minimumBackendVersion = '1.0.5';",
+              'Full-Time-VA-Android-v1.0.4.apk': 'Full-Time-VA-Android-v1.0.5.apk',
+              'Full-Time VA Android v1.0.4': 'Full-Time VA Android v1.0.5',
+              'APP_VERSION == "1.0.4"': 'APP_VERSION == "1.0.5"',
+              'REQUIRED_ANDROID_VERSION == "1.0.4"': 'REQUIRED_ANDROID_VERSION == "1.0.5"',
+              '"release": "1.0.4"': '"release": "1.0.5"',
+              '"android_version": "1.0.4+46"': '"android_version": "1.0.5+47"',
+          }
+
+          for p in sorted(tests.glob("test_*.py")):
+              text = p.read_text(encoding="utf-8")
+              updated = text
+              for old, new in replacements.items():
+                  updated = updated.replace(old, new)
+              if updated != text:
+                  p.write_text(updated, encoding="utf-8", newline="\n")
+
+          # Minimal-schema autonomy tests need the RelationshipIdentity table that
+          # relationship-aware reply policy now queries.
+          p = tests / "test_v061_autonomy_policy.py"
+          text = p.read_text(encoding="utf-8")
+          old_import = "from app.models.entities import EmailMessage, OperationPreference, RuntimeSetting"
+          new_import = "from app.models.entities import EmailMessage, OperationPreference, RelationshipIdentity, RuntimeSetting"
+          old_tables = "for table in (RuntimeSetting, OperationPreference, EmailMessage):"
+          new_tables = "for table in (RuntimeSetting, OperationPreference, EmailMessage, RelationshipIdentity):"
+          if text.count(old_import) != 1 or text.count(old_tables) != 1:
+              raise SystemExit("v0.6.1 autonomy fixture anchors changed unexpectedly")
+          p.write_text(
+              text.replace(old_import, new_import, 1).replace(old_tables, new_tables, 1),
+              encoding="utf-8",
+              newline="\n",
+          )
+
+          # v1.0.5 intentionally removes the duplicate legacy communication Task.
+          p = tests / "test_v070_communications.py"
+          text = p.read_text(encoding="utf-8")
+          old = (
+              '    task = (await db.execute(select(Task).where(Task.source_type == "communication"))).scalar_one()\n'
+              '    assert task.requires_approval is True\n'
+          )
+          new = (
+              '    tasks = list((await db.execute(select(Task).where(Task.source_type == "communication"))).scalars())\n'
+              '    assert tasks == []\n'
+          )
+          if text.count(old) != 1:
+              raise SystemExit("v0.7 communication legacy-task assertion anchor changed unexpectedly")
+          p.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+
+          # Preserve original production-v1 verification metadata.
+          state_path = root / "VAAPP_PROJECT_STATE.json"
+          state = json.loads(state_path.read_text(encoding="utf-8"))
+          state["verified_baseline_commit"] = "66c09040326ac553a1402cd06fa6771344195d45"
+          state["verified_baseline_actions_run"] = 41
+          state["verified_baseline_actions_conclusion"] = "success"
+          state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Remove deployment helpers
+        run: |
+          set -euo pipefail
+          rm -f \
+            repair_v105_after_partial_upload.py \
+            V105_REPAIR_README.md \
+            apply_v105_human_boundary.py \
+            V105_DELTA_README.md
+
+      - name: Run full backend gate
+        run: |
+          set -euo pipefail
+
+          python3 -m venv "$RUNNER_TEMP/v105-final-v2"
+          source "$RUNNER_TEMP/v105-final-v2/bin/activate"
+          python -m pip install --upgrade pip
+          pip install -e './backend[dev]'
+
+          python -m compileall -q backend/app backend/tests
+          ruff check backend/app backend/tests --select E9,F63,F7,F82
+
+          PUBLIC_BASE_URL=https://example.invalid \
+          PAIRING_SECRET=github-actions-pairing-secret-00000000 \
+          TOKEN_ENCRYPTION_KEY=MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE= \
+          pytest -q backend/tests
+
+      - name: Clean tracked Python build artifacts and refresh manifests
+        run: |
+          set -euo pipefail
+
+          # These bytecode/build-metadata files are already tracked in the current
+          # repository. Their deletion is intentional repository hygiene.
+          find backend -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find backend -type d -name '*.egg-info' -prune -exec rm -rf {} +
+          find backend -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+
+          # Prevent recurrence.
+          touch .gitignore
+          for pattern in '__pycache__/' '*.py[cod]' '*.egg-info/'; do
+            grep -Fxq "$pattern" .gitignore || printf '%s\n' "$pattern" >> .gitignore
+          done
+
+          python3 - <<'PY'
+          import hashlib
+          import subprocess
+          from pathlib import Path
+
+          root = Path(".")
+          excluded = {
+              "FILE_MANIFEST.txt",
+              "SHA256SUMS.txt",
+              "repair_v105_after_partial_upload.py",
+              "V105_REPAIR_README.md",
+              "apply_v105_human_boundary.py",
+              "V105_DELTA_README.md",
+          }
+          tracked = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+          paths = sorted(
+              p for p in tracked
+              if p not in excluded and (root / p).is_file()
+          )
+
+          (root / "FILE_MANIFEST.txt").write_text(
+              "".join(f"./{p}\n" for p in paths),
+              encoding="utf-8",
+          )
+          (root / "SHA256SUMS.txt").write_text(
+              "".join(
+                  f"{hashlib.sha256((root / p).read_bytes()).hexdigest()}  ./{p}\n"
+                  for p in paths
+              ),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Commit and push verified source
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          # This bot-authored commit must not change any workflow file.
+          if git diff --cached --name-only | grep -q '^.github/workflows/'; then
+            echo "Unexpected workflow-file change is staged; refusing push." >&2
+            git diff --cached --name-only | grep '^.github/workflows/' >&2 || true
+            exit 1
+          fi
+
+          # Generated artifacts may be DELETED (they are already tracked in the
+          # repository), but must never be added or modified.
+          if git diff --cached --name-only --diff-filter=AMCR | \
+             grep -E '(__pycache__|\.py[co]$|\.egg-info/)' ; then
+            echo "Generated Python artifact was added/modified; refusing push." >&2
+            exit 1
+          fi
+
+          grep -F 'APP_VERSION = "1.0.5"' backend/app/core/version.py
+          grep -F 'version: 1.0.5+47' android/pubspec.yaml
+          grep -F 'Full-Time-VA-Android-v1.0.5.apk' .github/workflows/android-release.yml
+
+          git diff --cached --stat
+
+          if git diff --cached --quiet; then
+            echo "No source changes produced." >&2
+            exit 1
+          fi
+
+          git commit -m "v1.0.5 — verified Human Boundary & Relationship Communications"
+          REPAIRED_SHA="$(git rev-parse HEAD)"
+          echo "REPAIRED_SHA=$REPAIRED_SHA" >> "$GITHUB_ENV"
+          git push origin HEAD:main
+
+      - name: Dispatch canonical Android build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/android-release.yml/dispatches" \
+            -f ref=main
+
+          {
+            echo "## v1.0.5 source repair pushed"
+            echo
+            echo "Commit: \`${REPAIRED_SHA}\`"
+            echo
+            echo "Backend gate passed before push."
+            echo
+            echo "Build Android APK was explicitly dispatched on repaired main."
+          } >> "$GITHUB_STEP_SUMMARY"
