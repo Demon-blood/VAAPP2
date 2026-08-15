@@ -1,0 +1,192 @@
+name: v1.0.5 Direct GitHub Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v105-direct-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: v105-direct-github-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out the exact triggering commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          cat > "$RUNNER_TEMP/git-askpass.sh" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/git-askpass.sh"
+          GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+            git fetch --no-tags --depth=20 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - name: Refuse to repair an unexpected repository state
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+
+          KNOWN_PARTIAL_REPAIR="0527e14d9296bad73dcb8504c81ac4d48f73b3c1"
+
+          if ! git merge-base --is-ancestor "$KNOWN_PARTIAL_REPAIR" HEAD; then
+            echo "This repair is only valid on top of $KNOWN_PARTIAL_REPAIR." >&2
+            exit 1
+          fi
+
+          AHEAD="$(git rev-list --count "${KNOWN_PARTIAL_REPAIR}..HEAD")"
+          if [ "$AHEAD" -gt 1 ]; then
+            echo "main has moved by more than the single workflow-upload commit. Refusing to stack the repair." >&2
+            exit 1
+          fi
+
+          grep -F 'APP_VERSION = "1.0.4"' backend/app/core/version.py
+          grep -F 'version: 1.0.4+46' android/pubspec.yaml
+
+          for required in \
+            repair_v105_after_partial_upload.py \
+            backend/app/api/v105_routes.py \
+            backend/app/services/communication_correlation.py \
+            backend/app/services/relationship_preferences.py \
+            backend/app/services/relationship_style_learning.py \
+            backend/app/services/specific_authorization.py \
+            backend/tests/test_v105_human_boundary_relationship_contract.py \
+            android/lib/screens/relationship_preferences_page.dart \
+            docs/V1.0.5_HUMAN_BOUNDARY_RELATIONSHIP_COMMUNICATIONS.md
+          do
+            test -f "$required" || {
+              echo "Missing required partial-upload file: $required" >&2
+              exit 1
+            }
+          done
+
+      - name: Apply the already-committed v1.0.5 repair to this GitHub commit
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("repair_v105_after_partial_upload.py")
+          text = path.read_text(encoding="utf-8")
+          old = 'REPAIR_BASE_COMMIT = "3bf8794c21ac30f61e1ccf84e452fc65785187a4"'
+          new = f'REPAIR_BASE_COMMIT = "{os.environ["GITHUB_SHA"]}"'
+          if text.count(old) != 1:
+              raise SystemExit("Expected repair-base anchor was not found exactly once.")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+          PY
+
+          python3 repair_v105_after_partial_upload.py
+
+          # These were deployment helpers accidentally committed during the two
+          # partial-upload attempts. They are not runtime product source.
+          rm -f repair_v105_after_partial_upload.py V105_REPAIR_README.md
+
+      - name: Verify the repaired backend before pushing
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+
+          python3 --version
+          python3 -m venv "$RUNNER_TEMP/va-v105-repair-venv"
+          source "$RUNNER_TEMP/va-v105-repair-venv/bin/activate"
+          python -m pip install --upgrade pip
+          pip install -e './backend[dev]'
+
+          python -m compileall -q backend/app backend/tests
+          ruff check backend/app backend/tests --select E9,F63,F7,F82
+
+          PUBLIC_BASE_URL=https://example.invalid \
+          PAIRING_SECRET=github-actions-pairing-secret-00000000 \
+          TOKEN_ENCRYPTION_KEY=MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE= \
+          pytest -q backend/tests
+
+          grep -F 'APP_VERSION = "1.0.5"' backend/app/core/version.py
+          grep -F 'REQUIRED_ANDROID_VERSION = "1.0.5"' backend/app/core/version.py
+          grep -F 'version: 1.0.5+47' android/pubspec.yaml
+          grep -F 'Authorize' android/lib/screens/va_operations_page.dart
+          grep -F 'Decline' android/lib/screens/va_operations_page.dart
+          grep -F 'RelationshipPreferencesPage' android/lib/screens/work_page.dart
+
+      - name: Commit the real replacement files to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Repair produced no tracked changes; refusing an empty repair commit." >&2
+            exit 1
+          fi
+
+          echo "Files that will be committed:"
+          git diff --cached --stat
+
+          git commit -m "v1.0.5 — complete Human Boundary & Relationship-Aware Communications"
+          REPAIRED_SHA="$(git rev-parse HEAD)"
+          echo "REPAIRED_SHA=$REPAIRED_SHA" >> "$GITHUB_ENV"
+
+          # Never overwrite a concurrent user change.
+          GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+            git fetch --no-tags origin main
+          if [ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]; then
+            echo "main changed while the repair was running. Refusing to push." >&2
+            exit 1
+          fi
+
+          GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+            git push origin HEAD:main
+
+      - name: Start the canonical Android release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "Repaired main commit: ${REPAIRED_SHA}"
+
+          # Pushes made with GITHUB_TOKEN do not normally create another push
+          # workflow run. Dispatch the repository's canonical release workflow
+          # explicitly so Android analysis/tests/build still remain authoritative.
+          if gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/android-release.yml/dispatches" \
+            -f ref=main
+          then
+            echo "Canonical Build Android APK workflow dispatched."
+          else
+            echo "::warning::The repair commit was pushed, but automatic workflow dispatch failed. Open Actions → Build Android APK → Run workflow on main."
+          fi
+
+          {
+            echo "## v1.0.5 repair pushed"
+            echo
+            echo "Commit: \`${REPAIRED_SHA}\`"
+            echo
+            echo "Backend tests passed before push. The canonical Android release workflow was requested for repaired main."
+          } >> "$GITHUB_STEP_SUMMARY"
