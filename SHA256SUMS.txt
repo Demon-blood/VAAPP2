@@ -39,7 +39,7 @@ ec840eb10e2695ff21886c906f521f8afe3bc5908e029cdf4cb3cf541eea28aa  ./android/lib/
 5c416ae9528acaae088011e7811c1db0020e9acd2d3d49fee4afa0d96e9b76ed  ./android/lib/screens/settings_page.dart
 b724435b92aa34c4a013166849cab1d583d3671c677601d926ac2339ee525e69  ./android/lib/screens/tasks_page.dart
 975ffa20e75f0f0fb06971960140aba42ed50238d5276374efef0a3234ea308d  ./android/lib/screens/telephony_page.dart
-943e2ae5fefc5ff230102e21b31c37f7a33c2e313e044e52c4be208242a0c33d  ./android/lib/screens/va_operations_page.dart
+eb21cc92457882775cb03d79c0b709b987f137d54144d9206c46028d6fff2356  ./android/lib/screens/va_operations_page.dart
 e3e2684129198e5f79382fa50bc4b6a257a5a1bec6c32202124a124035c993fd  ./android/lib/screens/work_page.dart
 79894f0ee03a2872e6013c40122fcdc088893a357b4ec12a0e637e9ec387adf8  ./android/lib/services/api_client.dart
 0de5ee28cba56595e285ea9b5b408cfb72d9adae93c8ddf601ec31a203af9ed5  ./android/lib/services/background_service.dart
