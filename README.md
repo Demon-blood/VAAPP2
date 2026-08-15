@@ -1,11 +1,24 @@
-# Full-Time VA v1.0.4 — Execution Readiness & Setup Assistant
+# Full-Time VA v1.0.5 — Human Boundary & Relationship-Aware Communications
 
-Full-Time VA v1.0.4 is the fourth maintenance release on the cumulative Phase 1–10 production baseline. It keeps the existing autonomous executors and adds capability-specific readiness checks plus in-app setup guidance so an OFFLINE badge explains exactly what is missing instead of forcing the user to reverse-engineer configuration.
+Full-Time VA v1.0.5 is the fifth maintenance release on the cumulative Phase 1–10 production baseline. It tightens the human-decision boundary so material Needs You items expose exact objective-bound authorization/decline actions, repairs duplicate communication ownership at the source layer, and adds explicit plus opt-in learned per-relationship reply style on top of Phase-4 relationship memory.
 
-The v1.0.4 patch does not add a simulated executor. It makes capability reporting stricter: Gmail push requires an active Gmail watch for the configured Pub/Sub topic and verification token, and fulfillment only reports available when an enabled provider is actually linked to an enabled browser portal or to a support phone with live telephony. The v1.0 evidence contract remains unchanged.
+The v1.0.5 patch does not add a simulated executor or weaken evidence rules. Authorization resumes only a real durable executor when one exists; otherwise the objective becomes blocked_capability. Learned style is built only from device-observed outgoing history after excluding known VA-generated sends and sensitive samples, and never grants financial, legal, security, browser, banking or other material execution authority.
 
 **Completion rule:** external work is complete only when the relevant domain ledger contains independent provider/source evidence for the requested postcondition. A local button press, dispatched browser action, initiated payment, placed call, configured provider, or READY capability is not completion evidence.
 
+
+## v1.0.5 human boundary and relationship-aware communications
+
+- Needs You material decisions expose objective-bound **Authorize** and **Decline** actions using an exact action fingerprint. Authorization is audit/context data, never external completion evidence.
+- Authorized Gmail/SMS replies resume through their existing durable executors; missing executors become `blocked_capability` rather than fabricated completion.
+- Legacy communication Task projections no longer create a second VA objective. Existing duplicate task objectives are superseded by the source CommunicationEvent objective.
+- Native SMS and Google/Samsung Messages notification mirrors are correlated only as a known cross-transport pair; identical same-channel messages are never collapsed by content alone.
+- Phase-4 RelationshipFact provenance stores editable per-person reply language, tone, formality, greeting/sign-off, length, channel, instructions/examples, auto-send preference and approval topics.
+- Per relationship, **Learn how I write to this person** can build a bounded style profile from device-observed Android SMS sent history after excluding known VA-generated sends. VA-generated replies, protected messages and credential/financial-code-like samples are excluded; at least three safe samples are required.
+- The learned relationship profile supplies length/casing/punctuation/emoji tendencies plus a few bounded representative examples to Gmail/SMS/WhatsApp/Signal/Telegram/Messenger drafting; explicit instructions/examples override it.
+- Relationship style never grants payment, legal, security, browser, banking or other material execution authority; deterministic safety policy remains authoritative.
+
+See `docs/V1.0.5_HUMAN_BOUNDARY_RELATIONSHIP_COMMUNICATIONS.md` for the maintenance contract.
 
 ## v1.0.4 execution readiness and setup assistant
 
@@ -71,9 +84,9 @@ See `docs/V1.0.2_MAINTENANCE_RELIABILITY.md` for the maintenance contract and ve
 
 ## Release identity
 
-Backend `1.0.4` · Android `1.0.4+46` · APK `Full-Time-VA-Android-v1.0.4.apk`.
+Backend `1.0.5` · Android `1.0.5+47` · APK `Full-Time-VA-Android-v1.0.5.apk`.
 
-Verified maintenance baseline: commit `fedf9a47864f1337c0100c1ed6d9b36daffb4017` (`v1.0.3 — Logistics Tracking Ownership`), GitHub Actions run #44 successful.
+Verified maintenance baseline: commit `af339ac48e600b38bebababbb048e77464be3900` (`v1.0.4 — Execution Readiness & Setup Assistant`), GitHub Actions run #45 successful.
 
 See `docs/V0.8.0_STRUCTURED_CASH_AND_INVESTMENTS.md` for the new finance architecture. Historical v0.7.1/v0.7.2 validation and importer notes remain in `docs/`.
 

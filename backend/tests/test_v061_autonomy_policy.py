@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models.entities import EmailMessage, OperationPreference, RuntimeSetting
+from app.models.entities import EmailMessage, OperationPreference, RelationshipIdentity, RuntimeSetting
 from app.schemas.api import AutomationDecision
 from app.services.autonomy_policy import (
     record_learned_preference,
@@ -16,7 +16,7 @@ from app.services.autonomy_policy import (
 async def autonomy_db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
-        for table in (RuntimeSetting, OperationPreference, EmailMessage):
+        for table in (RuntimeSetting, OperationPreference, EmailMessage, RelationshipIdentity):
             await connection.run_sync(table.__table__.create)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as db:

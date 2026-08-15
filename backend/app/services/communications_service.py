@@ -13,6 +13,9 @@ from app.models.entities import CommunicationAction, CommunicationDeliveryEviden
 from app.schemas.api import CommunicationIngestRequest
 from app.services.audit import write_audit
 from app.services.communication_ownership import register_device_communication
+from app.services.communication_correlation import find_cross_transport_duplicate
+from app.services.relationship_preferences import relationship_reply_review_reason
+from app.services.relationship_style_learning import relationship_reply_context_for_party
 from app.services.runtime_config import get_runtime_value
 
 PROTECTED_TERMS = (
@@ -189,6 +192,9 @@ async def _decision_for(db: AsyncSession, payload: CommunicationIngestRequest) -
     # quota or holding one mobile HTTP request open across many provider calls.
     if payload.provider in {"android_sms_history", "android_call_log"}:
         return fallback
+    relationship_preferences, relationship_reply_context = await relationship_reply_context_for_party(
+        db, payload.sender, channel=payload.channel, provider=payload.provider
+    )
     if payload.channel == "call" or payload.direction != "incoming" or not payload.body.strip():
         return fallback
     try:
@@ -201,13 +207,25 @@ async def _decision_for(db: AsyncSession, payload: CommunicationIngestRequest) -
                 "body": payload.body[:12000],
                 "event_type": payload.event_type,
                 "supports_direct_reply": payload.supports_direct_reply,
+                "relationship_reply_preferences": relationship_reply_context,
             },
             urgent=any(term in payload.body.casefold() for term in URGENT_TERMS),
             sensitive=_text_sensitive(payload.body),
         )
     except (AIConfigurationError, AIQuotaDeferred, Exception):
         decision = fallback
-    return _normalize_decision(payload, decision)
+    normalized = _normalize_decision(payload, decision)
+    review_reason = relationship_reply_review_reason(
+        relationship_preferences,
+        incoming_text=payload.body,
+        proposed_reply=str(normalized.get("reply_text") or ""),
+    )
+    if review_reason:
+        normalized["relationship_review_required"] = True
+        normalized["relationship_review_reason"] = review_reason
+        normalized["action_required"] = True
+        normalized["auto_reply_safe"] = False
+    return normalized
 
 
 async def _pending_action_for(db: AsyncSession, event_id: int) -> CommunicationAction | None:
@@ -231,6 +249,25 @@ async def ingest_communication(db: AsyncSession, payload: CommunicationIngestReq
             "event_id": existing.id,
             "duplicate": True,
             "decision": json.loads(existing.decision_json or "{}"),
+            "device_action": _action_payload(action) if action is not None else None,
+        }
+
+    transport_duplicate = await find_cross_transport_duplicate(
+        db,
+        provider=payload.provider,
+        channel=payload.channel,
+        package_name=payload.package_name,
+        sender=payload.sender,
+        body=payload.body,
+        occurred_at=_database_datetime(payload.occurred_at),
+    )
+    if transport_duplicate is not None:
+        action = await _pending_action_for(db, transport_duplicate.id)
+        await db.commit()
+        return {
+            "event_id": transport_duplicate.id,
+            "duplicate": True,
+            "decision": json.loads(transport_duplicate.decision_json or "{}"),
             "device_action": _action_payload(action) if action is not None else None,
         }
 
@@ -282,27 +319,9 @@ async def ingest_communication(db: AsyncSession, payload: CommunicationIngestReq
         db.add(action)
         await db.flush()
 
-    if event.action_required:
-        existing_task = (
-            await db.execute(
-                select(Task).where(
-                    Task.source_type == "communication",
-                    Task.source_id == str(event.id),
-                    Task.status.in_(["open", "waiting"]),
-                )
-            )
-        ).scalar_one_or_none()
-        if existing_task is None:
-            db.add(
-                Task(
-                    title=f"Follow up: {payload.sender or payload.channel}",
-                    description=(payload.body[:1200] or decision["reasoning_summary"]),
-                    source_type="communication",
-                    source_id=str(event.id),
-                    priority=event.priority,
-                    requires_approval=event.protected,
-                )
-            )
+    # Phase-2 CommunicationEvent ownership is canonical. Do not create a
+    # parallel legacy Task projection for new device messages. v1.0.5 startup/core
+    # repair supersedes historical projections without deleting source evidence.
 
     await register_device_communication(db, event=event, action=action)
 

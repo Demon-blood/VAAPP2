@@ -679,6 +679,39 @@ class AppState extends ChangeNotifier {
     return result;
   }
 
+  Future<Map<String, dynamic>> authorizeVaObjective(int objectiveId, String actionFingerprint) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/va/objectives/$objectiveId/authorize', {
+          'action_fingerprint': actionFingerprint,
+          'reason': '',
+        }) as Map,
+      );
+      await _syncDeviceLink();
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> declineVaObjective(
+    int objectiveId,
+    String actionFingerprint, {
+    String reason = '',
+  }) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/va/objectives/$objectiveId/decline', {
+          'action_fingerprint': actionFingerprint,
+          'reason': reason,
+        }) as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
   Future<void> syncGmail() async {
     await _run(() async {
       await api.postJson('/api/sync/gmail');
@@ -712,6 +745,36 @@ class AppState extends ChangeNotifier {
     return Map<String, dynamic>.from(
       await api.getJson('/api/relationships/$relationshipId') as Map,
     );
+  }
+
+  Future<Map<String, dynamic>> relationshipCommunicationPreferences(int relationshipId) async {
+    return Map<String, dynamic>.from(
+      await api.getJson('/api/relationships/$relationshipId/communication-preferences') as Map,
+    );
+  }
+
+  Future<Map<String, dynamic>> updateRelationshipCommunicationPreferences(
+    int relationshipId,
+    Map<String, dynamic> values,
+  ) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.putJson('/api/relationships/$relationshipId/communication-preferences', values) as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+  Future<Map<String, dynamic>> relearnRelationshipCommunicationStyle(int relationshipId) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.postJson('/api/relationships/$relationshipId/communication-style/relearn') as Map,
+      );
+    });
+    return result;
   }
 
   Future<Map<String, dynamic>> addBrowserPortal({

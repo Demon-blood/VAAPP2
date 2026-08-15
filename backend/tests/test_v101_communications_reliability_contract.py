@@ -8,14 +8,14 @@ def _read(path: str) -> str:
 
 
 def test_v101_release_identity() -> None:
-    assert 'APP_VERSION = "1.0.4"' in _read("backend/app/core/version.py")
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.4"' in _read("backend/app/core/version.py")
-    assert 'version = "1.0.4"' in _read("backend/pyproject.toml")
-    assert "version: 1.0.4+46" in _read("android/pubspec.yaml")
-    assert "const String appRelease = '1.0.4';" in _read("android/lib/release_contract.dart")
-    assert "const String minimumBackendVersion = '1.0.4';" in _read("android/lib/release_contract.dart")
+    assert 'APP_VERSION = "1.0.5"' in _read("backend/app/core/version.py")
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.5"' in _read("backend/app/core/version.py")
+    assert 'version = "1.0.5"' in _read("backend/pyproject.toml")
+    assert "version: 1.0.5+47" in _read("android/pubspec.yaml")
+    assert "const String appRelease = '1.0.5';" in _read("android/lib/release_contract.dart")
+    assert "const String minimumBackendVersion = '1.0.5';" in _read("android/lib/release_contract.dart")
     workflow = _read(".github/workflows/android-release.yml")
-    assert "Full-Time-VA-Android-v1.0.4.apk" in workflow
+    assert "Full-Time-VA-Android-v1.0.5.apk" in workflow
 
 
 def test_phone_sync_is_observable_and_checks_receive_permission() -> None:

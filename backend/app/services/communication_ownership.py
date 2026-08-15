@@ -272,7 +272,11 @@ async def register_device_communication(
                 "provider": event.provider,
                 "target": action.target,
                 "priority": event.priority,
-                "protected": event.protected,
+                # Source sensitivity remains on CommunicationEvent.protected. A prior
+                # exact user authorization only prevents a second approval loop for
+                # this newly persisted executor action; it does not erase classification.
+                "protected": bool(event.protected and not _loads(event.decision_json).get("specific_authorized")),
+                "source_protected": event.protected,
                 "expect_reply": bool(event.action_required),
                 "follow_up_hours": 48,
             },
@@ -293,6 +297,8 @@ async def register_device_communication(
                 "provider": event.provider,
                 "priority": event.priority,
                 "protected": event.protected,
+                "requires_user_review": bool(_loads(event.decision_json).get("relationship_review_required")),
+                "proposed_reply": str(_loads(event.decision_json).get("reply_text") or ""),
             },
             occurred_at=occurred_at,
         )

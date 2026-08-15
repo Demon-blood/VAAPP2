@@ -1,27 +1,27 @@
 # VAAPP project handoff
 
-Updated: 2026-08-14  
+Updated: 2026-08-15  
 Repository: `Demon-blood/VAAPP2`  
 Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–10 and production v1.0 are complete on GitHub. The current verified maintenance baseline is commit `fedf9a47864f1337c0100c1ed6d9b36daffb4017` (`v1.0.3 — Logistics Tracking Ownership`). GitHub Actions run #44 completed successfully, including the full backend suite, Flutter analysis/tests, persistent-signing Android release build, and GitHub prerelease publication.
+Phases 1–10 and production v1.0 are complete on GitHub. The current verified maintenance baseline is commit `af339ac48e600b38bebababbb048e77464be3900` (`v1.0.4 — Execution Readiness & Setup Assistant`). GitHub Actions run #45 completed successfully end-to-end, including the backend suite, Flutter analysis/tests, persistent-signing Android release build, and GitHub prerelease publication.
 
-Verified maintenance release: backend `1.0.3` / Android `1.0.3+45`.
+Verified maintenance release: backend `1.0.4` / Android `1.0.4+46`.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
 ## Current local candidate
 
-Backend `1.0.4` / Android `1.0.4+46`.
+Backend `1.0.5` / Android `1.0.5+47`.
 
-Current maintenance release: **v1.0.4 — Execution Readiness & Setup Assistant**.  
-Status: **implemented locally from the verified v1.0.3 baseline (commit `fedf9a47864f1337c0100c1ed6d9b36daffb4017`, Actions run #44 success); awaiting upload and full GitHub CI**.
+Current maintenance candidate: **v1.0.5 — Human Boundary & Relationship-Aware Communications**.
+Status: **recovered as a coherent source candidate; the complete backend gate passes locally and canonical GitHub Android release validation is pending.**
 
-The patch turns Work → Operations capability rows into setup/diagnostic entry points, adds safe Gmail-watch activation, makes Gmail Pub/Sub readiness depend on a real active watch instead of a topic string alone, and prevents unrelated portals/providers from making fulfillment look available. Existing v1.0.3 logistics monitoring and v1.0.2 communications/order corrections remain intact.
+The candidate adds objective-bound Authorize/Decline decisions, repairs duplicate communication ownership/cross-transport SMS mirrors, adds user-explicit Phase-4 relationship reply preferences, and adds opt-in learned relationship writing style from device-observed non-VA sent history. Authorization remains distinct from completion evidence, and relationship style never grants financial/legal/security/browser/banking or other material execution authority.
 
-Next work after the v1.0.4 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.5 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 

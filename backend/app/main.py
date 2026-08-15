@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.telephony_routes import router as telephony_router
 from app.api.fulfillment_routes import router as fulfillment_router
+from app.api.v105_routes import router as v105_router
 from app.api_autopilot import router as autopilot_router
 from app.core.database import SessionLocal, init_db
 from app.core.version import APP_VERSION
@@ -21,6 +22,7 @@ from app.services.financial_autopilot import (
 )
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.services.operations_service import cleanup_low_value_documents
+from app.services.communication_correlation import repair_communication_correlation
 from app.services.workflow_engine import (
     compact_duplicate_dead_letters,
     recover_expired_leases,
@@ -105,6 +107,15 @@ async def lifespan(_: FastAPI):
             await reconcile_action_queue(db)
     except Exception:
         logger.exception("Initial action-queue reconciliation failed")
+    # Repair legacy communication task projections and native-SMS/Messages mirror
+    # duplicates before new autonomous work is surfaced. Source evidence is retained.
+    try:
+        async with SessionLocal() as db:
+            repaired_communications = await repair_communication_correlation(db)
+            if any(repaired_communications.values()):
+                logger.warning("v1.0.5 communication correlation repair: %s", repaired_communications)
+    except Exception:
+        logger.exception("Initial v1.0.5 communication correlation repair failed")
     # Remove legacy low-value attachments such as generic Terms of Service files that
     # older versions may have archived before the retention policy was tightened.
     try:
@@ -129,3 +140,4 @@ app.include_router(router)
 app.include_router(autopilot_router)
 app.include_router(telephony_router)
 app.include_router(fulfillment_router)
+app.include_router(v105_router)

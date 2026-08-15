@@ -8,6 +8,7 @@ import '../models/view_models.dart';
 import '../theme/va_theme.dart';
 import '../widgets/common_widgets.dart';
 import 'tasks_page.dart';
+import 'relationship_preferences_page.dart';
 import 'va_operations_page.dart';
 
 class WorkPage extends StatelessWidget {
@@ -1548,6 +1549,25 @@ class _RelationshipDetailSheet extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 4),
                 child: Text('${detail['organization']}', style: const TextStyle(color: VaTheme.textMuted)),
               ),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final relationshipId = (detail['id'] as num?)?.toInt();
+                  if (relationshipId == null) return;
+                  await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => RelationshipPreferencesPage(
+                        relationshipId: relationshipId,
+                        relationshipName: title,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.tune_rounded),
+                label: const Text('Edit reply preferences'),
+              ),
+            ),
             const SizedBox(height: 18),
             Text('Verified identities', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),

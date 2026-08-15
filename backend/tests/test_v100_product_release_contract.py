@@ -10,19 +10,19 @@ def _read(path: str) -> str:
 
 def test_v100_release_identity_is_consistent() -> None:
     version = _read("backend/app/core/version.py")
-    assert 'APP_VERSION = "1.0.4"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.4"' in version
-    assert 'version = "1.0.4"' in _read("backend/pyproject.toml")
-    assert "version: 1.0.4+46" in _read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.5"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.5"' in version
+    assert 'version = "1.0.5"' in _read("backend/pyproject.toml")
+    assert "version: 1.0.5+47" in _read("android/pubspec.yaml")
     workflow = _read(".github/workflows/android-release.yml")
-    assert "Full-Time-VA-Android-v1.0.4.apk" in workflow
-    assert "Full-Time VA Android v1.0.4" in workflow
+    assert "Full-Time-VA-Android-v1.0.5.apk" in workflow
+    assert "Full-Time VA Android v1.0.5" in workflow
 
 
 def test_android_uses_one_runtime_release_contract() -> None:
     contract = _read("android/lib/release_contract.dart")
-    assert "const String appRelease = '1.0.4';" in contract
-    assert "const String minimumBackendVersion = '1.0.4';" in contract
+    assert "const String appRelease = '1.0.5';" in contract
+    assert "const String minimumBackendVersion = '1.0.5';" in contract
 
     state = _read("android/lib/app_state.dart")
     assert "import 'release_contract.dart';" in state
@@ -84,8 +84,8 @@ def test_v100_release_metadata_preserves_the_verified_v1_baseline() -> None:
     handoff = _read("VAAPP_PROJECT_HANDOFF.md")
     release_doc = _read("docs/V1.0.0_PRODUCT_RELEASE.md")
 
-    assert '"release": "1.0.4"' in manifest
-    assert '"android_version": "1.0.4+46"' in manifest
+    assert '"release": "1.0.5"' in manifest
+    assert '"android_version": "1.0.5+47"' in manifest
     assert '"baseline_commit": "66c09040326ac553a1402cd06fa6771344195d45"' in manifest
     assert '"verified_baseline_actions_run": 41' in state
     assert '"verified_baseline_actions_conclusion": "success"' in state

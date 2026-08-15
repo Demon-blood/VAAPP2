@@ -67,6 +67,9 @@ class VaOperationsPage extends StatelessWidget {
               _ObjectiveCard(
                 row: Map<String, dynamic>.from(raw),
                 onRecheck: () => _recheck(context, raw['id']),
+                onAuthorize: () => _authorize(context, Map<String, dynamic>.from(raw)),
+                onDecline: () => _decline(context, Map<String, dynamic>.from(raw)),
+                onOpenAuthorization: () => _openProviderAuthorization(context, Map<String, dynamic>.from(raw)),
                 needsUser: true,
               ),
               const SizedBox(height: 8),
@@ -141,6 +144,90 @@ class VaOperationsPage extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
       }
+    }
+  }
+
+  Future<void> _openProviderAuthorization(BuildContext context, Map<String, dynamic> row) async {
+    final userAction = Map<String, dynamic>.from((row['user_action'] as Map?) ?? const {});
+    if (userAction['kind'] != 'external_authorization') return;
+    final rawUrl = '${userAction['authorization_url'] ?? ''}'.trim();
+    if (rawUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This provider requires authorization, but no authorization URL is currently available. Open the provider or bank flow, then recheck.')),
+      );
+      return;
+    }
+    final uri = Uri.tryParse(rawUrl);
+    if (uri == null || uri.scheme != 'https') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The provider authorization URL is invalid or unsafe.')),
+      );
+      return;
+    }
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the provider authorization page.')),
+      );
+    }
+  }
+
+  Future<void> _authorize(BuildContext context, Map<String, dynamic> row) async {
+    final objectiveId = (row['id'] as num?)?.toInt();
+    final userAction = Map<String, dynamic>.from((row['user_action'] as Map?) ?? const {});
+    final fingerprint = '${userAction['action_fingerprint'] ?? ''}';
+    if (objectiveId == null || fingerprint.isEmpty || userAction['kind'] != 'specific_authorization') return;
+    final proposal = Map<String, dynamic>.from((userAction['proposal'] as Map?) ?? const {});
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Authorize this exact action?'),
+            content: Text(
+              '${proposal['summary'] ?? row['title'] ?? 'Material VA action'}\n\n'
+              'This authorization is bound to this objective and proposal only. It is not standing authority and is not proof of completion.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Authorize')),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !context.mounted) return;
+    try {
+      await context.read<AppState>().authorizeVaObjective(objectiveId, fingerprint);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Specific authorization recorded. The VA resumed automatically.')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _decline(BuildContext context, Map<String, dynamic> row) async {
+    final objectiveId = (row['id'] as num?)?.toInt();
+    final userAction = Map<String, dynamic>.from((row['user_action'] as Map?) ?? const {});
+    final fingerprint = '${userAction['action_fingerprint'] ?? ''}';
+    if (objectiveId == null || fingerprint.isEmpty || userAction['kind'] != 'specific_authorization') return;
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Decline this action?'),
+            content: const Text('The exact proposed action will be cancelled. Original message/source evidence will be kept.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep')),
+              FilledButton.tonal(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Decline')),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !context.mounted) return;
+    try {
+      await context.read<AppState>().declineVaObjective(objectiveId, fingerprint);
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
     }
   }
 
@@ -562,9 +649,19 @@ class _CapabilityStateBadge extends StatelessWidget {
 }
 
 class _ObjectiveCard extends StatelessWidget {
-  const _ObjectiveCard({required this.row, this.onRecheck, this.needsUser = false});
+  const _ObjectiveCard({
+    required this.row,
+    this.onRecheck,
+    this.onAuthorize,
+    this.onDecline,
+    this.onOpenAuthorization,
+    this.needsUser = false,
+  });
   final Map<String, dynamic> row;
   final VoidCallback? onRecheck;
+  final VoidCallback? onAuthorize;
+  final VoidCallback? onDecline;
+  final VoidCallback? onOpenAuthorization;
   final bool needsUser;
 
   @override
@@ -576,6 +673,11 @@ class _ObjectiveCard extends StatelessWidget {
         : '${row['blocked_reason'] ?? row['last_error'] ?? ''}';
     final steps = (row['steps'] as List? ?? const []).length;
     final evidence = (row['evidence_count'] as num?)?.toInt() ?? 0;
+    final userAction = Map<String, dynamic>.from((row['user_action'] as Map?) ?? const {});
+    final specific = needsUser && userAction['kind'] == 'specific_authorization';
+    final external = needsUser && userAction['kind'] == 'external_authorization';
+    final providerAuthUrl = '${userAction['authorization_url'] ?? ''}'.trim();
+    final proposal = Map<String, dynamic>.from((userAction['proposal'] as Map?) ?? const {});
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -598,17 +700,94 @@ class _ObjectiveCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(reason, style: TextStyle(color: needsUser ? VaTheme.warning : VaTheme.textMuted, fontSize: 12)),
             ],
+            if (specific) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: VaTheme.warning.withValues(alpha: .08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: VaTheme.warning.withValues(alpha: .25)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Proposed action', style: TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 4),
+                    Text('${proposal['summary'] ?? row['goal'] ?? row['title'] ?? ''}'),
+                    if ('${proposal['provider'] ?? ''}'.isNotEmpty)
+                      Text('Provider: ${proposal['provider']}', style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+                    if ('${proposal['counterparty'] ?? ''}'.isNotEmpty)
+                      Text('Counterparty: ${proposal['counterparty']}', style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+                    if ('${proposal['amount_mentioned'] ?? ''}'.isNotEmpty)
+                      Text('Amount mentioned: ${proposal['amount_mentioned']} ${proposal['currency'] ?? ''}', style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+                    if ('${proposal['proposed_reply'] ?? ''}'.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text('Reply: ${proposal['proposed_reply']}', maxLines: 5, overflow: TextOverflow.ellipsis),
+                    ],
+                    if ('${proposal['source_excerpt'] ?? ''}'.isNotEmpty && '${proposal['proposed_reply'] ?? ''}'.isEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text('${proposal['source_excerpt']}', maxLines: 5, overflow: TextOverflow.ellipsis),
+                    ],
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Authorize only grants permission for this exact proposal. Provider/source evidence is still required for completion.',
+                      style: TextStyle(color: VaTheme.textMuted, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 9),
             Text('$steps persisted step${steps == 1 ? '' : 's'} · $evidence verified outcome${evidence == 1 ? '' : 's'}',
                 style: const TextStyle(color: VaTheme.textMuted, fontSize: 11)),
-            if (onRecheck != null) ...[
+            if (specific && onAuthorize != null && onDecline != null) ...[
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: onDecline,
+                    icon: const Icon(Icons.close_rounded, size: 17),
+                    label: const Text('Decline'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: onAuthorize,
+                    icon: const Icon(Icons.check_rounded, size: 17),
+                    label: const Text('Authorize'),
+                  ),
+                ],
+              ),
+            ] else if (external && onRecheck != null) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (onOpenAuthorization != null)
+                    FilledButton.icon(
+                      onPressed: onOpenAuthorization,
+                      icon: const Icon(Icons.open_in_new_rounded, size: 17),
+                      label: Text(providerAuthUrl.isEmpty ? 'Open provider / bank' : 'Open provider authorization'),
+                    ),
+                  TextButton.icon(
+                    onPressed: onRecheck,
+                    icon: const Icon(Icons.refresh_rounded, size: 17),
+                    label: const Text('Recheck after authorization'),
+                  ),
+                ],
+              ),
+            ] else if (onRecheck != null) ...[
               const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
                   onPressed: onRecheck,
                   icon: const Icon(Icons.refresh_rounded, size: 17),
-                  label: const Text('Recheck after authorization'),
+                  label: const Text('Recheck user action'),
                 ),
               ),
             ],
@@ -623,7 +802,7 @@ class _ObjectiveCard extends StatelessWidget {
         'needs_user' => VaTheme.warning,
         'failed' || 'blocked_system' => VaTheme.danger,
         'verifying' || 'executing' => VaTheme.cyan,
-        'waiting' || 'waiting_external' || 'blocked_capability' => VaTheme.secondary,
+        'waiting' || 'waiting_external' || 'waiting_provider' || 'blocked_capability' => VaTheme.secondary,
         _ => VaTheme.primaryBright,
       };
 }

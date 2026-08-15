@@ -50,8 +50,8 @@ async def test_sensitive_message_never_auto_replies(db, monkeypatch) -> None:
     assert result["decision"]["protected"] is True
     assert result["decision"]["auto_reply_safe"] is False
     assert result["device_action"] is None
-    task = (await db.execute(select(Task).where(Task.source_type == "communication"))).scalar_one()
-    assert task.requires_approval is True
+    tasks = list((await db.execute(select(Task).where(Task.source_type == "communication"))).scalars())
+    assert tasks == []
 
 
 @pytest.mark.asyncio

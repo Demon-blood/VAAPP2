@@ -33,7 +33,13 @@ explicitly says payment remains due. Detect tasks, sufficiently certain calendar
 cases, orders, subscriptions and reply drafts. A changed or unverified IBAN must be
 action_required and preserved. Never claim a payment was made unless the source explicitly
 confirms it. Keep reasoning_summary to one short sentence. Sending replies and executing
-payments are controlled by separate safety rules outside this model."""
+payments are controlled by separate safety rules outside this model. If the input contains
+relationship_reply_preferences, use those explicit settings only to adapt reply language, tone,
+formality, greeting/sign-off and length. If learned_writing_style is present, imitate its bounded
+message-length, casing, punctuation, emoji and representative-example patterns without copying content
+blindly. Explicit relationship instructions/examples override learned style. Never infer sensitive
+personal attributes from either source, and never treat style preferences as execution,
+payment, legal, security or other material authority."""
 
 
 def _nullable_object(properties: dict[str, Any]) -> dict[str, Any]:
@@ -421,7 +427,7 @@ async def analyze_email(
         raise primary_error
 
 
-COMMUNICATION_SYSTEM_PROMPT = """You are the communications decision engine for a private full-time virtual assistant.
+COMMUNICATION_SYSTEM_PROMPT = """If relationship_reply_preferences are present, follow those explicit style settings for the reply only. They never grant auto-send, payment, legal, security or material execution authority. If learned_writing_style is present, imitate its bounded writing patterns without blindly copying old content; explicit instructions/examples override it. Do not infer sensitive personal attributes.\nYou are the communications decision engine for a private full-time virtual assistant.
 Return only the structured JSON requested by the schema. Classify incoming SMS and supported messaging-app
 notifications in Dutch or English. Protect financial, legal, identity/security, authentication-code, medical,
 employment, intimate/family-conflict, and other materially sensitive messages. Never send a reply that commits

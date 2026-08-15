@@ -197,6 +197,10 @@ async def seed_system_events(db: AsyncSession) -> dict[str, int]:
         ).scalars()
     )
     for task in tasks:
+        # CommunicationEvent is the canonical Phase-2 owner. Legacy communication
+        # Task rows are projections and must never seed a second objective.
+        if task.source_type == "communication":
+            continue
         event_type = "task_needs_decision" if task.requires_approval else "task_pending"
         _, was_created = await record_event(
             db,
@@ -1049,6 +1053,10 @@ async def objective_from_event(db: AsyncSession, event: VAEvent) -> VAObjective:
     elif event.event_type == "communication_response_received":
         return await _handle_response_event(db, event, payload)
     elif event.event_type in {"email_actionable", "communication_actionable"}:
+        communication_decision = event.event_type == "communication_actionable" and bool(
+            payload.get("requires_user_review")
+            or (payload.get("protected") and str(payload.get("proposed_reply") or "").strip())
+        )
         objective, _ = await _create_objective(
             db,
             event,
@@ -1056,8 +1064,13 @@ async def objective_from_event(db: AsyncSession, event: VAEvent) -> VAObjective:
             goal=str(payload.get("reasoning_summary") or event.title),
             category=str(payload.get("category") or event.event_type),
             priority=str(payload.get("priority") or "normal"),
-            status="blocked_capability",
-            reason="The message is durably owned by the VA, but its requested domain action belongs to a later executor phase; it is not a user approval request.",
+            risk_level="high" if communication_decision else "low",
+            status="needs_user" if communication_decision else "blocked_capability",
+            reason=(
+                "This communication contains a material decision or an explicit relationship-level review requirement."
+                if communication_decision
+                else "The message is durably owned by the VA, but its requested domain action has no configured real executor; it is not a fake user task."
+            ),
         )
         thread_record_id = int(payload.get("thread_record_id") or 0)
         if thread_record_id > 0:
@@ -2289,6 +2302,9 @@ async def process_due_followups(db: AsyncSession, *, limit: int = 100) -> int:
 
 
 async def run_core_cycle(db: AsyncSession, *, create_manual_run: bool = False) -> dict[str, Any]:
+    from app.services.communication_correlation import repair_communication_correlation
+
+    communication_correlation = await repair_communication_correlation(db)
     if create_manual_run:
         await create_manual_run_event(db)
     seeded = await seed_system_events(db)
@@ -2303,6 +2319,7 @@ async def run_core_cycle(db: AsyncSession, *, create_manual_run: bool = False) -
     verified = await verify_ready_steps(db)
     reconciled_after = await reconcile_source_objectives(db)
     return {
+        "communication_correlation": communication_correlation,
         "seeded": seeded,
         "events_processed": processed,
         "steps_executed": executed,
@@ -2376,6 +2393,10 @@ async def objective_public(db: AsyncSession, row: VAObjective, *, include_timeli
             for step in steps
         ],
     }
+    if row.status == "needs_user":
+        from app.services.specific_authorization import user_action_for_objective
+
+        payload["user_action"] = await user_action_for_objective(db, row)
     if include_timeline:
         audits = list(
             (

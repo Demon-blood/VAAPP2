@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.entities import EmailMessage, OperationPreference
 from app.schemas.api import AutomationDecision
+from app.services.relationship_preferences import communication_preferences_for_party, relationship_reply_review_reason
 
 PROTECTED_REPLY_CATEGORIES = {
     "banking", "finance", "financial", "geldzaken", "legal", "juridisch", "security", "beveiliging",
@@ -174,6 +175,15 @@ async def reply_autonomy_decision(
     if not sender or any(marker in sender for marker in NO_REPLY_MARKERS):
         return False, "non_replyable_sender"
 
+    relationship_preferences = await communication_preferences_for_party(db, sender)
+    relationship_review = relationship_reply_review_reason(
+        relationship_preferences,
+        incoming_text=f"{message.subject}\n{message.snippet}\n{decision.reasoning_summary}",
+        proposed_reply=body,
+    )
+    if relationship_review:
+        return False, relationship_review
+
     explicit = await get_preference(db, "email_reply", f"sender:{sender}")
     if explicit is not None and _decode(explicit.value_json).get("auto_send") is False:
         return False, "explicit_block"
@@ -190,6 +200,9 @@ async def reply_autonomy_decision(
         return False, "urgent_message_requires_judgment"
     if len(body) > 1800:
         return False, "long_reply_requires_judgment"
+
+    if relationship_preferences.get("routine_auto_send") is True:
+        return True, "explicit_relationship_preference"
 
     if explicit is not None and _decode(explicit.value_json).get("auto_send") is True:
         return True, (

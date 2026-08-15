@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import base64
 import json
 import re
@@ -62,6 +63,8 @@ from app.services.operations_service import (
     upsert_support_case,
 )
 from app.services.communication_ownership import register_email_inbound
+from app.services.relationship_preferences import preference_digest
+from app.services.relationship_style_learning import relationship_reply_context_for_party
 
 PROTECTED_CATEGORY_TERMS = {
     "legal",
@@ -353,7 +356,11 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
     await db.flush()
 
     extraction = local_extract(body_text, attachments)
-    fingerprint = content_fingerprint(record.sender, record.subject, body_text, attachments)
+    relationship_preferences, relationship_reply_context = await relationship_reply_context_for_party(db, record.sender)
+    base_fingerprint = content_fingerprint(record.sender, record.subject, body_text, attachments)
+    fingerprint = hashlib.sha256(
+        f"{base_fingerprint}:{preference_digest(relationship_reply_context)}".encode("utf-8")
+    ).hexdigest()
     decision: AutomationDecision | None = await cached_decision(db, fingerprint)
     decision_source = "fingerprint" if decision else ""
     deferred_ai = False
@@ -398,6 +405,7 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
             "attachments": compact_attachments,
             "local_extraction": extraction,
             "existing_gmail_labels": list(label_ids),
+            "relationship_reply_preferences": relationship_reply_context,
         }
         sensitive = protected_hint(record.sender, record.subject, body_text) is not None
         urgent = urgent_hint(record.subject, body_text, extraction)
