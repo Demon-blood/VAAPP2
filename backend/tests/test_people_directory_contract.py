@@ -48,3 +48,12 @@ def test_people_screen_is_dedicated_and_opens_existing_personalized_reply_editor
     assert "RelationshipPreferencesPage" in people
     assert "readPhoneContacts" in people
     assert "/api/relationships/directory/sync-google" in people
+
+
+def test_people_static_routes_are_registered_before_legacy_dynamic_relationship_route():
+    main = _read("backend/app/main.py")
+    legacy_routes = _read("backend/app/api/routes.py")
+    people_routes = _read("backend/app/api/v105_routes.py")
+    assert '@router.get("/api/relationships/{relationship_id}")' in legacy_routes
+    assert '@router.get("/api/relationships/directory")' in people_routes
+    assert main.index("app.include_router(v105_router)") < main.index("app.include_router(router)")

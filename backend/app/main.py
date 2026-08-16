@@ -136,8 +136,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+app.include_router(v105_router)
 app.include_router(router)
 app.include_router(autopilot_router)
 app.include_router(telephony_router)
 app.include_router(fulfillment_router)
-app.include_router(v105_router)
