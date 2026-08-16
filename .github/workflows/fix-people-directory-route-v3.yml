@@ -1,0 +1,186 @@
+name: Fix People Directory Route v3
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    env:
+      EXPECTED_BASELINE: 742ec3330352dbb5eb3e30d41d92550c2a8130e1
+      INSTALLER_PATH: .github/workflows/fix-people-directory-route-v3.yml
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out main
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          cat > "$RUNNER_TEMP/git-askpass.sh" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/git-askpass.sh"
+          GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+            git fetch --no-tags --depth=10 origin main
+          git checkout -B main FETCH_HEAD
+
+      - name: Verify repository state
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "${EXPECTED_BASELINE}^{commit}" 2>/dev/null; then
+            echo "Expected baseline is not available in checkout history." >&2
+            exit 1
+          fi
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_BASELINE" HEAD)
+          if [ "${#changed[@]}" -ne 1 ] || [ "${changed[0]}" != "$INSTALLER_PATH" ]; then
+            echo "Refusing to apply: changes since baseline are not limited to $INSTALLER_PATH:" >&2
+            printf '  %s\n' "${changed[@]}" >&2
+            exit 1
+          fi
+
+          test -f .github/workflows/fix-people-directory-route.yml
+          test -f .github/workflows/fix-people-directory-route-v2.yml
+          test -f "$INSTALLER_PATH"
+
+          # The failed workflows never committed source changes.
+          grep -Fq '@router.get("/api/relationships/{relationship_id}")' backend/app/api/routes.py
+          ! grep -Fq '@router.get("/api/relationships/{relationship_id:int}")' backend/app/api/routes.py
+
+          echo "INSTALLER_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Put static People routes before legacy relationship routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          main = Path("backend/app/main.py")
+          text = main.read_text(encoding="utf-8")
+
+          old = """app.include_router(router)
+          app.include_router(autopilot_router)
+          app.include_router(telephony_router)
+          app.include_router(fulfillment_router)
+          app.include_router(v105_router)"""
+          new = """app.include_router(v105_router)
+          app.include_router(router)
+          app.include_router(autopilot_router)
+          app.include_router(telephony_router)
+          app.include_router(fulfillment_router)"""
+
+          if text.count(old) != 1:
+              raise SystemExit("Expected router registration block was not found exactly once.")
+          text = text.replace(old, new, 1)
+          main.write_text(text, encoding="utf-8")
+
+          test_path = Path("backend/tests/test_people_directory_contract.py")
+          test_text = test_path.read_text(encoding="utf-8")
+          marker = "def test_people_static_routes_are_registered_before_legacy_dynamic_relationship_route():"
+          if marker in test_text:
+              raise SystemExit("Route-order regression test already exists unexpectedly.")
+
+          test_text += (
+              "\n\n"
+              "def test_people_static_routes_are_registered_before_legacy_dynamic_relationship_route():\n"
+              "    main = _read(\"backend/app/main.py\")\n"
+              "    legacy_routes = _read(\"backend/app/api/routes.py\")\n"
+              "    people_routes = _read(\"backend/app/api/v105_routes.py\")\n"
+              "    assert '@router.get(\"/api/relationships/{relationship_id}\")' in legacy_routes\n"
+              "    assert '@router.get(\"/api/relationships/directory\")' in people_routes\n"
+              "    assert main.index(\"app.include_router(v105_router)\") < main.index(\"app.include_router(router)\")\n"
+          )
+          test_path.write_text(test_text, encoding="utf-8")
+          PY
+
+          rm -f \
+            .github/workflows/fix-people-directory-route.yml \
+            .github/workflows/fix-people-directory-route-v2.yml \
+            "$INSTALLER_PATH"
+
+          git diff --check
+
+      - name: Run full backend gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 -m venv "$RUNNER_TEMP/va-venv"
+          source "$RUNNER_TEMP/va-venv/bin/activate"
+          python -m pip install --upgrade pip
+          pip install -e './backend[dev]'
+          python -m compileall -q backend/app backend/tests
+          ruff check backend/app backend/tests --select E9,F63,F7,F82
+          PUBLIC_BASE_URL=https://example.invalid \
+          PAIRING_SECRET=github-actions-pairing-secret-00000000 \
+          TOKEN_ENCRYPTION_KEY=MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE= \
+          pytest -q backend/tests
+
+      - name: Recheck main before push
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_head="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$remote_head" != "$INSTALLER_HEAD" ]; then
+            echo "main changed while validation was running; refusing to overwrite it." >&2
+            echo "Expected: $INSTALLER_HEAD" >&2
+            echo "Found:    $remote_head" >&2
+            exit 1
+          fi
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "VAAPP People Route Fix"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+
+          mapfile -t changed < <(git diff --cached --name-only | sort)
+          expected=(
+            ".github/workflows/fix-people-directory-route-v2.yml"
+            ".github/workflows/fix-people-directory-route-v3.yml"
+            ".github/workflows/fix-people-directory-route.yml"
+            "backend/app/main.py"
+            "backend/tests/test_people_directory_contract.py"
+          )
+
+          if [ "${#changed[@]}" -ne "${#expected[@]}" ]; then
+            echo "Unexpected staged file set:" >&2
+            printf '  %s\n' "${changed[@]}" >&2
+            exit 1
+          fi
+          for i in "${!expected[@]}"; do
+            if [ "${changed[$i]}" != "${expected[$i]}" ]; then
+              echo "Unexpected staged file: ${changed[$i]}" >&2
+              printf 'Expected:\n  %s\n' "${expected[@]}" >&2
+              exit 1
+            fi
+          done
+
+          git commit -m "fix: prioritize People directory routes"
+
+          cat > "$RUNNER_TEMP/git-askpass.sh" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/git-askpass.sh"
+          GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+            git push origin HEAD:main
+
+      - name: Result
+        run: echo "People directory static route now precedes legacy dynamic relationship route; backend suite passed."
