@@ -2,14 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_device
 from app.core.database import get_db
+from app.integrations.google_api import GoogleConfigurationError
 from app.models.entities import Device
 from app.services.autonomous_core import run_core_cycle
+from app.services.contact_directory import (
+    ingest_device_contact_snapshot,
+    list_people_directory,
+    sync_google_contact_sources,
+)
 from app.services.relationship_preferences import (
     get_relationship_communication_preferences,
     set_relationship_communication_preferences,
@@ -47,6 +53,37 @@ class RelationshipCommunicationPreferencesRequest(BaseModel):
     examples: list[str] = Field(default_factory=list, max_length=5)
     channel_aliases: dict[str, list[str]] = Field(default_factory=dict)
     learn_from_history: bool = False
+
+
+class ContactRelationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = Field(default="", max_length=80)
+    person: str = Field(default="", max_length=255)
+
+
+class DeviceContactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    external_id: str = Field(min_length=1, max_length=320)
+    display_name: str = Field(default="", max_length=255)
+    phones: list[str] = Field(default_factory=list, max_length=50)
+    emails: list[str] = Field(default_factory=list, max_length=50)
+    organization: str = Field(default="", max_length=255)
+    job_title: str = Field(default="", max_length=255)
+    department: str = Field(default="", max_length=255)
+    nickname: str = Field(default="", max_length=255)
+    groups: list[str] = Field(default_factory=list, max_length=50)
+    relations: list[ContactRelationRequest] = Field(default_factory=list, max_length=30)
+    starred: bool = False
+
+
+class DeviceContactBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: str = Field(min_length=8, max_length=120)
+    contacts: list[DeviceContactRequest] = Field(default_factory=list, max_length=150)
+    snapshot_complete: bool = False
 
 
 @router.post("/api/va/objectives/{objective_id}/authorize")
@@ -90,6 +127,49 @@ async def decline_va_objective(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/api/relationships/directory")
+async def relationship_directory(
+    query: str = Query(default="", max_length=160),
+    filter_name: str = Query(default="all", alias="filter", max_length=40),
+    limit: int = Query(default=1000, ge=1, le=2000),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return await list_people_directory(
+        db,
+        query=query,
+        filter_name=filter_name,
+        limit=limit,
+    )
+
+
+@router.post("/api/relationships/directory/device-contacts")
+async def sync_device_contacts_to_directory(
+    payload: DeviceContactBatchRequest,
+    device: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    contacts = [item.model_dump(mode="json") for item in payload.contacts]
+    return await ingest_device_contact_snapshot(
+        db,
+        device_id=device.id,
+        snapshot_id=payload.snapshot_id,
+        contacts=contacts,
+        snapshot_complete=payload.snapshot_complete,
+    )
+
+
+@router.post("/api/relationships/directory/sync-google")
+async def sync_google_contacts_to_directory(
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        return await sync_google_contact_sources(db)
+    except GoogleConfigurationError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 

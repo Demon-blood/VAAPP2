@@ -8,10 +8,10 @@ import android.os.Build
 import android.provider.CallLog
 import android.provider.Settings
 import android.provider.Telephony
+import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.Constraints
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -101,10 +101,22 @@ class MainActivity : FlutterActivity() {
                 startActivity(Intent(action))
                 result.success(true)
             }
+            "readPhoneContacts" -> readPhoneContacts(result)
             "sendSms" -> sendSms(call, result)
             "syncRecentCommunications" -> syncRecentCommunications(result)
             "syncCallPolicy" -> syncCallPolicy(result)
             else -> result.notImplemented()
+        }
+    }
+
+    private fun readPhoneContacts(result: MethodChannel.Result) {
+        thread(name = "va-phone-contacts") {
+            try {
+                val payload = VaContacts.read(this)
+                runOnUiThread { result.success(payload) }
+            } catch (exc: Exception) {
+                runOnUiThread { result.error("contacts_read_failed", exc.toString(), null) }
+            }
         }
     }
 

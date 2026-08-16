@@ -25,6 +25,7 @@ async def init_db() -> None:
     from app.models.entities import Base as EntityBase
     import app.models.telephony_entities  # noqa: F401
     import app.models.fulfillment_entities  # noqa: F401
+    import app.models.people_entities  # noqa: F401
 
     async with engine.begin() as connection:
         await connection.run_sync(EntityBase.metadata.create_all)

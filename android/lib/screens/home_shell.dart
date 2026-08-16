@@ -7,6 +7,7 @@ import 'dashboard_page.dart';
 import 'fulfillment_page.dart';
 import 'inbox_page.dart';
 import 'money_page.dart';
+import 'people_directory_page.dart';
 import 'product_status_page.dart';
 import 'services_page.dart';
 import 'settings_page.dart';
@@ -104,6 +105,13 @@ class _HomeShellState extends State<HomeShell> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'People & personalized replies',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PeopleDirectoryPage()),
+            ),
+            icon: const Icon(Icons.people_alt_outlined),
+          ),
           IconButton(
             tooltip: 'Product status',
             onPressed: () => Navigator.of(context).push(
