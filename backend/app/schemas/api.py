@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PairDeviceRequest(BaseModel):
@@ -182,6 +182,60 @@ class BrowserOperationRequest(BaseModel):
 
 
 class BrowserAuthCodeRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=200)
+
+
+class PortalDocumentRecipe(BaseModel):
+    start_url: str = Field(min_length=8, max_length=2000)
+    item_selector: str = Field(min_length=1, max_length=1000)
+    external_id_selector: str = Field(default="", max_length=1000)
+    external_id_attribute: str = Field(default="", max_length=120)
+    allow_derived_external_id: bool = False
+    title_selector: str = Field(default="", max_length=1000)
+    title_attribute: str = Field(default="", max_length=120)
+    provider_selector: str = Field(default="", max_length=1000)
+    provider_attribute: str = Field(default="", max_length=120)
+    date_selector: str = Field(default="", max_length=1000)
+    date_attribute: str = Field(default="", max_length=120)
+    detail_link_selector: str = Field(default="", max_length=1000)
+    link_selector: str = Field(min_length=1, max_length=1000)
+    download_selector: str = Field(default="", max_length=1000)
+    link_attribute: str = Field(default="href", max_length=120)
+    download_strategy: Literal["direct_link", "click", "document_response"] = "direct_link"
+    next_page_selector: str = Field(default="", max_length=1000)
+    expected_mime_types: list[str] = Field(default_factory=lambda: ["application/pdf"], max_length=20)
+    include_title_terms: list[str] = Field(default_factory=list, max_length=20)
+    exclude_title_terms: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_semantics(self) -> "PortalDocumentRecipe":
+        if not self.start_url.lower().startswith("https://"):
+            raise ValueError("start_url must use HTTPS")
+        if any(not value or "/" not in value for value in self.expected_mime_types):
+            raise ValueError("expected_mime_types must contain valid MIME types")
+        if not self.external_id_selector and not self.allow_derived_external_id:
+            raise ValueError("external_id_selector is required unless deterministic fallback identity is explicitly enabled")
+        if any(not term.strip() or len(term) > 120 for term in self.include_title_terms + self.exclude_title_terms):
+            raise ValueError("title filters must be non-empty and at most 120 characters")
+        if self.download_strategy == "click" and self.detail_link_selector and not self.download_selector:
+            raise ValueError("download_selector is required for a detail-page click strategy")
+        return self
+
+
+class PortalDocumentSourceRequest(BaseModel):
+    portal_id: int = Field(gt=0)
+    slug: str = Field(min_length=2, max_length=120, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    name: str = Field(min_length=1, max_length=255)
+    recipe: PortalDocumentRecipe
+    preset_key: str = Field(default="", max_length=80)
+    account_scope: Literal["personal", "pro"] = "personal"
+    enabled: bool = True
+    sync_interval_minutes: int = Field(default=360, ge=15, le=43200)
+    max_pages: int = Field(default=10, ge=1, le=50)
+    max_documents_per_sync: int = Field(default=100, ge=1, le=500)
+
+
+class PortalDocumentAuthCodeRequest(BaseModel):
     code: str = Field(min_length=1, max_length=200)
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
@@ -62,6 +63,8 @@ from app.models.entities import (
     OAuthConnection,
     OrderRecord,
     Payment,
+    DocumentSourceReference,
+    PortalDocumentSource,
     SubscriptionRecord,
     SupportCase,
     Task,
@@ -78,6 +81,8 @@ from app.schemas.api import (
     BrowserCredentialRequest,
     BrowserOperationRequest,
     BrowserPortalRequest,
+    PortalDocumentAuthCodeRequest,
+    PortalDocumentSourceRequest,
     CalendarObjectiveRequest,
     CommunicationActionResultRequest,
     CommunicationBatchRequest,
@@ -202,6 +207,15 @@ from app.services.browser_operator import (
     submit_auth_code,
     upsert_portal as upsert_browser_portal,
 )
+from app.services.portal_document_sync import (
+    PORTAL_DOCUMENT_PRESETS,
+    delete_source as delete_portal_document_source,
+    discover_source as discover_portal_document_source,
+    list_sources as list_portal_document_sources,
+    set_source_auth_code,
+    source_public as portal_document_source_public,
+    upsert_source as upsert_portal_document_source,
+)
 from app.services.document_ownership import (
     document_obligation_detail,
     document_ownership_status,
@@ -248,6 +262,7 @@ async def system_info() -> dict:
             "relationship_memory",
             "secure_browser_portal_operator",
             "document_forms_deadlines",
+            "portal_document_sync",
             "financial_allocation_forecasting",
             "tasks",
             "documents",
@@ -1802,6 +1817,19 @@ async def list_documents(
         row for row in rows
         if document_retention_decision(row.name, row.mime_type, row.size_bytes)[0]
     ][:limit]
+    document_ids = [row.id for row in visible]
+    provenance_rows = list(
+        (
+            await db.execute(
+                select(DocumentSourceReference).where(DocumentSourceReference.document_id.in_(document_ids))
+            )
+        ).scalars()
+    ) if document_ids else []
+    provenance: dict[int, list[dict[str, object]]] = {}
+    for ref in provenance_rows:
+        provenance.setdefault(ref.document_id, []).append(
+            {"source_type": ref.source_type, "source_id": ref.source_id, "source_name": ref.source_name, "created_at": ref.created_at}
+        )
     return [
         {
             "id": row.id,
@@ -1813,6 +1841,7 @@ async def list_documents(
             "drive_file_id": row.drive_file_id,
             "drive_web_url": row.drive_web_url,
             "created_at": row.created_at,
+            "provenance": provenance.get(row.id, []),
         }
         for row in visible
     ]
@@ -1965,6 +1994,107 @@ async def browser_operator_status_route(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     return await browser_status(db)
+
+
+@router.get("/api/portal-documents/presets")
+async def portal_document_presets_route(_: Device = Depends(require_device)) -> list[dict]:
+    return PORTAL_DOCUMENT_PRESETS
+
+
+@router.get("/api/portal-documents/sources")
+async def portal_document_sources_route(
+    _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> list[dict]:
+    return await list_portal_document_sources(db)
+
+
+@router.post("/api/portal-documents/sources")
+async def portal_document_source_upsert_route(
+    payload: PortalDocumentSourceRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        row = await upsert_portal_document_source(db, **payload.model_dump())
+        return portal_document_source_public(row)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/api/portal-documents/sources/{source_id}")
+async def portal_document_source_update_route(
+    source_id: int,
+    payload: PortalDocumentSourceRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        row = await upsert_portal_document_source(db, source_id=source_id, **payload.model_dump())
+        return portal_document_source_public(row)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/api/portal-documents/sources/{source_id}")
+async def portal_document_source_delete_route(
+    source_id: int, _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    try:
+        await delete_portal_document_source(db, source_id)
+        return {"deleted": True, "source_id": source_id}
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/api/portal-documents/sources/{source_id}/test")
+async def portal_document_source_test_route(
+    source_id: int, _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    try:
+        return await discover_portal_document_source(db, source_id, persist=False)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/api/portal-documents/sources/{source_id}/sync")
+async def portal_document_source_sync_route(
+    source_id: int, _: Device = Depends(require_device), db: AsyncSession = Depends(get_db)
+) -> dict:
+    from app.services.workflow_engine import enqueue_job
+
+    source = await db.get(PortalDocumentSource, source_id)
+    if source is None or not source.enabled:
+        raise HTTPException(status_code=404, detail="portal document source is missing or disabled")
+    sequence = int(datetime.utcnow().timestamp())
+    job, created = await enqueue_job(
+        db,
+        job_type="portal_documents.sync",
+        payload={"source_id": source.id},
+        idempotency_key=f"portal_documents.sync:{source.id}:manual:{sequence}",
+        priority=30,
+        max_attempts=4,
+    )
+    return {"queued": created, "job_id": job.id, "source_id": source.id}
+
+
+@router.post("/api/portal-documents/sources/{source_id}/auth-code")
+async def portal_document_source_auth_code_route(
+    source_id: int,
+    payload: PortalDocumentAuthCodeRequest,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        row = await set_source_auth_code(db, source_id, payload.code)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return portal_document_source_public(row)
 
 
 @router.get("/api/browser/portals")

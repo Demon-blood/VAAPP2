@@ -14,6 +14,7 @@ from app.models.entities import (
     Device,
     GmailMailboxState,
     OAuthConnection,
+    PortalDocumentSource,
     ServiceConnector,
 )
 from app.models.fulfillment_entities import FulfillmentProvider
@@ -128,6 +129,24 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
         ).scalars()
     )
     browser_portal = bool(enabled_portal_ids)
+    portal_document_sources = list(
+        (
+            await db.execute(
+                select(PortalDocumentSource).where(PortalDocumentSource.enabled.is_(True))
+            )
+        ).scalars()
+    )
+    portal_document_ready = bool(
+        google and portal_document_sources and any(row.portal_id in enabled_portal_ids for row in portal_document_sources)
+    )
+    portal_document_live = bool(
+        portal_document_ready
+        and any(
+            row.last_success_at is not None
+            and row.last_success_at >= now - timedelta(minutes=max(1440, row.sync_interval_minutes * 2))
+            for row in portal_document_sources
+        )
+    )
     recent_device_cutoff = datetime.utcnow() - timedelta(hours=24)
     device = bool(
         (
@@ -276,6 +295,29 @@ async def capability_matrix(db: AsyncSession) -> dict[str, Any]:
             setup_action="services",
             setup_destination="Services → Google Gmail, Calendar, Drive and Contacts",
             setup_steps=("Connect Google OAuth in Services; Drive access is checked through the same connection.",),
+        ),
+        _cap(
+            "portal_document_sync",
+            "Portal document synchronization",
+            portal_document_ready,
+            "Secure Playwright discovery + shared Drive document ingestion",
+            resolution="automatic" if portal_document_ready else "user_connect",
+            detail=(
+                "At least one configured source has completed a real authenticated sync"
+                if portal_document_live
+                else "A source and Google Drive are configured; run Test/Sync with the real account to verify it"
+                if portal_document_ready
+                else "Connect Google Drive and configure an enabled document source on an allowlisted browser portal"
+            ),
+            readiness="live" if portal_document_live else "ready" if portal_document_ready else "offline",
+            verified=portal_document_live,
+            setup_action="portal_documents",
+            setup_destination="Work → Documents → Portal sources",
+            setup_steps=(
+                "Configure an allowlisted Secure Browser portal and its encrypted credentials.",
+                "Add and validate a declarative document source recipe.",
+                "Run Test, then Sync now; MFA/CAPTCHA remains a truthful Needs You boundary.",
+            ),
         ),
         _cap(
             "banking_read",

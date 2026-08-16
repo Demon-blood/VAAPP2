@@ -19,43 +19,46 @@ class WorkPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DefaultTabController(
-        length: 10,
-        child: Column(
-          children: [
-            const TabBar(
-              isScrollable: true,
-              tabs: [
-                Tab(text: 'Operations'),
-                Tab(text: 'Tasks'),
-                Tab(text: 'Calendar'),
-                Tab(text: 'Portals'),
-                Tab(text: 'Documents'),
-                Tab(text: 'Orders'),
-                Tab(text: 'Subscriptions'),
-                Tab(text: 'Support'),
-                Tab(text: 'Relationships'),
-                Tab(text: 'Projects'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  const VaOperationsPage(),
-                  TasksPage(onOpenBills: onOpenBills, onOpenPayments: onOpenPayments),
-                  const _CalendarView(),
-                  const _PortalsView(),
-                  const _DocumentsView(),
-                  const _OrdersView(),
-                  const _SubscriptionsView(),
-                  const _SupportView(),
-                  const _RelationshipsView(),
-                  const _ProjectsView(),
-                ],
-              ),
-            ),
+    length: 10,
+    child: Column(
+      children: [
+        const TabBar(
+          isScrollable: true,
+          tabs: [
+            Tab(text: 'Operations'),
+            Tab(text: 'Tasks'),
+            Tab(text: 'Calendar'),
+            Tab(text: 'Portals'),
+            Tab(text: 'Documents'),
+            Tab(text: 'Orders'),
+            Tab(text: 'Subscriptions'),
+            Tab(text: 'Support'),
+            Tab(text: 'Relationships'),
+            Tab(text: 'Projects'),
           ],
         ),
-      );
+        Expanded(
+          child: TabBarView(
+            children: [
+              const VaOperationsPage(),
+              TasksPage(
+                onOpenBills: onOpenBills,
+                onOpenPayments: onOpenPayments,
+              ),
+              const _CalendarView(),
+              const _PortalsView(),
+              const _DocumentsView(),
+              const _OrdersView(),
+              const _SubscriptionsView(),
+              const _SupportView(),
+              const _RelationshipsView(),
+              const _ProjectsView(),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _CalendarView extends StatelessWidget {
@@ -67,8 +70,10 @@ class _CalendarView extends StatelessWidget {
     final status = state.calendarStatus;
     final rows = state.calendarEvents;
     final lastSync = _formatSync(status['last_sync_at']);
-    final awaiting = (status['awaiting_attendee_response'] as num?)?.toInt() ?? 0;
-    final upcoming = (status['upcoming_events'] as num?)?.toInt() ?? rows.length;
+    final awaiting =
+        (status['awaiting_attendee_response'] as num?)?.toInt() ?? 0;
+    final upcoming =
+        (status['upcoming_events'] as num?)?.toInt() ?? rows.length;
     final lastError = '${status['last_error'] ?? ''}'.trim();
 
     return RefreshIndicator(
@@ -89,10 +94,19 @@ class _CalendarView extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.calendar_month_rounded, color: VaTheme.primary),
+                    const Icon(
+                      Icons.calendar_month_rounded,
+                      color: VaTheme.primary,
+                    ),
                     const SizedBox(width: 9),
                     const Expanded(
-                      child: Text('Calendar ownership', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                      child: Text(
+                        'Calendar ownership',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
                     ),
                     IconButton.filledTonal(
                       tooltip: 'Sync Google Calendar now',
@@ -108,7 +122,13 @@ class _CalendarView extends StatelessWidget {
                 ),
                 if (lastError.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text(lastError, style: const TextStyle(color: VaTheme.warning, fontWeight: FontWeight.w700)),
+                  Text(
+                    lastError,
+                    style: const TextStyle(
+                      color: VaTheme.warning,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -120,7 +140,8 @@ class _CalendarView extends StatelessWidget {
               child: const EmptyState(
                 icon: Icons.event_available_outlined,
                 title: 'No upcoming calendar events',
-                message: 'The VA mirrors Google Calendar and will place verified scheduling work here automatically.',
+                message:
+                    'The VA mirrors Google Calendar and will place verified scheduling work here automatically.',
               ),
             )
           else
@@ -147,16 +168,21 @@ class _CalendarView extends StatelessWidget {
       if (!context.mounted) return;
       final events = (result['events'] as num?)?.toInt() ?? 0;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Calendar synchronized · $events event${events == 1 ? '' : 's'} observed.')),
+        SnackBar(
+          content: Text(
+            'Calendar synchronized · $events event${events == 1 ? '' : 's'} observed.',
+          ),
+        ),
       );
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
       }
     }
   }
 }
-
 
 class _CalendarEventCard extends StatelessWidget {
   const _CalendarEventCard({required this.row});
@@ -169,8 +195,15 @@ class _CalendarEventCard extends StatelessWidget {
     final location = '${row['location'] ?? ''}'.trim();
     final start = _formatTime('${row['start'] ?? ''}');
     final end = _formatTime('${row['end'] ?? ''}', compact: true);
-    final attendees = row['attendees'] is List ? List<dynamic>.from(row['attendees'] as List) : const <dynamic>[];
-    final pending = attendees.where((item) => item is Map && '${item['responseStatus'] ?? ''}' == 'needsAction').length;
+    final attendees = row['attendees'] is List
+        ? List<dynamic>.from(row['attendees'] as List)
+        : const <dynamic>[];
+    final pending = attendees
+        .where(
+          (item) =>
+              item is Map && '${item['responseStatus'] ?? ''}' == 'needsAction',
+        )
+        .length;
     final link = '${row['html_link'] ?? ''}'.trim();
     final owned = row['owned_objective_id'] != null;
 
@@ -178,13 +211,22 @@ class _CalendarEventCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: link.isEmpty ? null : () => launchUrl(Uri.parse(link), mode: LaunchMode.externalApplication),
+        onTap: link.isEmpty
+            ? null
+            : () => launchUrl(
+                Uri.parse(link),
+                mode: LaunchMode.externalApplication,
+              ),
         child: Ink(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             color: VaTheme.surface,
-            border: Border.all(color: owned ? VaTheme.primary.withValues(alpha: .34) : VaTheme.border),
+            border: Border.all(
+              color: owned
+                  ? VaTheme.primary.withValues(alpha: .34)
+                  : VaTheme.border,
+            ),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,31 +247,54 @@ class _CalendarEventCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(child: Text(summary, style: const TextStyle(fontWeight: FontWeight.w900))),
+                        Expanded(
+                          child: Text(
+                            summary,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
                         if (owned)
                           const Tooltip(
                             message: 'Owned by the VA objective engine',
-                            child: Icon(Icons.verified_rounded, size: 17, color: VaTheme.primary),
+                            child: Icon(
+                              Icons.verified_rounded,
+                              size: 17,
+                              color: VaTheme.primary,
+                            ),
                           ),
                       ],
                     ),
                     const SizedBox(height: 5),
-                    Text('$start${end.isEmpty ? '' : ' – $end'}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Text(
+                      '$start${end.isEmpty ? '' : ' – $end'}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
                     if (location.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(location, style: const TextStyle(color: VaTheme.textMuted)),
+                      Text(
+                        location,
+                        style: const TextStyle(color: VaTheme.textMuted),
+                      ),
                     ],
                     if (attendees.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Text(
                         '${attendees.length} attendee${attendees.length == 1 ? '' : 's'}${pending > 0 ? ' · $pending awaiting response' : ' · responses received'}',
-                        style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+                        style: const TextStyle(
+                          color: VaTheme.textMuted,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ],
                 ),
               ),
-              if (link.isNotEmpty) const Icon(Icons.open_in_new_rounded, size: 17, color: VaTheme.textMuted),
+              if (link.isNotEmpty)
+                const Icon(
+                  Icons.open_in_new_rounded,
+                  size: 17,
+                  color: VaTheme.textMuted,
+                ),
             ],
           ),
         ),
@@ -247,7 +312,6 @@ class _CalendarEventCard extends StatelessWidget {
   }
 }
 
-
 class _PortalsView extends StatelessWidget {
   const _PortalsView();
 
@@ -257,7 +321,8 @@ class _PortalsView extends StatelessWidget {
     final status = state.browserStatus;
     final portals = state.browserPortals;
     final operations = state.browserOperations;
-    final configured = (status['configured_portals'] as num?)?.toInt() ?? portals.length;
+    final configured =
+        (status['configured_portals'] as num?)?.toInt() ?? portals.length;
     final authRequired = (status['needs_user_auth'] as num?)?.toInt() ?? 0;
     final ambiguous = (status['ambiguous_outcomes'] as num?)?.toInt() ?? 0;
     final verified = (status['verified'] as num?)?.toInt() ?? 0;
@@ -280,10 +345,18 @@ class _PortalsView extends StatelessWidget {
                       const Icon(Icons.public_rounded, color: VaTheme.primary),
                       const SizedBox(width: 10),
                       const Expanded(
-                        child: Text('Secure portal operator', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                        child: Text(
+                          'Secure portal operator',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
                       ),
                       FilledButton.icon(
-                        onPressed: state.busy ? null : () => _showAddPortalDialog(context),
+                        onPressed: state.busy
+                            ? null
+                            : () => _showAddPortalDialog(context),
                         icon: const Icon(Icons.add_rounded, size: 18),
                         label: const Text('Add portal'),
                       ),
@@ -301,7 +374,10 @@ class _PortalsView extends StatelessWidget {
                     children: [
                       _PortalMetric(label: 'Portals', value: '$configured'),
                       _PortalMetric(label: 'Verified runs', value: '$verified'),
-                      _PortalMetric(label: 'Auth needed', value: '$authRequired'),
+                      _PortalMetric(
+                        label: 'Auth needed',
+                        value: '$authRequired',
+                      ),
                       _PortalMetric(label: 'Ambiguous', value: '$ambiguous'),
                     ],
                   ),
@@ -310,31 +386,46 @@ class _PortalsView extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          const Text('Configured portals', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+          const Text(
+            'Configured portals',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+          ),
           const SizedBox(height: 8),
           if (portals.isEmpty)
             const _PortalEmpty(
               icon: Icons.vpn_key_off_rounded,
-              message: 'No browser portals are configured yet. Add a portal so the VA can own routine web workflows instead of handing them back to you.',
+              message:
+                  'No browser portals are configured yet. Add a portal so the VA can own routine web workflows instead of handing them back to you.',
             )
           else
-            ...portals.map((row) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _PortalCard(row: row, onEdit: () => _showAddPortalDialog(context, row)),
-                )),
+            ...portals.map(
+              (row) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _PortalCard(
+                  row: row,
+                  onEdit: () => _showAddPortalDialog(context, row),
+                ),
+              ),
+            ),
           const SizedBox(height: 18),
-          const Text('Portal operations', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+          const Text(
+            'Portal operations',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+          ),
           const SizedBox(height: 8),
           if (operations.isEmpty)
             const _PortalEmpty(
               icon: Icons.travel_explore_rounded,
-              message: 'No portal work has been queued yet. Browser operations created by the VA objective engine will appear here with real provider evidence.',
+              message:
+                  'No portal work has been queued yet. Browser operations created by the VA objective engine will appear here with real provider evidence.',
             )
           else
-            ...operations.map((row) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _BrowserOperationCard(row: row),
-                )),
+            ...operations.map(
+              (row) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _BrowserOperationCard(row: row),
+              ),
+            ),
         ],
       ),
     );
@@ -343,11 +434,17 @@ class _PortalsView extends StatelessWidget {
   Future<void> _showAddPortalDialog(BuildContext context, [Map<String, dynamic>? existing]) async {
     final editing = existing != null;
     final name = TextEditingController(text: '${existing?['name'] ?? ''}');
-    final baseUrl = TextEditingController(text: '${existing?['base_url'] ?? ''}');
-    final loginUrl = TextEditingController(text: '${existing?['login_url'] ?? ''}');
+    final baseUrl = TextEditingController(
+      text: '${existing?['base_url'] ?? ''}',
+    );
+    final loginUrl = TextEditingController(
+      text: '${existing?['login_url'] ?? ''}',
+    );
     final allowedHosts = TextEditingController(
       text: existing?['allowed_hosts'] is List
-          ? (existing!['allowed_hosts'] as List).map((value) => '$value').join(', ')
+          ? (existing!['allowed_hosts'] as List)
+                .map((value) => '$value')
+                .join(', ')
           : '',
     );
     final username = TextEditingController();
@@ -369,28 +466,39 @@ class _PortalsView extends StatelessWidget {
                   TextFormField(
                     controller: name,
                     decoration: const InputDecoration(labelText: 'Portal name'),
-                    validator: (value) => (value ?? '').trim().isEmpty ? 'Enter a portal name' : null,
+                    validator: (value) => (value ?? '').trim().isEmpty
+                        ? 'Enter a portal name'
+                        : null,
                   ),
                   TextFormField(
                     controller: baseUrl,
                     keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(labelText: 'Base URL', hintText: 'https://portal.example.com'),
+                    decoration: const InputDecoration(
+                      labelText: 'Base URL',
+                      hintText: 'https://portal.example.com',
+                    ),
                     validator: (value) {
                       final uri = Uri.tryParse((value ?? '').trim());
-                      if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return 'Enter a valid HTTPS portal URL';
+                      if (uri == null ||
+                          uri.scheme != 'https' ||
+                          uri.host.isEmpty)
+                        return 'Enter a valid HTTPS portal URL';
                       return null;
                     },
                   ),
                   TextField(
                     controller: loginUrl,
                     keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(labelText: 'Login URL (optional)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Login URL (optional)',
+                    ),
                   ),
                   TextField(
                     controller: allowedHosts,
                     decoration: const InputDecoration(
                       labelText: 'Allowed / extra login hosts (optional)',
-                      hintText: 'login.microsoftonline.com, accounts.example.com',
+                      hintText:
+                          'login.microsoftonline.com, accounts.example.com',
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -398,15 +506,22 @@ class _PortalsView extends StatelessWidget {
                     initialValue: accountScope,
                     decoration: const InputDecoration(labelText: 'Scope'),
                     items: const [
-                      DropdownMenuItem(value: 'personal', child: Text('Personal')),
+                      DropdownMenuItem(
+                        value: 'personal',
+                        child: Text('Personal'),
+                      ),
                       DropdownMenuItem(value: 'pro', child: Text('Pro')),
                     ],
-                    onChanged: (value) => setDialogState(() => accountScope = value ?? accountScope),
+                    onChanged: (value) => setDialogState(
+                      () => accountScope = value ?? accountScope,
+                    ),
                   ),
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Portal enabled'),
-                    subtitle: const Text('Disabled portals remain saved but cannot execute browser work.'),
+                    subtitle: const Text(
+                      'Disabled portals remain saved but cannot execute browser work.',
+                    ),
                     value: enabled,
                     onChanged: (value) => setDialogState(() => enabled = value),
                   ),
@@ -414,14 +529,18 @@ class _PortalsView extends StatelessWidget {
                   TextField(
                     controller: username,
                     decoration: InputDecoration(
-                      labelText: editing ? 'Replace username/email (optional)' : 'Username/email (optional)',
+                      labelText: editing
+                          ? 'Replace username/email (optional)'
+                          : 'Username/email (optional)',
                     ),
                     autocorrect: false,
                   ),
                   TextField(
                     controller: password,
                     decoration: InputDecoration(
-                      labelText: editing ? 'Replace password (optional)' : 'Password (optional)',
+                      labelText: editing
+                          ? 'Replace password (optional)'
+                          : 'Password (optional)',
                     ),
                     obscureText: true,
                     enableSuggestions: false,
@@ -432,14 +551,20 @@ class _PortalsView extends StatelessWidget {
                     editing
                         ? 'Leave login fields blank to keep the existing encrypted credentials. One-time codes are never stored.'
                         : 'Only username/password can be stored. One-time codes remain one-time and are cleared after use.',
-                    style: const TextStyle(fontSize: 12, color: VaTheme.textMuted),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: VaTheme.textMuted,
+                    ),
                   ),
                 ],
               ),
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
               onPressed: () {
                 if (formKey.currentState?.validate() != true) return;
@@ -457,36 +582,42 @@ class _PortalsView extends StatelessWidget {
     if (!editing) {
       slug = rawName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
       slug = slug.replaceAll(RegExp(r'^-+|-+$'), '');
-      if (slug.length < 2) slug = 'portal-${DateTime.now().millisecondsSinceEpoch}';
+      if (slug.length < 2)
+        slug = 'portal-${DateTime.now().millisecondsSinceEpoch}';
     }
     try {
       await context.read<AppState>().addBrowserPortal(
-            slug: slug,
-            name: rawName,
-            baseUrl: baseUrl.text.trim(),
-            loginUrl: loginUrl.text.trim(),
-            allowedHosts: allowedHosts.text
-                .split(',')
-                .map((value) => value.trim())
-                .where((value) => value.isNotEmpty)
-                .toList(),
-            username: username.text,
-            password: password.text,
-            accountScope: accountScope,
-            enabled: enabled,
-          );
+        slug: slug,
+        name: rawName,
+        baseUrl: baseUrl.text.trim(),
+        loginUrl: loginUrl.text.trim(),
+        allowedHosts: allowedHosts.text
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toList(),
+        username: username.text,
+        password: password.text,
+        accountScope: accountScope,
+        enabled: enabled,
+      );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(editing ? 'Secure portal updated.' : 'Secure portal configured.')),
+          SnackBar(
+            content: Text(
+              editing ? 'Secure portal updated.' : 'Secure portal configured.',
+            ),
+          ),
         );
       }
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Portal setup failed: $error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Portal setup failed: $error')));
       }
     }
   }
-
 }
 
 class _PortalMetric extends StatelessWidget {
@@ -496,13 +627,16 @@ class _PortalMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: VaTheme.border),
-        ),
-        child: Text('$label · $value', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: VaTheme.border),
+    ),
+    child: Text(
+      '$label · $value',
+      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+    ),
+  );
 }
 
 class _PortalEmpty extends StatelessWidget {
@@ -512,20 +646,25 @@ class _PortalEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          color: VaTheme.surface,
-          border: Border.all(color: VaTheme.border),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(18),
+      color: VaTheme.surface,
+      border: Border.all(color: VaTheme.border),
+    ),
+    child: Row(
+      children: [
+        Icon(icon, color: VaTheme.textMuted),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(color: VaTheme.textMuted),
+          ),
         ),
-        child: Row(
-          children: [
-            Icon(icon, color: VaTheme.textMuted),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message, style: const TextStyle(color: VaTheme.textMuted))),
-          ],
-        ),
-      );
+      ],
+    ),
+  );
 }
 
 class _PortalCard extends StatelessWidget {
@@ -553,40 +692,86 @@ class _PortalCard extends StatelessWidget {
               children: [
                 const Icon(Icons.language_rounded, color: VaTheme.primary),
                 const SizedBox(width: 10),
-                Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w900))),
+                Expanded(
+                  child: Text(
+                    name,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
                 IconButton(
                   tooltip: 'Edit portal',
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_outlined, size: 19),
                 ),
-                Text(session, style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+                Text(
+                  session,
+                  style: const TextStyle(
+                    color: VaTheme.textMuted,
+                    fontSize: 12,
+                  ),
+                ),
               ],
             ),
             if (baseUrl.isNotEmpty) ...[
               const SizedBox(height: 6),
-              Text(baseUrl, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: VaTheme.textMuted)),
+              Text(
+                baseUrl,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: VaTheme.textMuted),
+              ),
             ],
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(credentials ? Icons.lock_rounded : Icons.lock_open_rounded, size: 16, color: credentials ? VaTheme.primary : VaTheme.textMuted),
+                Icon(
+                  credentials ? Icons.lock_rounded : Icons.lock_open_rounded,
+                  size: 16,
+                  color: credentials ? VaTheme.primary : VaTheme.textMuted,
+                ),
                 const SizedBox(width: 6),
-                Expanded(child: Text(credentials ? 'Encrypted credentials configured' : 'No stored credentials', style: const TextStyle(fontSize: 12))),
+                Expanded(
+                  child: Text(
+                    credentials
+                        ? 'Encrypted credentials configured'
+                        : 'No stored credentials',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
                 TextButton(
-                  onPressed: id <= 0 ? null : () => _showCredentials(context, id, name),
+                  onPressed: id <= 0
+                      ? null
+                      : () => _showCredentials(context, id, name),
                   child: Text(credentials ? 'Replace' : 'Add login'),
+                ),
+                TextButton.icon(
+                  onPressed: id <= 0
+                      ? null
+                      : () => DefaultTabController.of(context).animateTo(4),
+                  icon: const Icon(Icons.description_outlined, size: 17),
+                  label: const Text('Documents'),
                 ),
               ],
             ),
             if (error.isNotEmpty)
-              Text(error, style: const TextStyle(fontSize: 12, color: Colors.orangeAccent)),
+              Text(
+                error,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.orangeAccent,
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  Future<void> _showCredentials(BuildContext context, int portalId, String portalName) async {
+  Future<void> _showCredentials(
+    BuildContext context,
+    int portalId,
+    String portalName,
+  ) async {
     final username = TextEditingController();
     final password = TextEditingController();
     final accepted = await showDialog<bool>(
@@ -596,22 +781,48 @@ class _PortalCard extends StatelessWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: username, decoration: const InputDecoration(labelText: 'Username/email'), autocorrect: false),
-            TextField(controller: password, decoration: const InputDecoration(labelText: 'Password'), obscureText: true, enableSuggestions: false, autocorrect: false),
+            TextField(
+              controller: username,
+              decoration: const InputDecoration(labelText: 'Username/email'),
+              autocorrect: false,
+            ),
+            TextField(
+              controller: password,
+              decoration: const InputDecoration(labelText: 'Password'),
+              obscureText: true,
+              enableSuggestions: false,
+              autocorrect: false,
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save encrypted login')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Save encrypted login'),
+          ),
         ],
       ),
     );
     if (accepted != true || !context.mounted) return;
     try {
-      await context.read<AppState>().updateBrowserCredentials(portalId, username.text, password.text);
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Portal login updated.')));
+      await context.read<AppState>().updateBrowserCredentials(
+        portalId,
+        username.text,
+        password.text,
+      );
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Portal login updated.')));
     } catch (error) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Credential update failed: $error')));
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Credential update failed: $error')),
+        );
     }
   }
 }
@@ -626,7 +837,8 @@ class _BrowserOperationCard extends StatelessWidget {
     final title = '${row['title'] ?? 'Portal operation'}';
     final status = '${row['status'] ?? 'pending'}';
     final challenge = '${row['challenge_type'] ?? ''}';
-    final prompt = '${row['challenge_prompt'] ?? row['last_error'] ?? ''}'.trim();
+    final prompt = '${row['challenge_prompt'] ?? row['last_error'] ?? ''}'
+        .trim();
     final approval = row['material_approval_required'] == true;
     final url = '${row['last_url'] ?? ''}';
     final verified = status == 'verified';
@@ -641,19 +853,41 @@ class _BrowserOperationCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(verified ? Icons.verified_rounded : Icons.web_asset_rounded, color: verified ? VaTheme.primary : VaTheme.textMuted),
+                Icon(
+                  verified ? Icons.verified_rounded : Icons.web_asset_rounded,
+                  color: verified ? VaTheme.primary : VaTheme.textMuted,
+                ),
                 const SizedBox(width: 10),
-                Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w900))),
-                Text(status.replaceAll('_', ' '), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                Text(
+                  status.replaceAll('_', ' '),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
               ],
             ),
             if (url.isNotEmpty) ...[
               const SizedBox(height: 6),
-              Text(url, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+              Text(
+                url,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+              ),
             ],
             if (prompt.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text(prompt, style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+              Text(
+                prompt,
+                style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+              ),
             ],
             if (id > 0 && (approval || status == 'needs_user_auth')) ...[
               const SizedBox(height: 10),
@@ -673,7 +907,9 @@ class _BrowserOperationCard extends StatelessWidget {
                       icon: const Icon(Icons.password_rounded, size: 18),
                       label: const Text('Enter code'),
                     ),
-                  if (status == 'needs_user_auth' && challenge != 'otp' && challenge != 'captcha')
+                  if (status == 'needs_user_auth' &&
+                      challenge != 'otp' &&
+                      challenge != 'captcha')
                     OutlinedButton.icon(
                       onPressed: () => _resume(context, id),
                       icon: const Icon(Icons.refresh_rounded, size: 18),
@@ -702,16 +938,29 @@ class _BrowserOperationCard extends StatelessWidget {
           decoration: const InputDecoration(labelText: 'Code'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, code.text.trim().isNotEmpty), child: const Text('Continue')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, code.text.trim().isNotEmpty),
+            child: const Text('Continue'),
+          ),
         ],
       ),
     );
     if (accepted != true || !context.mounted) return;
     try {
-      await context.read<AppState>().submitBrowserAuthCode(id, code.text.trim());
+      await context.read<AppState>().submitBrowserAuthCode(
+        id,
+        code.text.trim(),
+      );
     } catch (error) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Authentication failed: $error')));
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Authentication failed: $error')),
+        );
     }
   }
 
@@ -719,7 +968,10 @@ class _BrowserOperationCard extends StatelessWidget {
     try {
       await context.read<AppState>().resumeBrowserOperation(id);
     } catch (error) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Portal resume failed: $error')));
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Portal resume failed: $error')));
     }
   }
 
@@ -728,10 +980,18 @@ class _BrowserOperationCard extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Approve material portal action?'),
-        content: const Text('This action may create a payment, contractual commitment, or security/account change. Approval is intentionally required before the browser can continue.'),
+        content: const Text(
+          'This action may create a payment, contractual commitment, or security/account change. Approval is intentionally required before the browser can continue.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Do not approve')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Approve once')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Do not approve'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Approve once'),
+          ),
         ],
       ),
     );
@@ -739,11 +999,13 @@ class _BrowserOperationCard extends StatelessWidget {
     try {
       await context.read<AppState>().approveBrowserOperation(id);
     } catch (error) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Approval failed: $error')));
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Approval failed: $error')));
     }
   }
 }
-
 
 class _DocumentsView extends StatefulWidget {
   const _DocumentsView();
@@ -771,11 +1033,23 @@ class _DocumentsViewState extends State<_DocumentsView> {
     final rows = state.documents.where((row) {
       final name = '${row['name'] ?? ''}'.toLowerCase();
       final category = '${row['category'] ?? ''}'.toLowerCase();
-      final matchesQuery = query.isEmpty || name.contains(query) || category.contains(query);
+      final matchesQuery =
+          query.isEmpty || name.contains(query) || category.contains(query);
       final matchesFilter = switch (filter) {
-        'Finance' => category.contains('financ') || category.contains('geld') || category.contains('bill'),
-        'Purchase' => category.contains('purchase') || category.contains('order') || category.contains('receipt'),
-        'Important' => category.contains('important') || category.contains('legal') || category.contains('contract') || category.contains('tax') || category.contains('medical'),
+        'Finance' =>
+          category.contains('financ') ||
+              category.contains('geld') ||
+              category.contains('bill'),
+        'Purchase' =>
+          category.contains('purchase') ||
+              category.contains('order') ||
+              category.contains('receipt'),
+        'Important' =>
+          category.contains('important') ||
+              category.contains('legal') ||
+              category.contains('contract') ||
+              category.contains('tax') ||
+              category.contains('medical'),
         _ => true,
       };
       return matchesQuery && matchesFilter;
@@ -787,6 +1061,73 @@ class _DocumentsViewState extends State<_DocumentsView> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
         children: [
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: VaTheme.surface,
+              border: Border.all(color: VaTheme.primary.withValues(alpha: .24)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.cloud_download_outlined,
+                      color: VaTheme.primary,
+                    ),
+                    const SizedBox(width: 9),
+                    const Expanded(
+                      child: Text(
+                        'Portal document sources',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: state.busy || state.browserPortals.isEmpty
+                          ? null
+                          : () => _editSource(context),
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('Add'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                const Text(
+                  'Declarative, allowlisted portal recipes discover and archive durable documents. CAPTCHA and MFA pause truthfully for you.',
+                  style: TextStyle(color: VaTheme.textMuted),
+                ),
+                if (state.browserPortals.isEmpty) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () =>
+                        DefaultTabController.of(context).animateTo(3),
+                    icon: const Icon(Icons.open_in_new_rounded),
+                    label: const Text('Set up a secure portal first'),
+                  ),
+                ],
+                if (state.portalDocumentSources.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  for (final source in state.portalDocumentSources) ...[
+                    _PortalDocumentSourceCard(
+                      row: source,
+                      onEdit: () => _editSource(context, source),
+                      onTest: () => _testSource(context, source),
+                      onSync: () => _syncSource(context, source),
+                      onAuth: () => _submitSourceAuth(context, source),
+                      onDelete: () => _deleteSource(context, source),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -814,7 +1155,12 @@ class _DocumentsViewState extends State<_DocumentsView> {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                for (final option in const ['All', 'Finance', 'Purchase', 'Important']) ...[
+                for (final option in const [
+                  'All',
+                  'Finance',
+                  'Purchase',
+                  'Important',
+                ]) ...[
                   ChoiceChip(
                     label: Text(option),
                     selected: filter == option,
@@ -838,17 +1184,32 @@ class _DocumentsViewState extends State<_DocumentsView> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.fact_check_outlined, color: VaTheme.primary),
+                    const Icon(
+                      Icons.fact_check_outlined,
+                      color: VaTheme.primary,
+                    ),
                     const SizedBox(width: 9),
-                    const Expanded(child: Text('Document ownership', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                    const Expanded(
+                      child: Text(
+                        'Document ownership',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
                     IconButton.filledTonal(
                       tooltip: 'Reconcile documents, forms and deadlines now',
-                      onPressed: state.busy ? null : () => _reconcileOwnership(context),
+                      onPressed: state.busy
+                          ? null
+                          : () => _reconcileOwnership(context),
                       icon: const Icon(Icons.sync_rounded),
                     ),
                     IconButton.filledTonal(
                       tooltip: 'Add verified profile fact for form filling',
-                      onPressed: state.busy ? null : () => _addProfileFact(context),
+                      onPressed: state.busy
+                          ? null
+                          : () => _addProfileFact(context),
                       icon: const Icon(Icons.person_add_alt_1_rounded),
                     ),
                   ],
@@ -860,7 +1221,10 @@ class _DocumentsViewState extends State<_DocumentsView> {
                 ),
                 if ('${ownership['next_due_at'] ?? ''}'.trim().isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  Text('Next due ${_formatDocumentDue('${ownership['next_due_at']}')}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text(
+                    'Next due ${_formatDocumentDue('${ownership['next_due_at']}')}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
                 ],
               ],
             ),
@@ -878,7 +1242,9 @@ class _DocumentsViewState extends State<_DocumentsView> {
               height: MediaQuery.sizeOf(context).height * .48,
               child: EmptyState(
                 icon: Icons.folder_outlined,
-                title: state.documents.isEmpty ? 'No saved documents' : 'No matching documents',
+                title: state.documents.isEmpty
+                    ? 'No saved documents'
+                    : 'No matching documents',
                 message: state.documents.isEmpty
                     ? 'Only useful invoices, receipts, contracts, statements and other durable records are archived. Boilerplate Terms of Service and policy attachments are ignored.'
                     : 'Try another search or filter.',
@@ -907,10 +1273,17 @@ class _DocumentsViewState extends State<_DocumentsView> {
       final analyzed = (result['documents_analyzed'] as num?)?.toInt() ?? 0;
       final completed = (result['completed'] as num?)?.toInt() ?? 0;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Document ownership reconciled · $analyzed analyzed · $completed completed.')),
+        SnackBar(
+          content: Text(
+            'Document ownership reconciled · $analyzed analyzed · $completed completed.',
+          ),
+        ),
       );
     } catch (error) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
     }
   }
 
@@ -924,16 +1297,30 @@ class _DocumentsViewState extends State<_DocumentsView> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Used only for form filling. Examples: phone, address, postal_code, city, date_of_birth.'),
+            const Text(
+              'Used only for form filling. Examples: phone, address, postal_code, city, date_of_birth.',
+            ),
             const SizedBox(height: 12),
-            TextField(controller: keyController, decoration: const InputDecoration(labelText: 'Fact key')),
+            TextField(
+              controller: keyController,
+              decoration: const InputDecoration(labelText: 'Fact key'),
+            ),
             const SizedBox(height: 8),
-            TextField(controller: valueController, decoration: const InputDecoration(labelText: 'Value')),
+            TextField(
+              controller: valueController,
+              decoration: const InputDecoration(labelText: 'Value'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
@@ -946,7 +1333,464 @@ class _DocumentsViewState extends State<_DocumentsView> {
     try {
       await context.read<AppState>().setDocumentProfileFact(key, value);
     } catch (error) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _editSource(
+    BuildContext context, [
+    Map<String, dynamic>? existing,
+  ]) async {
+    final recipe = existing?['recipe'] is Map
+        ? Map<String, dynamic>.from(existing!['recipe'] as Map)
+        : <String, dynamic>{};
+    final name = TextEditingController(text: '${existing?['name'] ?? ''}');
+    final slug = TextEditingController(text: '${existing?['slug'] ?? ''}');
+    final startUrl = TextEditingController(
+      text: '${recipe['start_url'] ?? ''}',
+    );
+    final itemSelector = TextEditingController(
+      text: '${recipe['item_selector'] ?? ''}',
+    );
+    final externalIdSelector = TextEditingController(
+      text: '${recipe['external_id_selector'] ?? ''}',
+    );
+    final externalIdAttribute = TextEditingController(
+      text: '${recipe['external_id_attribute'] ?? ''}',
+    );
+    final titleSelector = TextEditingController(
+      text: '${recipe['title_selector'] ?? ''}',
+    );
+    final providerSelector = TextEditingController(
+      text: '${recipe['provider_selector'] ?? ''}',
+    );
+    final dateSelector = TextEditingController(
+      text: '${recipe['date_selector'] ?? ''}',
+    );
+    final linkSelector = TextEditingController(
+      text: '${recipe['link_selector'] ?? ''}',
+    );
+    final detailLinkSelector = TextEditingController(
+      text: '${recipe['detail_link_selector'] ?? ''}',
+    );
+    final downloadSelector = TextEditingController(
+      text: '${recipe['download_selector'] ?? ''}',
+    );
+    final nextSelector = TextEditingController(
+      text: '${recipe['next_page_selector'] ?? ''}',
+    );
+    final interval = TextEditingController(
+      text: '${existing?['sync_interval_minutes'] ?? 360}',
+    );
+    final maxPages = TextEditingController(
+      text: '${existing?['max_pages'] ?? 10}',
+    );
+    final maxDocuments = TextEditingController(
+      text: '${existing?['max_documents_per_sync'] ?? 100}',
+    );
+    var portalId =
+        (existing?['portal_id'] as num?)?.toInt() ??
+        (context.read<AppState>().browserPortals.first['id'] as num).toInt();
+    var strategy = '${recipe['download_strategy'] ?? 'direct_link'}';
+    var scope = '${existing?['account_scope'] ?? 'personal'}';
+    var preset = '${existing?['preset_key'] ?? ''}';
+    var enabled = existing?['enabled'] != false;
+    final formKey = GlobalKey<FormState>();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            existing == null ? 'Add document source' : 'Edit document source',
+          ),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    initialValue: portalId,
+                    decoration: const InputDecoration(
+                      labelText: 'Secure portal',
+                    ),
+                    items: context
+                        .read<AppState>()
+                        .browserPortals
+                        .map(
+                          (row) => DropdownMenuItem<int>(
+                            value: (row['id'] as num).toInt(),
+                            child: Text('${row['name']}'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => portalId = value ?? portalId),
+                  ),
+                  TextFormField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Source name'),
+                    validator: _required,
+                  ),
+                  TextFormField(
+                    controller: slug,
+                    decoration: const InputDecoration(
+                      labelText: 'Stable slug',
+                      hintText: 'provider-documents',
+                    ),
+                    validator: (value) =>
+                        RegExp(r'^[a-z0-9][a-z0-9_-]+$').hasMatch(value ?? '')
+                        ? null
+                        : 'Use lowercase letters, numbers, _ or -',
+                  ),
+                  DropdownButtonFormField<String>(
+                    initialValue: preset,
+                    decoration: const InputDecoration(labelText: 'Preset'),
+                    items: const [
+                      DropdownMenuItem(value: '', child: Text('Generic')),
+                      DropdownMenuItem(
+                        value: 'doccle',
+                        child: Text('Doccle starter · needs verification'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => preset = value ?? preset),
+                  ),
+                  TextFormField(
+                    controller: startUrl,
+                    decoration: const InputDecoration(
+                      labelText: 'HTTPS listing URL',
+                    ),
+                    validator: (value) {
+                      final uri = Uri.tryParse(value ?? '');
+                      return uri != null &&
+                              uri.scheme == 'https' &&
+                              uri.host.isNotEmpty
+                          ? null
+                          : 'Enter a valid HTTPS URL';
+                    },
+                  ),
+                  TextFormField(
+                    controller: itemSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'Item selector',
+                    ),
+                    validator: _required,
+                  ),
+                  TextFormField(
+                    controller: externalIdSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'External ID selector',
+                    ),
+                    validator: _required,
+                  ),
+                  TextFormField(
+                    controller: externalIdAttribute,
+                    decoration: const InputDecoration(
+                      labelText: 'External ID attribute (optional)',
+                      hintText: 'data-document-id',
+                    ),
+                  ),
+                  TextFormField(
+                    controller: titleSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'Title selector (optional)',
+                    ),
+                  ),
+                  TextFormField(
+                    controller: providerSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'Provider selector (optional)',
+                    ),
+                  ),
+                  TextFormField(
+                    controller: dateSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'Date selector (optional)',
+                    ),
+                  ),
+                  TextFormField(
+                    controller: detailLinkSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'Detail-page link selector (optional)',
+                    ),
+                  ),
+                  TextFormField(
+                    controller: linkSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'Download link/button selector',
+                    ),
+                    validator: _required,
+                  ),
+                  TextFormField(
+                    controller: downloadSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'Detail-page download selector (optional)',
+                    ),
+                  ),
+                  TextFormField(
+                    controller: nextSelector,
+                    decoration: const InputDecoration(
+                      labelText: 'Next-page selector (optional)',
+                    ),
+                  ),
+                  DropdownButtonFormField<String>(
+                    initialValue: strategy,
+                    decoration: const InputDecoration(
+                      labelText: 'Download strategy',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'direct_link',
+                        child: Text('Direct authenticated link'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'click',
+                        child: Text('Browser download event'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'document_response',
+                        child: Text('Document response'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => strategy = value ?? strategy),
+                  ),
+                  TextFormField(
+                    controller: interval,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Sync interval (minutes, minimum 15)',
+                    ),
+                    validator: (value) {
+                      final parsed = int.tryParse(value ?? '');
+                      return parsed != null && parsed >= 15 && parsed <= 43200
+                          ? null
+                          : 'Use 15–43200 minutes';
+                    },
+                  ),
+                  TextFormField(
+                    controller: maxPages,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Maximum pages per sync',
+                    ),
+                    validator: (value) {
+                      final parsed = int.tryParse(value ?? '');
+                      return parsed != null && parsed >= 1 && parsed <= 50
+                          ? null
+                          : 'Use 1–50 pages';
+                    },
+                  ),
+                  TextFormField(
+                    controller: maxDocuments,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Maximum documents per sync',
+                    ),
+                    validator: (value) {
+                      final parsed = int.tryParse(value ?? '');
+                      return parsed != null && parsed >= 1 && parsed <= 500
+                          ? null
+                          : 'Use 1–500 documents';
+                    },
+                  ),
+                  DropdownButtonFormField<String>(
+                    initialValue: scope,
+                    decoration: const InputDecoration(
+                      labelText: 'Account scope',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'personal',
+                        child: Text('Personal'),
+                      ),
+                      DropdownMenuItem(value: 'pro', child: Text('Pro')),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => scope = value ?? scope),
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Automatic sync enabled'),
+                    value: enabled,
+                    onChanged: (value) => setDialogState(() => enabled = value),
+                  ),
+                  const Text(
+                    'Doccle is available only as a conservative starter concept: selectors must be verified against a real authenticated account before saving.',
+                    style: TextStyle(fontSize: 12, color: VaTheme.textMuted),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() == true)
+                  Navigator.pop(dialogContext, true);
+              },
+              child: const Text('Validate & save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    try {
+      await context.read<AppState>().savePortalDocumentSource({
+        'portal_id': portalId,
+        'slug': slug.text.trim(),
+        'name': name.text.trim(),
+        'recipe': {
+          'start_url': startUrl.text.trim(),
+          'item_selector': itemSelector.text.trim(),
+          'external_id_selector': externalIdSelector.text.trim(),
+          'external_id_attribute': externalIdAttribute.text.trim(),
+          'title_selector': titleSelector.text.trim(),
+          'provider_selector': providerSelector.text.trim(),
+          'date_selector': dateSelector.text.trim(),
+          'link_selector': linkSelector.text.trim(),
+          'detail_link_selector': detailLinkSelector.text.trim(),
+          'download_selector': downloadSelector.text.trim(),
+          'download_strategy': strategy,
+          'next_page_selector': nextSelector.text.trim(),
+          'expected_mime_types': ['application/pdf'],
+        },
+        'preset_key': preset,
+        'account_scope': scope,
+        'enabled': enabled,
+        'sync_interval_minutes': int.tryParse(interval.text) ?? 360,
+        'max_pages': int.tryParse(maxPages.text) ?? 10,
+        'max_documents_per_sync': int.tryParse(maxDocuments.text) ?? 100,
+      }, sourceId: (existing?['id'] as num?)?.toInt());
+    } catch (error) {
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Source validation failed: $error')),
+        );
+    }
+  }
+
+  static String? _required(String? value) =>
+      (value ?? '').trim().isEmpty ? 'Required' : null;
+
+  Future<void> _testSource(
+    BuildContext context,
+    Map<String, dynamic> row,
+  ) async {
+    try {
+      final result = await context.read<AppState>().testPortalDocumentSource(
+        (row['id'] as num).toInt(),
+      );
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Discovery test found ${result['found'] ?? 0} document item(s).',
+            ),
+          ),
+        );
+    } catch (error) {
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _syncSource(
+    BuildContext context,
+    Map<String, dynamic> row,
+  ) async {
+    try {
+      await context.read<AppState>().syncPortalDocumentSource(
+        (row['id'] as num).toInt(),
+      );
+      if (context.mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Document sync queued in the durable workflow engine.',
+            ),
+          ),
+        );
+    } catch (error) {
+      if (context.mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _submitSourceAuth(
+    BuildContext context,
+    Map<String, dynamic> row,
+  ) async {
+    final code = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Resume portal authentication'),
+        content: TextField(
+          controller: code,
+          decoration: const InputDecoration(labelText: 'One-time code'),
+          keyboardType: TextInputType.number,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Resume'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && context.mounted && code.text.trim().isNotEmpty) {
+      await context.read<AppState>().submitPortalDocumentAuthCode(
+        (row['id'] as num).toInt(),
+        code.text.trim(),
+      );
+    }
+  }
+
+  Future<void> _deleteSource(
+    BuildContext context,
+    Map<String, dynamic> row,
+  ) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove document source?'),
+        content: Text(
+          'Remove ${row['name'] ?? 'this source'} and its provider-item ledger? Archived documents and provenance remain available.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove source'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && context.mounted) {
+      await context.read<AppState>().deletePortalDocumentSource(
+        (row['id'] as num).toInt(),
+      );
     }
   }
 
@@ -967,9 +1811,114 @@ class _DocumentsViewState extends State<_DocumentsView> {
       );
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
       }
     }
+  }
+}
+
+class _PortalDocumentSourceCard extends StatelessWidget {
+  const _PortalDocumentSourceCard({
+    required this.row,
+    required this.onEdit,
+    required this.onTest,
+    required this.onSync,
+    required this.onAuth,
+    required this.onDelete,
+  });
+  final Map<String, dynamic> row;
+  final VoidCallback onEdit;
+  final VoidCallback onTest;
+  final VoidCallback onSync;
+  final VoidCallback onAuth;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = '${row['status'] ?? 'ready'}';
+    final needsAuth = status == 'needs_user_auth';
+    final known = (row['known_documents'] as num?)?.toInt() ?? 0;
+    final pending = (row['pending_documents'] as num?)?.toInt() ?? 0;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: VaTheme.background,
+        border: Border.all(
+          color: needsAuth ? Colors.orangeAccent : VaTheme.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${row['name'] ?? 'Document source'}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              Text(
+                status,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: needsAuth ? Colors.orangeAccent : VaTheme.textMuted,
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '$known known · $pending pending · ${row['account_scope'] == 'pro' ? 'Pro' : 'Personal'} · Last success ${_sourceTime('${row['last_success_at'] ?? ''}')}',
+              style: const TextStyle(fontSize: 12, color: VaTheme.textMuted),
+            ),
+          ),
+          if ('${row['last_error'] ?? ''}'.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Text(
+                '${row['last_error']}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.orangeAccent,
+                ),
+              ),
+            ),
+          Wrap(
+            spacing: 5,
+            children: [
+              TextButton(onPressed: onEdit, child: const Text('Edit')),
+              TextButton(onPressed: onTest, child: const Text('Test')),
+              FilledButton.tonal(
+                onPressed: onSync,
+                child: const Text('Sync now'),
+              ),
+              if (needsAuth && '${row['challenge_type']}' == 'otp')
+                FilledButton.tonal(
+                  onPressed: onAuth,
+                  child: const Text('Enter code'),
+                ),
+              IconButton(
+                tooltip: 'Remove source',
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _sourceTime(String raw) {
+    final parsed = DateTime.tryParse(raw);
+    return parsed == null
+        ? 'never'
+        : DateFormat('d MMM HH:mm').format(parsed.toLocal());
   }
 }
 
@@ -983,7 +1932,9 @@ class _DocumentObligationCard extends StatelessWidget {
     final status = '${row['status'] ?? 'detected'}';
     final dueRaw = '${row['due_at'] ?? ''}'.trim();
     final due = DateTime.tryParse(dueRaw);
-    final dueText = due == null ? '' : DateFormat('d MMM yyyy').format(due.toLocal());
+    final dueText = due == null
+        ? ''
+        : DateFormat('d MMM yyyy').format(due.toLocal());
     final error = '${row['last_error'] ?? ''}'.trim();
     final form = '${row['obligation_type'] ?? ''}' == 'form';
     final material = row['material_commitment'] == true;
@@ -993,18 +1944,30 @@ class _DocumentObligationCard extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         color: VaTheme.surface,
-        border: Border.all(color: status == 'completed' ? VaTheme.success.withValues(alpha: .35) : VaTheme.border),
+        border: Border.all(
+          color: status == 'completed'
+              ? VaTheme.success.withValues(alpha: .35)
+              : VaTheme.border,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(form ? Icons.assignment_turned_in_outlined : Icons.event_note_outlined, color: status == 'completed' ? VaTheme.success : VaTheme.primary),
+          Icon(
+            form
+                ? Icons.assignment_turned_in_outlined
+                : Icons.event_note_outlined,
+            color: status == 'completed' ? VaTheme.success : VaTheme.primary,
+          ),
           const SizedBox(width: 11),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${row['title'] ?? 'Document obligation'}', style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text(
+                  '${row['title'] ?? 'Document obligation'}',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   '${form ? 'Form' : 'Deadline'} · ${status.replaceAll('_', ' ')}${dueText.isEmpty ? '' : ' · due $dueText'}',
@@ -1013,13 +1976,27 @@ class _DocumentObligationCard extends StatelessWidget {
                 if (material || protected) ...[
                   const SizedBox(height: 5),
                   Text(
-                    [if (protected) 'Protected', if (material) 'Material decision'].join(' · '),
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                    [
+                      if (protected) 'Protected',
+                      if (material) 'Material decision',
+                    ].join(' · '),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ],
                 if (error.isNotEmpty) ...[
                   const SizedBox(height: 5),
-                  Text(error, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: VaTheme.warning, fontSize: 12)),
+                  Text(
+                    error,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: VaTheme.warning,
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -1030,7 +2007,6 @@ class _DocumentObligationCard extends StatelessWidget {
   }
 }
 
-
 class _DocumentCard extends StatelessWidget {
   const _DocumentCard({required this.row});
 
@@ -1040,14 +2016,24 @@ class _DocumentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = '${row['name'] ?? ''}';
     final category = '${row['category'] ?? 'General'}';
+    final provenance = row['provenance'] is List
+        ? row['provenance'] as List
+        : const [];
     final url = '${row['drive_web_url'] ?? ''}';
-    final extension = name.contains('.') ? name.split('.').last.toUpperCase() : 'FILE';
+    final extension = name.contains('.')
+        ? name.split('.').last.toUpperCase()
+        : 'FILE';
     final accent = _accent(category);
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: url.isEmpty ? null : () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+        onTap: url.isEmpty
+            ? null
+            : () => launchUrl(
+                Uri.parse(url),
+                mode: LaunchMode.externalApplication,
+              ),
         child: Ink(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -1074,7 +2060,15 @@ class _DocumentCard extends StatelessWidget {
                     Icon(Icons.description_rounded, color: accent, size: 30),
                     Positioned(
                       bottom: 5,
-                      child: Text(extension.length > 4 ? extension.substring(0, 4) : extension, style: const TextStyle(fontSize: 7, fontWeight: FontWeight.w900)),
+                      child: Text(
+                        extension.length > 4
+                            ? extension.substring(0, 4)
+                            : extension,
+                        style: const TextStyle(
+                          fontSize: 7,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1084,9 +2078,29 @@ class _DocumentCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     const SizedBox(height: 4),
-                    Text('$category · ${row['account_scope'] ?? 'personal'}', style: const TextStyle(color: VaTheme.textMuted)),
+                    Text(
+                      '$category · ${row['account_scope'] ?? 'personal'}',
+                      style: const TextStyle(color: VaTheme.textMuted),
+                    ),
+                    if (provenance.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        'Source: ${provenance.map((value) => value is Map ? (value['source_name'] ?? value['source_type']) : value).toSet().join(' + ')}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: VaTheme.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1094,10 +2108,17 @@ class _DocumentCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(_size(row['size_bytes']), style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text(
+                    _size(row['size_bytes']),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   if (url.isNotEmpty) ...[
                     const SizedBox(height: 5),
-                    const Icon(Icons.open_in_new_rounded, size: 16, color: VaTheme.textMuted),
+                    const Icon(
+                      Icons.open_in_new_rounded,
+                      size: 16,
+                      color: VaTheme.textMuted,
+                    ),
                   ],
                 ],
               ),
@@ -1110,20 +2131,28 @@ class _DocumentCard extends StatelessWidget {
 
   Color _accent(String category) {
     final value = category.toLowerCase();
-    if (value.contains('financ') || value.contains('bill')) return VaTheme.success;
-    if (value.contains('purchase') || value.contains('order') || value.contains('receipt')) return VaTheme.warning;
-    if (value.contains('important') || value.contains('legal') || value.contains('contract') || value.contains('tax')) return VaTheme.primary;
+    if (value.contains('financ') || value.contains('bill'))
+      return VaTheme.success;
+    if (value.contains('purchase') ||
+        value.contains('order') ||
+        value.contains('receipt'))
+      return VaTheme.warning;
+    if (value.contains('important') ||
+        value.contains('legal') ||
+        value.contains('contract') ||
+        value.contains('tax'))
+      return VaTheme.primary;
     return VaTheme.secondary;
   }
 
   String _size(dynamic value) {
     final bytes = (value as num?)?.toInt() ?? int.tryParse('$value') ?? 0;
-    if (bytes >= 1024 * 1024) return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    if (bytes >= 1024 * 1024)
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
     if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
     return '$bytes B';
   }
 }
-
 
 class _OrdersView extends StatelessWidget {
   const _OrdersView();
@@ -1135,7 +2164,8 @@ class _OrdersView extends StatelessWidget {
       return const EmptyState(
         icon: Icons.local_shipping_outlined,
         title: 'No tracked orders',
-        message: 'Only source-backed physical orders and delivery updates are shown here. Payment receipts stay in the financial/email ledgers instead.',
+        message:
+            'Only source-backed physical orders and delivery updates are shown here. Payment receipts stay in the financial/email ledgers instead.',
       );
     }
     return ListView.builder(
@@ -1144,21 +2174,30 @@ class _OrdersView extends StatelessWidget {
       itemBuilder: (context, index) {
         final row = rows[index];
         final id = (row['id'] as num?)?.toInt() ?? 0;
-        final delivery = DateTime.tryParse('${row['expected_delivery_at'] ?? ''}');
+        final delivery = DateTime.tryParse(
+          '${row['expected_delivery_at'] ?? ''}',
+        );
         final reason = '${row['classification_reason'] ?? ''}'.trim();
         return Card(
           child: ListTile(
             leading: const Icon(Icons.inventory_2_outlined),
             title: Text('${row['merchant']} · ${row['order_number']}'),
-            subtitle: Text([
-              'Status: ${row['status']}',
-              if (row['total_amount'] != null) money(row['total_amount'], '${row['currency'] ?? 'EUR'}'),
-              if (delivery != null) 'Expected ${DateFormat('dd MMM yyyy').format(delivery)}',
-              if (reason.isNotEmpty) 'Evidence: $reason',
-            ].join('\n')),
+            subtitle: Text(
+              [
+                'Status: ${row['status']}',
+                if (row['total_amount'] != null)
+                  money(row['total_amount'], '${row['currency'] ?? 'EUR'}'),
+                if (delivery != null)
+                  'Expected ${DateFormat('dd MMM yyyy').format(delivery)}',
+                if (reason.isNotEmpty) 'Evidence: $reason',
+              ].join('\n'),
+            ),
             onTap: '${row['tracking_url'] ?? ''}'.isEmpty
                 ? null
-                : () => launchUrl(Uri.parse('${row['tracking_url']}'), mode: LaunchMode.externalApplication),
+                : () => launchUrl(
+                    Uri.parse('${row['tracking_url']}'),
+                    mode: LaunchMode.externalApplication,
+                  ),
             trailing: id <= 0
                 ? null
                 : PopupMenuButton<String>(
@@ -1184,8 +2223,13 @@ class _OrdersView extends StatelessWidget {
     );
   }
 
-  Future<void> _dismissOrder(BuildContext context, int id, Map<String, dynamic> row) async {
-    final confirmed = await showDialog<bool>(
+  Future<void> _dismissOrder(
+    BuildContext context,
+    int id,
+    Map<String, dynamic> row,
+  ) async {
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Mark this as not an order?'),
@@ -1194,8 +2238,14 @@ class _OrdersView extends StatelessWidget {
               'The original Gmail/payment evidence is kept; only the fulfillment/tracking classification is dismissed.',
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Not an order')),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Not an order'),
+              ),
             ],
           ),
         ) ??
@@ -1205,12 +2255,18 @@ class _OrdersView extends StatelessWidget {
       await context.read<AppState>().dismissOrder(id);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Removed from order tracking. Receipt/payment evidence was kept.')),
+          const SnackBar(
+            content: Text(
+              'Removed from order tracking. Receipt/payment evidence was kept.',
+            ),
+          ),
         );
       }
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not reclassify order: $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not reclassify order: $error')),
+        );
       }
     }
   }
@@ -1226,7 +2282,8 @@ class _SubscriptionsView extends StatelessWidget {
       return const EmptyState(
         icon: Icons.autorenew,
         title: 'No subscriptions detected',
-        message: 'Renewals and recurring charges are extracted from real messages and receipts.',
+        message:
+            'Renewals and recurring charges are extracted from real messages and receipts.',
       );
     }
     return ListView.separated(
@@ -1239,12 +2296,17 @@ class _SubscriptionsView extends StatelessWidget {
         return ListTile(
           leading: const Icon(Icons.repeat),
           title: Text('${row['provider_name']}'),
-          subtitle: Text([
-            '${row['description']}',
-            '${row['billing_cycle']} · ${row['account_scope']} · ${row['status']}',
-            if (next != null) 'Next charge ${DateFormat('dd MMM yyyy').format(next)}',
-          ].join('\n')),
-          trailing: row['amount'] == null ? null : Text(money(row['amount'], '${row['currency'] ?? 'EUR'}')),
+          subtitle: Text(
+            [
+              '${row['description']}',
+              '${row['billing_cycle']} · ${row['account_scope']} · ${row['status']}',
+              if (next != null)
+                'Next charge ${DateFormat('dd MMM yyyy').format(next)}',
+            ].join('\n'),
+          ),
+          trailing: row['amount'] == null
+              ? null
+              : Text(money(row['amount'], '${row['currency'] ?? 'EUR'}')),
         );
       },
     );
@@ -1261,7 +2323,8 @@ class _SupportView extends StatelessWidget {
       return const EmptyState(
         icon: Icons.support_agent,
         title: 'No support cases',
-        message: 'Requests that need a response or follow-up are tracked from Gmail.',
+        message:
+            'Requests that need a response or follow-up are tracked from Gmail.',
       );
     }
     return ListView.builder(
@@ -1274,14 +2337,20 @@ class _SupportView extends StatelessWidget {
           child: ListTile(
             leading: const Icon(Icons.support_agent),
             title: Text('${row['subject']}'),
-            subtitle: Text([
-              '${row['requester']}',
-              '${row['priority']} · ${row['status']} · ${row['category']}',
-              if ('${row['last_action'] ?? ''}'.isNotEmpty) '${row['last_action']}',
-              if (followUp != null) 'Follow up ${DateFormat('dd MMM yyyy HH:mm').format(followUp)}',
-            ].join('\n')),
+            subtitle: Text(
+              [
+                '${row['requester']}',
+                '${row['priority']} · ${row['status']} · ${row['category']}',
+                if ('${row['last_action'] ?? ''}'.isNotEmpty)
+                  '${row['last_action']}',
+                if (followUp != null)
+                  'Follow up ${DateFormat('dd MMM yyyy HH:mm').format(followUp)}',
+              ].join('\n'),
+            ),
             trailing: PopupMenuButton<String>(
-              onSelected: (value) => context.read<AppState>().setSupportCaseStatus(row['id'] as int, value),
+              onSelected: (value) => context
+                  .read<AppState>()
+                  .setSupportCaseStatus(row['id'] as int, value),
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'open', child: Text('Open')),
                 PopupMenuItem(value: 'waiting', child: Text('Waiting')),
@@ -1328,10 +2397,19 @@ class _RelationshipsView extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.people_alt_rounded, color: VaTheme.primary),
+                    const Icon(
+                      Icons.people_alt_rounded,
+                      color: VaTheme.primary,
+                    ),
                     const SizedBox(width: 9),
                     const Expanded(
-                      child: Text('Relationship memory', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                      child: Text(
+                        'Relationship memory',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
                     ),
                     IconButton.filledTonal(
                       tooltip: 'Reconcile relationship memory now',
@@ -1355,7 +2433,13 @@ class _RelationshipsView extends StatelessWidget {
                 ),
                 if (lastError.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text(lastError, style: const TextStyle(color: VaTheme.warning, fontWeight: FontWeight.w700)),
+                  Text(
+                    lastError,
+                    style: const TextStyle(
+                      color: VaTheme.warning,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -1367,7 +2451,8 @@ class _RelationshipsView extends StatelessWidget {
               child: const EmptyState(
                 icon: Icons.person_search_rounded,
                 title: 'No relationship memory yet',
-                message: 'The VA builds this automatically from verified Google Contacts, Gmail, device communications, and Calendar identities.',
+                message:
+                    'The VA builds this automatically from verified Google Contacts, Gmail, device communications, and Calendar identities.',
               ),
             )
           else
@@ -1386,11 +2471,17 @@ class _RelationshipsView extends StatelessWidget {
       if (!context.mounted) return;
       final profiles = (result['profiles'] as num?)?.toInt() ?? 0;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Relationship memory reconciled · $profiles profile${profiles == 1 ? '' : 's'} verified.')),
+        SnackBar(
+          content: Text(
+            'Relationship memory reconciled · $profiles profile${profiles == 1 ? '' : 's'} verified.',
+          ),
+        ),
       );
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
       }
     }
   }
@@ -1426,7 +2517,11 @@ class _RelationshipCard extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             color: VaTheme.surface,
-            border: Border.all(color: waiting ? VaTheme.primary.withValues(alpha: .36) : VaTheme.border),
+            border: Border.all(
+              color: waiting
+                  ? VaTheme.primary.withValues(alpha: .36)
+                  : VaTheme.border,
+            ),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1435,7 +2530,10 @@ class _RelationshipCard extends StatelessWidget {
                 backgroundColor: VaTheme.primary.withValues(alpha: .12),
                 child: Text(
                   title.isEmpty ? '?' : title.substring(0, 1).toUpperCase(),
-                  style: const TextStyle(color: VaTheme.primary, fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                    color: VaTheme.primary,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1445,41 +2543,80 @@ class _RelationshipCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(child: Text(title.isEmpty ? 'Unnamed relationship' : title, style: const TextStyle(fontWeight: FontWeight.w900))),
+                        Expanded(
+                          child: Text(
+                            title.isEmpty ? 'Unnamed relationship' : title,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
                         if (waiting)
                           const Tooltip(
                             message: 'The VA is waiting on this person',
-                            child: Icon(Icons.hourglass_top_rounded, size: 17, color: VaTheme.primary),
+                            child: Icon(
+                              Icons.hourglass_top_rounded,
+                              size: 17,
+                              color: VaTheme.primary,
+                            ),
                           ),
                       ],
                     ),
                     if (organization.isNotEmpty) ...[
                       const SizedBox(height: 3),
-                      Text(organization, style: const TextStyle(color: VaTheme.textMuted)),
+                      Text(
+                        organization,
+                        style: const TextStyle(color: VaTheme.textMuted),
+                      ),
                     ],
                     if (email.isNotEmpty || phone.isNotEmpty) ...[
                       const SizedBox(height: 5),
                       Text(
-                        [if (email.isNotEmpty) email, if (phone.isNotEmpty) phone].join(' · '),
-                        style: const TextStyle(color: VaTheme.textMuted, fontSize: 12),
+                        [
+                          if (email.isNotEmpty) email,
+                          if (phone.isNotEmpty) phone,
+                        ].join(' · '),
+                        style: const TextStyle(
+                          color: VaTheme.textMuted,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                     const SizedBox(height: 7),
                     Text(
                       '$count interaction${count == 1 ? '' : 's'}${channel.isEmpty ? '' : ' · $channel'} · activity $score/100',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     if (lastInteraction.isNotEmpty) ...[
                       const SizedBox(height: 3),
-                      Text('Last contact $lastInteraction', style: const TextStyle(color: VaTheme.textMuted, fontSize: 12)),
+                      Text(
+                        'Last contact $lastInteraction',
+                        style: const TextStyle(
+                          color: VaTheme.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
                     ],
                     if (nextFollowUp.isNotEmpty) ...[
                       const SizedBox(height: 3),
-                      Text('Next follow-up $nextFollowUp', style: const TextStyle(color: VaTheme.warning, fontSize: 12, fontWeight: FontWeight.w800)),
+                      Text(
+                        'Next follow-up $nextFollowUp',
+                        style: const TextStyle(
+                          color: VaTheme.warning,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ],
                     if (summary.isNotEmpty) ...[
                       const SizedBox(height: 7),
-                      Text(summary, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: VaTheme.textMuted)),
+                      Text(
+                        summary,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: VaTheme.textMuted),
+                      ),
                     ],
                   ],
                 ),
@@ -1513,7 +2650,9 @@ class _RelationshipCard extends StatelessWidget {
       );
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
       }
     }
   }
@@ -1526,12 +2665,20 @@ class _RelationshipDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final identities = detail['identities'] is List ? List<dynamic>.from(detail['identities'] as List) : const <dynamic>[];
-    final interactions = detail['recent_interactions'] is List ? List<dynamic>.from(detail['recent_interactions'] as List) : const <dynamic>[];
-    final facts = detail['facts'] is List ? List<dynamic>.from(detail['facts'] as List) : const <dynamic>[];
+    final identities = detail['identities'] is List
+        ? List<dynamic>.from(detail['identities'] as List)
+        : const <dynamic>[];
+    final interactions = detail['recent_interactions'] is List
+        ? List<dynamic>.from(detail['recent_interactions'] as List)
+        : const <dynamic>[];
+    final facts = detail['facts'] is List
+        ? List<dynamic>.from(detail['facts'] as List)
+        : const <dynamic>[];
     final name = '${detail['display_name'] ?? ''}'.trim();
     final email = '${detail['primary_email'] ?? ''}'.trim();
-    final title = name.isNotEmpty ? name : (email.isNotEmpty ? email : 'Relationship');
+    final title = name.isNotEmpty
+        ? name
+        : (email.isNotEmpty ? email : 'Relationship');
 
     return SafeArea(
       child: DraggableScrollableSheet(
@@ -1543,11 +2690,19 @@ class _RelationshipDetailSheet extends StatelessWidget {
           controller: controller,
           padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
           children: [
-            Text(title, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
+            Text(
+              title,
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+            ),
             if ('${detail['organization'] ?? ''}'.trim().isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text('${detail['organization']}', style: const TextStyle(color: VaTheme.textMuted)),
+                child: Text(
+                  '${detail['organization']}',
+                  style: const TextStyle(color: VaTheme.textMuted),
+                ),
               ),
             SizedBox(
               width: double.infinity,
@@ -1569,47 +2724,79 @@ class _RelationshipDetailSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            Text('Verified identities', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+            Text(
+              'Verified identities',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+            ),
             const SizedBox(height: 6),
             if (identities.isEmpty)
-              const Text('No verified identities stored.', style: TextStyle(color: VaTheme.textMuted))
+              const Text(
+                'No verified identities stored.',
+                style: TextStyle(color: VaTheme.textMuted),
+              )
             else
               for (final item in identities.whereType<Map>())
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
-                  leading: Icon('${item['type']}' == 'phone' ? Icons.phone_outlined : Icons.alternate_email_rounded),
+                  leading: Icon(
+                    '${item['type']}' == 'phone'
+                        ? Icons.phone_outlined
+                        : Icons.alternate_email_rounded,
+                  ),
                   title: Text('${item['value'] ?? ''}'),
                   subtitle: Text('Source: ${item['source'] ?? 'observed'}'),
                 ),
             if (facts.isNotEmpty) ...[
               const SizedBox(height: 14),
-              Text('Source-backed facts', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+              Text(
+                'Source-backed facts',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+              ),
               const SizedBox(height: 6),
               for (final item in facts.whereType<Map>())
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                   title: Text('${item['key'] ?? ''}'.replaceAll('_', ' ')),
-                  subtitle: Text('${item['value'] ?? ''}\n${item['source_type'] ?? ''} · ${item['source_ref'] ?? ''}'),
+                  subtitle: Text(
+                    '${item['value'] ?? ''}\n${item['source_type'] ?? ''} · ${item['source_ref'] ?? ''}',
+                  ),
                 ),
             ],
             const SizedBox(height: 14),
-            Text('Recent interactions', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+            Text(
+              'Recent interactions',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+            ),
             const SizedBox(height: 6),
             if (interactions.isEmpty)
-              const Text('No interaction history stored.', style: TextStyle(color: VaTheme.textMuted))
+              const Text(
+                'No interaction history stored.',
+                style: TextStyle(color: VaTheme.textMuted),
+              )
             else
               for (final item in interactions.whereType<Map>())
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(_channelIcon('${item['channel'] ?? ''}')),
-                  title: Text('${item['subject'] ?? ''}'.trim().isEmpty ? '${item['channel'] ?? 'Interaction'}' : '${item['subject']}'),
+                  title: Text(
+                    '${item['subject'] ?? ''}'.trim().isEmpty
+                        ? '${item['channel'] ?? 'Interaction'}'
+                        : '${item['subject']}',
+                  ),
                   subtitle: Text(
                     [
                       _formatTimestamp('${item['occurred_at'] ?? ''}'),
                       '${item['direction'] ?? ''}',
-                      if ('${item['summary'] ?? ''}'.trim().isNotEmpty) '${item['summary']}',
+                      if ('${item['summary'] ?? ''}'.trim().isNotEmpty)
+                        '${item['summary']}',
                     ].where((value) => value.isNotEmpty).join(' · '),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
@@ -1622,15 +2809,17 @@ class _RelationshipDetailSheet extends StatelessWidget {
   }
 
   static IconData _channelIcon(String channel) => switch (channel) {
-        'email' => Icons.email_outlined,
-        'sms' => Icons.sms_outlined,
-        'calendar' => Icons.event_outlined,
-        _ => Icons.chat_bubble_outline_rounded,
-      };
+    'email' => Icons.email_outlined,
+    'sms' => Icons.sms_outlined,
+    'calendar' => Icons.event_outlined,
+    _ => Icons.chat_bubble_outline_rounded,
+  };
 
   static String _formatTimestamp(String raw) {
     final parsed = DateTime.tryParse(raw);
-    return parsed == null ? '' : DateFormat('d MMM yyyy · HH:mm').format(parsed.toLocal());
+    return parsed == null
+        ? ''
+        : DateFormat('d MMM yyyy · HH:mm').format(parsed.toLocal());
   }
 }
 
@@ -1647,7 +2836,8 @@ class _ProjectsView extends StatelessWidget {
       return const EmptyState(
         icon: Icons.hub_outlined,
         title: 'No project services connected',
-        message: 'Configure GitHub or Cloudflare on the backend to load live repositories and infrastructure.',
+        message:
+            'Configure GitHub or Cloudflare on the backend to load live repositories and infrastructure.',
       );
     }
     return ListView(
@@ -1656,7 +2846,12 @@ class _ProjectsView extends StatelessWidget {
         if (repositories.isNotEmpty) ...[
           Row(
             children: [
-              Expanded(child: Text('GitHub repositories', style: Theme.of(context).textTheme.titleLarge)),
+              Expanded(
+                child: Text(
+                  'GitHub repositories',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
               FilledButton.tonalIcon(
                 onPressed: () => _createIssue(context, repositories),
                 icon: const Icon(Icons.add_task),
@@ -1664,28 +2859,64 @@ class _ProjectsView extends StatelessWidget {
               ),
             ],
           ),
-          ...repositories.take(50).map((repo) => ListTile(
-                leading: Icon(repo['private'] == true ? Icons.lock_outline : Icons.public),
-                title: Text('${repo['full_name']}'),
-                subtitle: Text('${repo['description'] ?? ''}'),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: () => launchUrl(Uri.parse('${repo['html_url']}'), mode: LaunchMode.externalApplication),
-              )),
-          if (notifications.isNotEmpty) Text('${notifications.length} unread GitHub notifications'),
+          ...repositories
+              .take(50)
+              .map(
+                (repo) => ListTile(
+                  leading: Icon(
+                    repo['private'] == true ? Icons.lock_outline : Icons.public,
+                  ),
+                  title: Text('${repo['full_name']}'),
+                  subtitle: Text('${repo['description'] ?? ''}'),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () => launchUrl(
+                    Uri.parse('${repo['html_url']}'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+              ),
+          if (notifications.isNotEmpty)
+            Text('${notifications.length} unread GitHub notifications'),
           const Divider(height: 32),
         ],
         if (cloudflare.isNotEmpty) ...[
-          Text('Cloudflare resources', style: Theme.of(context).textTheme.titleLarge),
-          ListTile(title: const Text('Workers'), trailing: Text('${(cloudflare['workers'] as List? ?? const []).length}')),
-          ListTile(title: const Text('D1 databases'), trailing: Text('${(cloudflare['d1_databases'] as List? ?? const []).length}')),
-          ListTile(title: const Text('R2 buckets'), trailing: Text('${(cloudflare['r2_buckets'] as List? ?? const []).length}')),
-          ListTile(title: const Text('Zones'), trailing: Text('${(cloudflare['zones'] as List? ?? const []).length}')),
+          Text(
+            'Cloudflare resources',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          ListTile(
+            title: const Text('Workers'),
+            trailing: Text(
+              '${(cloudflare['workers'] as List? ?? const []).length}',
+            ),
+          ),
+          ListTile(
+            title: const Text('D1 databases'),
+            trailing: Text(
+              '${(cloudflare['d1_databases'] as List? ?? const []).length}',
+            ),
+          ),
+          ListTile(
+            title: const Text('R2 buckets'),
+            trailing: Text(
+              '${(cloudflare['r2_buckets'] as List? ?? const []).length}',
+            ),
+          ),
+          ListTile(
+            title: const Text('Zones'),
+            trailing: Text(
+              '${(cloudflare['zones'] as List? ?? const []).length}',
+            ),
+          ),
         ],
       ],
     );
   }
 
-  Future<void> _createIssue(BuildContext context, List<Map<String, dynamic>> repositories) async {
+  Future<void> _createIssue(
+    BuildContext context,
+    List<Map<String, dynamic>> repositories,
+  ) async {
     String repository = '${repositories.first['full_name']}';
     final title = TextEditingController();
     final body = TextEditingController();
@@ -1701,22 +2932,47 @@ class _ProjectsView extends StatelessWidget {
                 DropdownButtonFormField<String>(
                   initialValue: repository,
                   isExpanded: true,
-                  items: repositories.map((repo) => DropdownMenuItem(value: '${repo['full_name']}', child: Text('${repo['full_name']}'))).toList(),
-                  onChanged: (value) => setState(() => repository = value ?? repository),
+                  items: repositories
+                      .map(
+                        (repo) => DropdownMenuItem(
+                          value: '${repo['full_name']}',
+                          child: Text('${repo['full_name']}'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => repository = value ?? repository),
                 ),
-                TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
-                TextField(controller: body, maxLines: 6, decoration: const InputDecoration(labelText: 'Details')),
+                TextField(
+                  controller: title,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                ),
+                TextField(
+                  controller: body,
+                  maxLines: 6,
+                  decoration: const InputDecoration(labelText: 'Details'),
+                ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Create'),
+            ),
           ],
         ),
       ),
     );
     if (submit != true || title.text.trim().isEmpty || !context.mounted) return;
-    await context.read<AppState>().createGitHubIssue(repository: repository, title: title.text.trim(), body: body.text.trim());
+    await context.read<AppState>().createGitHubIssue(
+      repository: repository,
+      title: title.text.trim(),
+      body: body.text.trim(),
+    );
   }
 }

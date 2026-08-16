@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.database import SessionLocal
 from app.core.settings import get_settings
+from app.models.entities import PortalDocumentSource
+from sqlalchemy import or_, select
 from app.services.cash_safety import quarantine_stale_creation_intents
 from app.services.workflow_engine import (
     compact_duplicate_dead_letters,
@@ -163,6 +165,42 @@ async def housekeeping_enqueue_job() -> None:
             )
         except Exception:
             logger.exception("Failed to enqueue housekeeping Autopilot job")
+
+
+async def portal_documents_enqueue_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            now = datetime.utcnow()
+            sources = list(
+                (
+                    await db.execute(
+                        select(PortalDocumentSource).where(
+                            PortalDocumentSource.enabled.is_(True),
+                            PortalDocumentSource.status.not_in(["needs_user_auth"]),
+                            or_(
+                                PortalDocumentSource.last_sync_at.is_(None),
+                                PortalDocumentSource.last_sync_at <= now - timedelta(minutes=15),
+                            ),
+                        )
+                    )
+                ).scalars()
+            )
+            for source in sources:
+                if source.last_sync_at and source.last_sync_at > now - timedelta(minutes=source.sync_interval_minutes):
+                    continue
+                bucket = int(now.timestamp()) // (max(15, source.sync_interval_minutes) * 60)
+                await enqueue_job(
+                    db,
+                    job_type="portal_documents.sync",
+                    payload={"source_id": source.id},
+                    idempotency_key=f"portal_documents.sync:{source.id}:{bucket}",
+                    priority=35,
+                    max_attempts=4,
+                )
+        except Exception:
+            logger.exception("Failed to enqueue portal document synchronization")
 
 
 async def va_core_enqueue_job() -> None:
@@ -386,6 +424,16 @@ def start_scheduler() -> None:
         "interval",
         hours=6,
         id="housekeeping_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        portal_documents_enqueue_job,
+        "interval",
+        minutes=5,
+        id="portal_documents_enqueue",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

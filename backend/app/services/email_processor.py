@@ -29,7 +29,7 @@ from app.integrations.google_api import (
     headers_to_dict,
     modify_gmail_message,
 )
-from app.models.entities import AuditLog, AutomationRule, Bill, Creditor, EmailMessage, Task
+from app.models.entities import AuditLog, AutomationRule, Bill, Creditor, DocumentSourceReference, EmailMessage, Task
 from app.schemas.api import AutomationDecision
 from app.services.action_reconciler import reconcile_action_queue
 from app.services.ai_policy import (
@@ -287,6 +287,26 @@ async def _upsert_bill(db: AsyncSession, message_id: str, decision: AutomationDe
     creditor_name = str(data.get("creditor_name") or "").strip()
     if amount is None or not creditor_name:
         return None
+    linked_document_ids = list(
+        (
+            await db.execute(
+                select(DocumentSourceReference.document_id).where(
+                    DocumentSourceReference.source_type == "email",
+                    DocumentSourceReference.source_id == message_id,
+                )
+            )
+        ).scalars()
+    )
+    if linked_document_ids:
+        exact_portal_bill = (
+            await db.execute(
+                select(Bill).where(
+                    Bill.source_message_id.in_([f"portal-document:{document_id}" for document_id in linked_document_ids])
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if exact_portal_bill is not None:
+            return exact_portal_bill
     iban = re.sub(r"\s+", "", str(data.get("iban") or "")).upper() or None
     invoice_number = str(data.get("invoice_number") or "").strip()
     duplicate_query = select(Bill).where(Bill.amount == amount, Bill.creditor_name == creditor_name)
@@ -638,15 +658,59 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 )
             )
 
-    bill = await _upsert_bill(db, message["id"], decision)
-
-    account_scope = "personal"
-    if bill is not None:
-        account_scope = bill.account_scope
-    elif decision.order:
+    account_scope = str((decision.bill or {}).get("account_scope") or "personal")
+    if decision.order:
         account_scope = str(decision.order.get("account_scope") or "personal")
     elif decision.subscription:
         account_scope = str(decision.subscription.get("account_scope") or "personal")
+
+    archived_documents = 0
+    if decision.archive_attachments and attachments:
+        try:
+            archived_documents = await archive_email_attachments(
+                db,
+                message_id=message["id"],
+                attachments=attachments,
+                category=decision.category,
+                account_scope=account_scope,
+                received_at=record.received_at,
+            )
+        except Exception as exc:
+            recovery_class = failure_recovery_class("google.drive.archive", str(exc))
+            if recovery_class in {"transient", "user_required"}:
+                raise
+            existing_archive_task = (
+                await db.execute(
+                    select(Task).where(
+                        Task.source_type == "email_archive",
+                        Task.source_id == message["id"],
+                        Task.status.in_(["open", "waiting"]),
+                    )
+                )
+            ).scalars().first()
+            if existing_archive_task is None:
+                db.add(
+                    Task(
+                        title=f"Document filing decision needed: {record.subject}",
+                        description=f"Autopilot could not deterministically archive this attachment: {exc}",
+                        source_type="email_archive",
+                        source_id=message["id"],
+                        priority="high" if protected else "normal",
+                        requires_approval=True,
+                    )
+                )
+            await write_audit(
+                db,
+                "document_archival_failed",
+                entity_type="email",
+                entity_id=message["id"],
+                result="needs_user",
+                details={"error": str(exc), "recovery_class": recovery_class},
+            )
+
+    bill = await _upsert_bill(db, message["id"], decision)
+    if bill is not None:
+        account_scope = bill.account_scope
 
     support_case = None
     order = None
@@ -695,52 +759,6 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 "sender": record.sender,
             },
         )
-
-    archived_documents = 0
-    if decision.archive_attachments and attachments:
-        try:
-            archived_documents = await archive_email_attachments(
-                db,
-                message_id=message["id"],
-                attachments=attachments,
-                category=decision.category,
-                account_scope=account_scope,
-                received_at=record.received_at,
-            )
-        except Exception as exc:
-            recovery_class = failure_recovery_class("google.drive.archive", str(exc))
-            if recovery_class in {"transient", "user_required"}:
-                # Let the durable Gmail job own provider retries/auth exceptions. Reprocessing is
-                # idempotent and avoids converting provider outages into fake document approvals.
-                raise
-            existing_archive_task = (
-                await db.execute(
-                    select(Task).where(
-                        Task.source_type == "email_archive",
-                        Task.source_id == message["id"],
-                        Task.status.in_(["open", "waiting"]),
-                    )
-                )
-            ).scalars().first()
-            if existing_archive_task is None:
-                db.add(
-                    Task(
-                        title=f"Document filing decision needed: {record.subject}",
-                        description=f"Autopilot could not deterministically archive this attachment: {exc}",
-                        source_type="email_archive",
-                        source_id=message["id"],
-                        priority="high" if protected else "normal",
-                        requires_approval=True,
-                    )
-                )
-            await write_audit(
-                db,
-                "document_archival_failed",
-                entity_type="email",
-                entity_id=message["id"],
-                result="needs_user",
-                details={"error": str(exc), "recovery_class": recovery_class},
-            )
 
     if decision.calendar_event and not deferred_ai:
         # Phase 3 moves Calendar side effects into the same durable objective engine

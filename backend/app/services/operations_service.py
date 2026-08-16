@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -9,8 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.settings import get_settings
-from app.integrations.google_api import delete_drive_file, list_google_contacts, upload_drive_file
+from app.integrations.google_api import delete_drive_file, list_google_contacts
 from app.models.entities import (
     ContactRecord,
     DocumentRecord,
@@ -19,10 +17,8 @@ from app.models.entities import (
     SupportCase,
 )
 from app.services.audit import write_audit
-from app.services.document_policy import document_category_decision, document_retention_decision
-
-settings = get_settings()
-
+from app.services.document_ingestion import ingest_document_bytes
+from app.services.document_policy import document_retention_decision
 
 def _parse_datetime(value: Any) -> datetime | None:
     if not value:
@@ -84,7 +80,6 @@ async def archive_email_attachments(
     received_at: datetime | None,
 ) -> int:
     archived = 0
-    date = received_at or datetime.utcnow()
     for attachment in attachments:
         content = attachment.get("_content")
         if not isinstance(content, bytes) or not content:
@@ -92,77 +87,32 @@ async def archive_email_attachments(
         filename = str(attachment.get("filename") or "attachment")
         mime_type = str(attachment.get("mime_type") or "application/octet-stream")
         extracted_text = str(attachment.get("extracted_text") or "")
-        keep, reason = document_retention_decision(filename, mime_type, len(content), extracted_text)
-        if not keep:
+        try:
+            result = await ingest_document_bytes(
+                db,
+                content=content,
+                filename=filename,
+                mime_type=mime_type,
+                source_type="email",
+                source_id=message_id,
+                source_name=message_id,
+                source_metadata={"received_at": received_at.isoformat() if received_at else ""},
+                category=category,
+                account_scope=account_scope,
+                document_date=received_at,
+                extracted_text=extracted_text,
+                financial_ownership=False,
+            )
+            archived += int(result.created)
+        except ValueError as exc:
             await write_audit(
                 db,
                 "document_archive_skipped",
                 entity_type="email",
                 entity_id=message_id,
                 result="filtered",
-                details={"name": filename, "mime_type": mime_type, "reason": reason},
+                details={"name": filename, "mime_type": mime_type, "reason": str(exc)},
             )
-            continue
-
-        checksum = hashlib.sha256(content).hexdigest()
-        existing = (
-            await db.execute(
-                select(DocumentRecord).where(
-                    DocumentRecord.source_type == "email",
-                    DocumentRecord.source_id == message_id,
-                    DocumentRecord.checksum_sha256 == checksum,
-                )
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            continue
-        document_category = document_category_decision(
-            name=filename,
-            extracted_text=extracted_text,
-            parent_category=category,
-        )
-        document_folder_path = [
-            settings.google_drive_archive_folder,
-            "Professional" if account_scope == "pro" else "Personal",
-            document_category.replace("/", "-")[:80] or "General",
-            str(date.year),
-        ]
-        uploaded = await upload_drive_file(
-            db,
-            name=filename,
-            mime_type=mime_type,
-            content=content,
-            folder_path=document_folder_path,
-            app_properties={
-                "va_managed": "true",
-                "source_type": "email",
-                "source_id": message_id,
-                "category": document_category[:120],
-                "account_scope": account_scope,
-                "checksum_sha256": checksum,
-            },
-        )
-        record = DocumentRecord(
-            source_type="email",
-            source_id=message_id,
-            name=str(uploaded.get("name") or filename),
-            mime_type=str(uploaded.get("mimeType") or mime_type),
-            size_bytes=int(uploaded.get("size") or len(content)),
-            category=document_category,
-            account_scope=account_scope,
-            checksum_sha256=checksum,
-            drive_file_id=str(uploaded["id"]),
-            drive_web_url=str(uploaded.get("webViewLink") or ""),
-        )
-        db.add(record)
-        archived += 1
-        await write_audit(
-            db,
-            "document_archived",
-            entity_type="document",
-            entity_id=str(uploaded["id"]),
-            details={"message_id": message_id, "name": record.name, "category": document_category},
-        )
     return archived
 
 

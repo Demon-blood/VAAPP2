@@ -913,6 +913,16 @@ async def _documents_reconcile(db: AsyncSession, payload: dict[str, Any]) -> dic
     )
 
 
+@job_handler("portal_documents.sync")
+async def _portal_documents_sync(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    from app.services.portal_document_sync import sync_source
+
+    source_id = int(payload.get("source_id") or 0)
+    if source_id <= 0:
+        raise ValueError("portal document source_id is required")
+    return await sync_source(db, source_id)
+
+
 @job_handler("housekeeping.documents")
 async def _document_housekeeping(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
     from app.services.action_reconciler import reconcile_action_queue

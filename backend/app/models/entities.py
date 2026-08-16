@@ -228,6 +228,25 @@ class DocumentRecord(Base):
     )
 
 
+class DocumentSourceReference(Base):
+    """Many-to-one provenance so exact-byte duplicates keep every source reference."""
+
+    __tablename__ = "document_source_references"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    source_type: Mapped[str] = mapped_column(String(40), index=True)
+    source_id: Mapped[str] = mapped_column(String(320), index=True)
+    source_name: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "source_type", "source_id", name="uq_document_source_reference"),
+        Index("ix_document_source_reference_lookup", "source_type", "source_id"),
+    )
+
+
 class ContactRecord(Base):
     __tablename__ = "contacts"
 
@@ -1302,6 +1321,72 @@ class BrowserPortal(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class PortalDocumentSource(Base):
+    """Durable, declarative document feed attached to an allowlisted portal."""
+
+    __tablename__ = "portal_document_sources"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portal_id: Mapped[int] = mapped_column(ForeignKey("browser_portals.id", ondelete="CASCADE"), index=True)
+    slug: Mapped[str] = mapped_column(String(120), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    recipe_json: Mapped[str] = mapped_column(Text, default="{}")
+    preset_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    account_scope: Mapped[str] = mapped_column(String(30), default="personal", index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    sync_interval_minutes: Mapped[int] = mapped_column(Integer, default=360)
+    max_pages: Mapped[int] = mapped_column(Integer, default=10)
+    max_documents_per_sync: Mapped[int] = mapped_column(Integer, default=100)
+    status: Mapped[str] = mapped_column(String(40), default="ready", index=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    last_result_json: Mapped[str] = mapped_column(Text, default="{}")
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    challenge_type: Mapped[str] = mapped_column(String(40), default="", index=True)
+    challenge_prompt: Mapped[str] = mapped_column(Text, default="")
+    challenge_selector: Mapped[str] = mapped_column(Text, default="")
+    pending_auth_value_encrypted: Mapped[str] = mapped_column(Text, default="")
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_discovery_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("portal_id", "slug", name="uq_portal_document_source_slug"),
+        Index("ix_portal_document_sources_due", "enabled", "last_sync_at"),
+    )
+
+
+class PortalDocumentItem(Base):
+    """Provider item ledger. Download references are encrypted by the service layer."""
+
+    __tablename__ = "portal_document_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portal_document_source_id: Mapped[int] = mapped_column(
+        ForeignKey("portal_document_sources.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(320))
+    title: Mapped[str] = mapped_column(Text, default="")
+    provider_name: Mapped[str] = mapped_column(String(255), default="")
+    document_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    reference_encrypted: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(40), default="discovered", index=True)
+    checksum_sha256: Mapped[str] = mapped_column(String(64), default="", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    downloaded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ingested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("portal_document_source_id", "external_id", name="uq_portal_document_item_external"),
+    )
 
 
 class BrowserCredential(Base):
