@@ -31,6 +31,7 @@ from app.models.entities import (
     WorkflowJob,
 )
 from app.services.runtime_config import get_runtime_value
+from app.services.briefing_policy import briefing_period_schedule, filter_needs_you, human_briefing_summary
 from app.services.workflow_engine import failure_recovery_class, failure_signature
 
 settings = get_settings()
@@ -638,6 +639,21 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
                 }
             )
 
+    for event in communication_rows:
+        decision = _decode(event.decision_json, {})
+        if event.action_required and decision.get("interrupt") is True:
+            sender = _trim(event.sender or "message", 120)
+            body = _trim(event.body, 360)
+            needs_you.append(
+                {
+                    "type": "urgent_communication",
+                    "id": event.id,
+                    "title": f"Important message from {sender}",
+                    "detail": body or "A genuinely urgent communication needs your judgment.",
+                    "interrupt": True,
+                }
+            )
+
     grouped_failures: dict[str, dict[str, Any]] = {}
     for job in dead_letters:
         signature = failure_signature(job.job_type, job.last_error)
@@ -674,17 +690,18 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         detail = job.last_error
         if occurrences > 1:
             detail = f"{detail}\nRepeated {occurrences} times; Autopilot grouped these into one exception."
-        needs_you.append(
-            {
-                "type": "autopilot_exception",
-                "id": job.id,
-                "title": f"Autopilot failed: {job.job_type}",
-                "detail": detail,
-                "occurrences": occurrences,
-                "classification": classification,
-                "automatic_recoveries": recoveries,
-            }
-        )
+        if classification == "user_required":
+            needs_you.append(
+                {
+                    "type": "autopilot_exception",
+                    "id": job.id,
+                    "title": f"Authorization/configuration required: {job.job_type}",
+                    "detail": detail,
+                    "occurrences": occurrences,
+                    "classification": classification,
+                    "automatic_recoveries": recoveries,
+                }
+            )
 
     provider_health: dict[str, Any] = {}
     provider_problems: list[dict[str, Any]] = []
@@ -710,7 +727,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         from app.services.autopilot_service import provider_health_snapshot
 
         provider_health = await provider_health_snapshot(db)
-        core_providers = {"google", "ai_primary", "banking"}
+        core_providers = {"google", "banking"}
         for provider, status in (provider_health.get("providers") or {}).items():
             provider_status = str(status.get("status") or "")
             if provider_status == "not_configured" and provider in core_providers:
@@ -783,6 +800,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         seen_provider_problems.add(signature)
         unique_provider_problems.append(item)
     provider_problems = unique_provider_problems
+    needs_you = filter_needs_you(needs_you)
 
     plan: list[dict[str, Any]] = []
     for item in needs_you[:10]:
@@ -850,21 +868,18 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         "needs_you": len(needs_you),
     }
 
-    summary_text = _summary_text(stats, payments, upcoming_bills, window_hours=window_hours)
+    periods = await briefing_period_schedule(db, local_now)
+    ready_periods = [item for item in periods if item["enabled"] and item["ready"]]
+    briefing_period = ready_periods[-1]["name"] if ready_periods else "daily"
+    summary_text = human_briefing_summary(
+        stats, payments, upcoming_bills, needs_you, period=briefing_period
+    )
     headline = (
-        f"Autopilot handled {stats['va_actions']} action{'s' if stats['va_actions'] != 1 else ''}. Nothing needs you."
+        "Everything is under control."
         if not needs_you
-        else f"Autopilot handled {stats['va_actions']} action{'s' if stats['va_actions'] != 1 else ''}. {len(needs_you)} item{'s need' if len(needs_you) != 1 else ' needs'} you."
+        else f"{len(needs_you)} item{'s genuinely need' if len(needs_you) != 1 else ' genuinely needs'} your authority or input."
     )
-    notification_body = (
-        f"{stats['emails_received']} email{'s' if stats['emails_received'] != 1 else ''} · "
-        f"{stats['messages_received']} message{'s' if stats['messages_received'] != 1 else ''} · "
-        f"{stats['calls_received']} call{'s' if stats['calls_received'] != 1 else ''} · "
-        f"{stats['payments_changed']} payment update{'s' if stats['payments_changed'] != 1 else ''} · "
-        f"{stats['bills_due_7d']} bill{'s' if stats['bills_due_7d'] != 1 else ''} due · "
-        f"{stats['needs_you']} item{'s' if stats['needs_you'] != 1 else ''} "
-        f"{'need' if stats['needs_you'] != 1 else 'needs'} you"
-    )
+    notification_body = summary_text
 
     important_mail = [
         item
@@ -899,6 +914,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
                 "priority": row.priority,
                 "action_required": row.action_required,
                 "protected": row.protected,
+                "interrupt": bool(_decode(row.decision_json, {}).get("interrupt")),
                 "status": row.status,
             }
             for row in communication_rows
@@ -933,8 +949,9 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         "notification": {
             "enabled": enabled,
             "delivery_hour_local": delivery_hour,
-            "ready": enabled and local_now.hour >= delivery_hour,
-            "title": "Your Full-Time VA daily briefing",
+            "ready": enabled and any(item["ready"] for item in periods),
+            "periods": periods,
+            "title": "Your Full-Time VA briefing",
             "body": notification_body,
         },
         # v0.5.x compatibility keys follow. Older Android clients can consume this

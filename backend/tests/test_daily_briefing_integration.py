@@ -24,7 +24,7 @@ def test_release_version_is_v072() -> None:
     version = (root / "backend" / "app" / "core" / "version.py").read_text()
     pubspec = (root / "android" / "pubspec.yaml").read_text()
     assert 'APP_VERSION = "1.0.5"' in version
-    assert "version: 1.0.5+47" in pubspec
+    assert "version: 1.0.5+48" in pubspec
 
 
 def test_daily_intelligence_covers_full_exception_only_briefing_contract() -> None:

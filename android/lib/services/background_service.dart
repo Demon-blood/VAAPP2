@@ -6,10 +6,16 @@ import 'package:http/http.dart' as http;
 import 'package:workmanager/workmanager.dart';
 
 const vaBackgroundTask = 'full_time_va_priority_check';
-const _dailyBriefingDayKey = 'last_va_daily_briefing_day';
+const _dailyBriefingDayKey = 'last_va_daily_briefing_day'; // legacy migration key
+const _briefingPeriodKey = 'last_va_briefing_period';
 const _prioritySignatureKey = 'last_va_priority_signature';
 
 final FlutterLocalNotificationsPlugin notifications = FlutterLocalNotificationsPlugin();
+
+bool _isImmediateInterrupt(dynamic raw) {
+  if (raw is! Map) return false;
+  return raw['interrupt'] == true;
+}
 
 String _prioritySignature(List<dynamic> items) {
   final normalized = items
@@ -42,55 +48,25 @@ void callbackDispatcher() {
       if (response.statusCode != 200) return true;
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final needsYou = data['needs_you'] as List? ?? const [];
+      final interrupts = needsYou.where(_isImmediateInterrupt).toList();
 
-      // Priority alerts are event-driven rather than repeated every 15 minutes. The same
-      // unresolved exception remains visible in Today and the daily briefing, but it does
-      // not keep buzzing the phone unless the exception set changes.
-      final signature = _prioritySignature(needsYou);
+      // The 15-minute check is intentionally silent for routine work. Only a backend
+      // item explicitly classified as an immediate interrupt is allowed to buzz.
+      final signature = _prioritySignature(interrupts);
       final previousSignature = await storage.read(key: _prioritySignatureKey) ?? '';
-      if (needsYou.isEmpty) {
-        if (previousSignature.isNotEmpty) {
-          await storage.delete(key: _prioritySignatureKey);
-        }
+      if (interrupts.isEmpty) {
+        if (previousSignature.isNotEmpty) await storage.delete(key: _prioritySignatureKey);
       } else if (signature.isNotEmpty && signature != previousSignature) {
-        final paymentApprovals = needsYou
-            .where((item) => item is Map && item['type'] == 'payment_authorization')
-            .length;
-        final taskApprovals = needsYou
-            .where((item) => item is Map && item['type'] == 'task_approval')
-            .length;
-        final failures = needsYou
-            .where((item) => item is Map && item['type'] == 'autopilot_exception')
-            .length;
-        final providerAuth = needsYou
-            .where((item) => item is Map && item['type'] == 'provider_authorization')
-            .length;
-        final funding = needsYou
-            .where((item) => item is Map && item['type'] == 'funding_required')
-            .length;
-        final summary = <String>[
-          if (paymentApprovals > 0)
-            '$paymentApprovals payment authorization${paymentApprovals == 1 ? '' : 's'}',
-          if (taskApprovals > 0)
-            '$taskApprovals approval${taskApprovals == 1 ? '' : 's'}',
-          if (providerAuth > 0)
-            '$providerAuth provider authorization${providerAuth == 1 ? '' : 's'}',
-          if (funding > 0)
-            '$funding funding issue${funding == 1 ? '' : 's'}',
-          if (failures > 0)
-            '$failures Autopilot exception${failures == 1 ? '' : 's'}',
-        ];
+        final first = interrupts.first as Map;
         await notifications.show(
           id: 1001,
-          title: 'Full-Time VA needs you',
-          body: summary.isEmpty
-              ? '${needsYou.length} exception${needsYou.length == 1 ? '' : 's'} require attention.'
-              : summary.join(' · '),
+          title: '${first['title'] ?? 'Full-Time VA needs you now'}',
+          body: '${first['detail'] ?? 'A genuine urgent decision is blocking active work.'}',
           notificationDetails: const NotificationDetails(
             android: AndroidNotificationDetails(
               'va_priority',
               'VA priority alerts',
-              channelDescription: 'Only new or changed exceptions that require human attention',
+              channelDescription: 'Only genuine urgent human interruptions',
               importance: Importance.high,
               priority: Priority.high,
             ),
@@ -99,36 +75,64 @@ void callbackDispatcher() {
         await storage.write(key: _prioritySignatureKey, value: signature);
       }
 
-      // Daily briefing: exactly once per server-local day after the configured delivery
-      // hour. The backend decides readiness in Europe/Brussels (or the configured VA
-      // timezone), so a phone timezone mismatch cannot shift the briefing window.
       final briefingDate = '${data['briefing_date'] ?? ''}';
       final notification = data['notification'];
       if (briefingDate.isNotEmpty && notification is Map) {
         final enabled = notification['enabled'] == true;
-        final ready = notification['ready'] == true;
-        final lastDay = await storage.read(key: _dailyBriefingDayKey) ?? '';
-        if (enabled && ready && lastDay != briefingDate) {
-          await notifications.show(
-            id: 1002,
-            title: '${notification['title'] ?? 'Your Full-Time VA daily briefing'}',
-            body: '${notification['body'] ?? data['summary_text'] ?? 'Your daily VA briefing is ready.'}',
-            notificationDetails: const NotificationDetails(
-              android: AndroidNotificationDetails(
-                'va_daily_briefing',
-                'VA daily briefing',
-                channelDescription: 'One concise daily summary of mail, money, calendar and VA activity',
-                importance: Importance.defaultImportance,
-                priority: Priority.defaultPriority,
+        final periods = (notification['periods'] as List? ?? const []).whereType<Map>().toList();
+        if (enabled && periods.isNotEmpty) {
+          final ready = periods.where((row) => row['enabled'] == true && row['ready'] == true).toList()
+            ..sort((a, b) => ((a['hour_local'] as num?)?.toInt() ?? 0)
+                .compareTo((b['hour_local'] as num?)?.toInt() ?? 0));
+          final lastKey = await storage.read(key: _briefingPeriodKey) ?? '';
+          final due = ready.where((row) => '${row['delivery_key'] ?? ''}' != lastKey).toList();
+          if (due.isNotEmpty) {
+            final period = due.last;
+            final name = '${period['name'] ?? 'daily'}';
+            final key = '${period['delivery_key'] ?? '$briefingDate:$name'}';
+            await notifications.show(
+              id: 1002,
+              title: '${name[0].toUpperCase()}${name.substring(1)} VA briefing',
+              body: '${notification['body'] ?? data['summary_text'] ?? 'Your VA briefing is ready.'}',
+              notificationDetails: const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'va_daily_briefing',
+                  'VA briefings',
+                  channelDescription: 'Scheduled human-style VA briefings',
+                  importance: Importance.defaultImportance,
+                  priority: Priority.defaultPriority,
+                ),
               ),
-            ),
-          );
-          await storage.write(key: _dailyBriefingDayKey, value: briefingDate);
+            );
+            await storage.write(key: _briefingPeriodKey, value: key);
+            // Keep the legacy key updated so downgrades do not duplicate the evening briefing.
+            await storage.write(key: _dailyBriefingDayKey, value: briefingDate);
+          }
+        } else {
+          // Compatibility with an older backend that exposes only one daily ready flag.
+          final ready = notification['ready'] == true;
+          final lastDay = await storage.read(key: _dailyBriefingDayKey) ?? '';
+          if (enabled && ready && lastDay != briefingDate) {
+            await notifications.show(
+              id: 1002,
+              title: '${notification['title'] ?? 'Your Full-Time VA daily briefing'}',
+              body: '${notification['body'] ?? data['summary_text'] ?? 'Your daily VA briefing is ready.'}',
+              notificationDetails: const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  'va_daily_briefing',
+                  'VA briefings',
+                  channelDescription: 'Scheduled human-style VA briefings',
+                  importance: Importance.defaultImportance,
+                  priority: Priority.defaultPriority,
+                ),
+              ),
+            );
+            await storage.write(key: _dailyBriefingDayKey, value: briefingDate);
+          }
         }
       }
     } catch (_) {
-      // Background delivery is best-effort. The next WorkManager run retries without
-      // converting a phone notification failure into a backend/Autopilot failure.
+      // Best-effort phone delivery. Backend ownership/state is unaffected.
       return true;
     }
     return true;
@@ -137,11 +141,8 @@ void callbackDispatcher() {
 
 Future<void> initializeBackgroundService() async {
   const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-  await notifications.initialize(
-    settings: const InitializationSettings(android: android),
-  );
-  final androidPlugin = notifications.resolvePlatformSpecificImplementation<
-      AndroidFlutterLocalNotificationsPlugin>();
+  await notifications.initialize(settings: const InitializationSettings(android: android));
+  final androidPlugin = notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
   await androidPlugin?.requestNotificationsPermission();
   await Workmanager().initialize(callbackDispatcher);
   await Workmanager().registerPeriodicTask(

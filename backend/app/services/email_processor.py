@@ -65,6 +65,7 @@ from app.services.operations_service import (
 from app.services.communication_ownership import register_email_inbound
 from app.services.relationship_preferences import preference_digest
 from app.services.relationship_style_learning import relationship_reply_context_for_party
+from app.services.communication_attention import is_marketing_subscription_false_positive
 
 PROTECTED_CATEGORY_TERMS = {
     "legal",
@@ -563,6 +564,18 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 label for label in decision.labels if label != "Mail/00 Status/Actie nodig"
             ]
 
+    if decision.subscription is not None and is_marketing_subscription_false_positive(
+        sender=record.sender, subject=record.subject, body=body_text, subscription=decision.subscription
+    ):
+        await write_audit(
+            db,
+            "marketing_subscription_candidate_suppressed",
+            entity_type="email",
+            entity_id=message["id"],
+            details={"reason": "unsubscribe/footer is not evidence of a paid recurring commitment"},
+        )
+        decision.subscription = None
+
     if decision.subscription is None and financial_assessment.is_nonpayable:
         subscription_source = suppressed_bill_data or decision.bill or {}
         amount_candidates = extraction.get("amount_candidates") or []
@@ -597,7 +610,18 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
 
     _normalize_retention_policy(decision, protected=protected)
     if not is_read:
-        decision.trash = False
+        immediate_low_value_trash = (
+            await get_runtime_value(db, "gmail_trash_new_low_value_immediately", "true")
+        ).lower() == "true"
+        risky_cues = {"invoice", "receipt", "calendar", "order", "security", "legal"}
+        decision.trash = bool(
+            immediate_low_value_trash
+            and (headers.get("list-unsubscribe") or "CATEGORY_PROMOTIONS" in label_ids)
+            and _is_low_value_routine(decision)
+            and not extraction.get("iban_candidates")
+            and not extraction.get("date_time_candidates")
+            and not any(cue in risky_cues for cue in (extraction.get("cues") or []))
+        )
     if protected:
         decision.trash = False
     _apply_inbox_policy(decision, protected=protected)
@@ -688,7 +712,7 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                     )
                 )
             ).scalars().first()
-            if existing_archive_task is None:
+            if False and existing_archive_task is None:
                 db.add(
                     Task(
                         title=f"Document filing decision needed: {record.subject}",
@@ -704,7 +728,7 @@ async def process_single_message(db: AsyncSession, message: dict[str, Any]) -> E
                 "document_archival_failed",
                 entity_type="email",
                 entity_id=message["id"],
-                result="needs_user",
+                result="blocked_system",
                 details={"error": str(exc), "recovery_class": recovery_class},
             )
 

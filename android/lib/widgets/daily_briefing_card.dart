@@ -28,9 +28,9 @@ class DailyBriefingCard extends StatelessWidget {
       'payments_changed',
       fallback: (briefing['payment_activity'] as List? ?? const []).length,
     );
-    final actions = _int(
-      'va_actions',
-      fallback: (briefing['activity'] as List? ?? const []).length,
+    final messages = _int(
+      'messages_received',
+      fallback: (briefing['communications'] as List? ?? const []).length,
     );
     final needs = _int(
       'needs_you',
@@ -105,7 +105,7 @@ class DailyBriefingCard extends StatelessWidget {
                 children: [
                   _MetricChip(icon: Icons.mail_outline_rounded, label: '$emails mail'),
                   _MetricChip(icon: Icons.payments_outlined, label: '$payments money'),
-                  _MetricChip(icon: Icons.bolt_rounded, label: '$actions VA actions'),
+                  _MetricChip(icon: Icons.chat_bubble_outline_rounded, label: '$messages messages'),
                   _MetricChip(
                     icon: needs == 0 ? Icons.done_all_rounded : Icons.priority_high_rounded,
                     label: needs == 0 ? 'Nothing needs you' : '$needs need you',

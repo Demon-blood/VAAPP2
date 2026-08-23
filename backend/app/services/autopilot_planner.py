@@ -182,15 +182,15 @@ async def _escalate_unexecutable_due_tasks(db: AsyncSession, *, limit: int = 30)
         ).scalars()
     )
     for task in rows:
-        task.requires_approval = True
-        task.priority = "high" if task.priority == "normal" else task.priority
+        task.status = "waiting"
+        task.requires_approval = False
         await write_audit(
             db,
-            "autopilot_task_escalated",
+            "autopilot_task_blocked_capability",
             entity_type="task",
             entity_id=str(task.id),
-            result="needs_user",
-            details={"source_type": task.source_type, "reason": "no deterministic executor available at deadline"},
+            result="blocked_capability",
+            details={"source_type": task.source_type, "reason": "no deterministic executor available; retained as VA-owned work"},
         )
     if rows:
         await db.commit()

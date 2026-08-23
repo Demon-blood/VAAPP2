@@ -221,7 +221,7 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/autopilot/health'),
         _safeGet('/api/autopilot/briefing'),
         _safeGet('/api/autopilot/jobs?limit=30'),
-        _safeGet('/api/communications/events?limit=200'),
+        _safeGet('/api/communications/events?limit=1000'),
         _safeGet('/api/finance/overview'),
         _safeGet('/api/finance/account-policies'),
         _safeGet('/api/finance/budgets'),

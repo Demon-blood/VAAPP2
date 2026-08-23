@@ -57,6 +57,7 @@ class _TaskCard extends StatelessWidget {
     final completed = status == 'completed';
     final sourceType = '${task['source_type'] ?? ''}';
     final canExecute = ['email_reply', 'calendar_review'].contains(sourceType) && !completed;
+    final manualCompletionAllowed = sourceType == 'manual' || sourceType == 'physical' || sourceType.startsWith('physical_');
     final accent = task['requires_approval'] == true ? VaTheme.warning : VaTheme.secondary;
     return VaSectionCard(
       child: Column(
@@ -66,7 +67,9 @@ class _TaskCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               InkWell(
-                onTap: () => context.read<AppState>().setTaskStatus(task['id'] as int, completed ? 'open' : 'completed'),
+                onTap: manualCompletionAllowed
+                    ? () => context.read<AppState>().setTaskStatus(task['id'] as int, completed ? 'open' : 'completed')
+                    : null,
                 borderRadius: BorderRadius.circular(14),
                 child: Container(
                   width: 44,
@@ -136,11 +139,12 @@ class _TaskCard extends StatelessWidget {
                 if ((sourceType == 'bill_review' && onOpenBills != null) ||
                     (sourceType == 'bill_payment' && onOpenPayments != null))
                   const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () => context.read<AppState>().setTaskStatus(task['id'] as int, 'completed'),
-                  icon: const Icon(Icons.check_rounded),
-                  label: const Text('Complete'),
-                ),
+                if (manualCompletionAllowed)
+                  OutlinedButton.icon(
+                    onPressed: () => context.read<AppState>().setTaskStatus(task['id'] as int, 'completed'),
+                    icon: const Icon(Icons.check_rounded),
+                    label: const Text('I did this'),
+                  ),
               ],
             ),
           ],

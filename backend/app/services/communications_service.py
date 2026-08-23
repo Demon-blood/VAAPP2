@@ -14,6 +14,7 @@ from app.schemas.api import CommunicationIngestRequest
 from app.services.audit import write_audit
 from app.services.communication_ownership import register_device_communication
 from app.services.communication_correlation import find_cross_transport_duplicate
+from app.services.communication_attention import normalize_communication_attention
 from app.services.relationship_preferences import relationship_reply_review_reason
 from app.services.relationship_style_learning import relationship_reply_context_for_party
 from app.services.runtime_config import get_runtime_value
@@ -182,7 +183,7 @@ def _normalize_decision(payload: CommunicationIngestRequest, decision: dict[str,
         normalized["reply_text"] = None
     if not normalized["reply_text"]:
         normalized["auto_reply_safe"] = False
-    return normalized
+    return normalize_communication_attention(payload, normalized)
 
 
 async def _decision_for(db: AsyncSession, payload: CommunicationIngestRequest) -> dict[str, Any]:
@@ -190,7 +191,7 @@ async def _decision_for(db: AsyncSession, payload: CommunicationIngestRequest) -
     # Device-history catch-up can contain hundreds of records. It is evidence import,
     # not a live reply opportunity, so keep it deterministic and avoid burning AI
     # quota or holding one mobile HTTP request open across many provider calls.
-    if payload.provider in {"android_sms_history", "android_call_log"}:
+    if payload.provider in {"android_sms_history", "android_mms_history", "android_call_log"}:
         return fallback
     relationship_preferences, relationship_reply_context = await relationship_reply_context_for_party(
         db, payload.sender, channel=payload.channel, provider=payload.provider
@@ -335,6 +336,7 @@ async def ingest_communication(db: AsyncSession, payload: CommunicationIngestReq
             "category": event.category,
             "priority": event.priority,
             "protected": event.protected,
+            "interrupt": bool(decision.get("interrupt")),
             "device_action": action.action_type if action else None,
         },
     )

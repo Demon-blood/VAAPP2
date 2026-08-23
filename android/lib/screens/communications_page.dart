@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../theme/va_theme.dart';
+import 'message_conversations_page.dart';
 
 class CommunicationsPage extends StatelessWidget {
   const CommunicationsPage({super.key});
@@ -39,6 +40,7 @@ class CommunicationsPage extends StatelessWidget {
     final result = state.lastCommunicationSync;
     final success = result['success'] != false;
     final sms = (result['sms_scanned'] as num?)?.toInt() ?? 0;
+    final mms = (result['mms_scanned'] as num?)?.toInt() ?? 0;
     final calls = (result['calls_scanned'] as num?)?.toInt() ?? 0;
     final processed = (result['processed'] as num?)?.toInt() ?? 0;
     final duplicates = (result['duplicates'] as num?)?.toInt() ?? 0;
@@ -48,7 +50,7 @@ class CommunicationsPage extends StatelessWidget {
     final policy = result['policy_synced'] == true;
     final error = '${result['error'] ?? result['reason'] ?? ''}'.trim();
     final message = success
-        ? 'Phone sync complete · $sms SMS · $calls calls · $processed accepted · $duplicates already known'
+        ? 'Phone sync complete · $sms SMS · $mms MMS · $calls calls · $processed accepted · $duplicates already known'
             '${failed > 0 ? ' · $failed failed' : ''}${queued > 0 ? ' · $queued queued events recovered' : ''}${policy ? ' · policies synced' : ''}'
         : 'Phone sync failed${error.isEmpty ? '' : ': $error'}${pending > 0 ? ' · $pending event${pending == 1 ? '' : 's'} kept safely for retry' : ''}';
     ScaffoldMessenger.of(context).showSnackBar(
@@ -143,7 +145,7 @@ class CommunicationsPage extends StatelessWidget {
                   ].join('\n')),
                 ),
               ),
-            _AccessTile(title: 'SMS receive/read/send permissions', active: ok('read_sms') && ok('receive_sms') && ok('send_sms'), onTap: () => context.read<AppState>().requestCommunicationPermissions()),
+            _AccessTile(title: 'SMS receive/read/send permissions + MMS receive', active: ok('read_sms') && ok('receive_sms') && ok('receive_mms') && ok('send_sms'), onTap: () => context.read<AppState>().requestCommunicationPermissions()),
             _AccessTile(title: 'Default SMS role', active: ok('sms_role'), onTap: () => context.read<AppState>().requestSmsRole()),
             _AccessTile(title: 'WhatsApp / Signal / Telegram / Messenger / RCS access', active: ok('notification_access'), onTap: () => context.read<AppState>().openNotificationAccess()),
             _AccessTile(title: 'Incoming call screening', active: ok('call_screening_role'), onTap: () => context.read<AppState>().requestCallScreeningRole()),
@@ -167,6 +169,13 @@ class CommunicationsPage extends StatelessWidget {
                   onPressed: ok('send_sms') ? () => _sendSms(context) : null,
                   icon: const Icon(Icons.sms_outlined),
                   label: const Text('Send SMS'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const MessageConversationsPage()),
+                  ),
+                  icon: const Icon(Icons.forum_outlined),
+                  label: const Text('Conversations'),
                 ),
               ],
             ),

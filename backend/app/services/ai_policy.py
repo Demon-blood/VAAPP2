@@ -368,7 +368,14 @@ def deterministic_shortcut(
         return decision_from_sender_rule(sender_rule, is_read=is_read), "sender_rule"
 
     list_unsubscribe = bool(headers.get("list-unsubscribe"))
-    if list_unsubscribe and not dynamic:
+    risky_list_cues = {"invoice", "receipt", "calendar", "order", "security", "legal"}
+    safe_low_value_list = (
+        (list_unsubscribe or "CATEGORY_PROMOTIONS" in label_ids)
+        and not extraction.get("iban_candidates")
+        and not extraction.get("date_time_candidates")
+        and not any(cue in risky_list_cues for cue in (extraction.get("cues") or []))
+    )
+    if safe_low_value_list:
         return (
             AutomationDecision(
                 category="Newsletters & Promotions",
@@ -376,7 +383,7 @@ def deterministic_shortcut(
                 action_required=False,
                 preserve=False,
                 archive=True,
-                trash=is_read,
+                trash=True,
                 labels=["Mail/90 Lage prioriteit/Nieuwsbrieven & reclame"],
                 task=None,
                 bill=None,
@@ -539,7 +546,16 @@ def safe_fallback_decision(
         bill=bill_candidate,
     )
     bill = bill_candidate if assessment.document_type == PAYABLE_INVOICE else None
-    action_required = True
+    action_required = bool(
+        urgent_hint(subject, body, extraction)
+        or any(
+            term in f"{subject}\n{body}".casefold()
+            for term in (
+                "action required", "actie vereist", "please respond", "please reply",
+                "gelieve te antwoorden", "bevestig", "confirm by", "sign and return",
+            )
+        )
+    )
     if assessment.document_type in {PAID_RECEIPT, STATEMENT_OR_NOTICE}:
         labels = list(dict.fromkeys(labels + [receipt_label(assessment.document_type)]))
         preserve = True
@@ -568,5 +584,5 @@ def safe_fallback_decision(
         order=None,
         subscription=None,
         archive_attachments=bool(protected or bill or assessment.is_nonpayable),
-        reasoning_summary=f"Safe deterministic fallback because AI was unavailable: {reason}",
+        reasoning_summary="Handled with deterministic fallback while the AI provider was unavailable.",
     )

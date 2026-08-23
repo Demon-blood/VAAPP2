@@ -144,6 +144,8 @@ class MainActivity : FlutterActivity() {
         val wanted = mutableListOf(
             Manifest.permission.READ_SMS,
             Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.RECEIVE_MMS,
+            Manifest.permission.RECEIVE_WAP_PUSH,
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_CALL_LOG,
             Manifest.permission.READ_PHONE_STATE,
@@ -174,6 +176,7 @@ class MainActivity : FlutterActivity() {
             "notification_access" to notificationAccess,
             "read_sms" to hasPermission(Manifest.permission.READ_SMS),
             "receive_sms" to hasPermission(Manifest.permission.RECEIVE_SMS),
+            "receive_mms" to hasPermission(Manifest.permission.RECEIVE_MMS),
             "send_sms" to hasPermission(Manifest.permission.SEND_SMS),
             "read_call_log" to hasPermission(Manifest.permission.READ_CALL_LOG),
             "read_contacts" to hasPermission(Manifest.permission.READ_CONTACTS),
@@ -235,6 +238,7 @@ class MainActivity : FlutterActivity() {
             val queued = VaBackendClient.flushPendingCommunicationEvents(this)
             val events = JSONArray()
             val smsScanned = collectSms(events, 180)
+            val mmsScanned = collectMms(events, 120)
             val callsScanned = collectCalls(events, 120)
             val history = if (events.length() > 0) {
                 // Keep each request bounded. Historical ingestion commits real records
@@ -256,6 +260,7 @@ class MainActivity : FlutterActivity() {
             val payload = mapOf(
                 "success" to success,
                 "sms_scanned" to smsScanned,
+                "mms_scanned" to mmsScanned,
                 "calls_scanned" to callsScanned,
                 "submitted" to history.optInt("submitted", 0),
                 "processed" to history.optInt("processed", 0),
@@ -316,6 +321,103 @@ class MainActivity : FlutterActivity() {
             // Permission/role diagnostics remain visible in the Flutter UI.
         }
         return events.length() - before
+    }
+
+    private fun collectMms(events: JSONArray, limit: Int): Int {
+        if (!hasPermission(Manifest.permission.READ_SMS)) return 0
+        val before = events.length()
+        try {
+            contentResolver.query(
+                Telephony.Mms.CONTENT_URI,
+                arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE, Telephony.Mms.MESSAGE_BOX),
+                null,
+                null,
+                "${Telephony.Mms.DATE} DESC",
+            )?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(Telephony.Mms._ID)
+                val dateIndex = cursor.getColumnIndexOrThrow(Telephony.Mms.DATE)
+                val boxIndex = cursor.getColumnIndexOrThrow(Telephony.Mms.MESSAGE_BOX)
+                var seen = 0
+                while (cursor.moveToNext() && seen < limit) {
+                    seen += 1
+                    val id = cursor.getLong(idIndex)
+                    val box = cursor.getInt(boxIndex)
+                    val outgoing = box == Telephony.Mms.MESSAGE_BOX_SENT || box == Telephony.Mms.MESSAGE_BOX_OUTBOX
+                    val address = mmsAddress(id, outgoing)
+                    val timestamp = cursor.getLong(dateIndex) * 1000L
+                    val body = mmsBody(id)
+                    events.put(
+                        JSONObject()
+                            .put("external_id", "mmsdb:$id")
+                            .put("channel", "sms")
+                            .put("provider", "android_mms_history")
+                            .put("package_name", packageName)
+                            .put("thread_key", VaBackendClient.normalizeNumber(address))
+                            .put("sender", if (outgoing) "me" else address)
+                            .put("recipient", if (outgoing) address else "me")
+                            .put("body", body)
+                            .put("direction", if (outgoing) "outgoing" else "incoming")
+                            .put("event_type", "mms")
+                            .put("occurred_at", VaBackendClient.isoTime(timestamp))
+                            .put("supports_direct_reply", !outgoing)
+                            .put("allow_action", false),
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            // MMS history is best-effort; SMS/call diagnostics stay visible in Flutter.
+        }
+        return events.length() - before
+    }
+
+    private fun mmsAddress(messageId: Long, outgoing: Boolean): String {
+        val uri = android.net.Uri.parse("content://mms/$messageId/addr")
+        val wantedType = if (outgoing) 151 else 137 // MMS TO / FROM
+        try {
+            contentResolver.query(uri, arrayOf("address", "type"), null, null, null)?.use { cursor ->
+                val addressIndex = cursor.getColumnIndexOrThrow("address")
+                val typeIndex = cursor.getColumnIndexOrThrow("type")
+                while (cursor.moveToNext()) {
+                    val address = cursor.getString(addressIndex).orEmpty()
+                    if (cursor.getInt(typeIndex) == wantedType && address.isNotBlank() && address != "insert-address-token") {
+                        return address
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return ""
+    }
+
+    private fun mmsBody(messageId: Long): String {
+        val uri = android.net.Uri.parse("content://mms/$messageId/part")
+        val parts = mutableListOf<String>()
+        try {
+            contentResolver.query(uri, arrayOf("_id", "ct", "text", "_data"), null, null, null)?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow("_id")
+                val contentTypeIndex = cursor.getColumnIndexOrThrow("ct")
+                val textIndex = cursor.getColumnIndexOrThrow("text")
+                val dataIndex = cursor.getColumnIndexOrThrow("_data")
+                while (cursor.moveToNext()) {
+                    val contentType = cursor.getString(contentTypeIndex).orEmpty()
+                    if (contentType == "text/plain") {
+                        val inline = cursor.getString(textIndex).orEmpty().trim()
+                        if (inline.isNotEmpty()) {
+                            parts.add(inline)
+                        } else if (!cursor.getString(dataIndex).isNullOrBlank()) {
+                            val partId = cursor.getLong(idIndex)
+                            try {
+                                contentResolver.openInputStream(android.net.Uri.parse("content://mms/part/$partId"))
+                                    ?.bufferedReader()?.use { reader ->
+                                        val value = reader.readText().trim()
+                                        if (value.isNotEmpty()) parts.add(value)
+                                    }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return if (parts.isEmpty()) "MMS attachment" else parts.joinToString("\n")
     }
 
     private fun collectCalls(events: JSONArray, limit: Int): Int {

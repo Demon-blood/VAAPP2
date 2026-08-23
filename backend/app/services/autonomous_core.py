@@ -2305,6 +2305,9 @@ async def run_core_cycle(db: AsyncSession, *, create_manual_run: bool = False) -
     from app.services.communication_correlation import repair_communication_correlation
 
     communication_correlation = await repair_communication_correlation(db)
+    from app.services.communication_backlog_repair import repair_communication_backlog
+
+    communication_backlog = await repair_communication_backlog(db)
     if create_manual_run:
         await create_manual_run_event(db)
     seeded = await seed_system_events(db)
@@ -2320,6 +2323,7 @@ async def run_core_cycle(db: AsyncSession, *, create_manual_run: bool = False) -
     reconciled_after = await reconcile_source_objectives(db)
     return {
         "communication_correlation": communication_correlation,
+        "communication_backlog": communication_backlog,
         "seeded": seeded,
         "events_processed": processed,
         "steps_executed": executed,

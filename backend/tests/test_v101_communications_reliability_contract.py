@@ -11,7 +11,7 @@ def test_v101_release_identity() -> None:
     assert 'APP_VERSION = "1.0.5"' in _read("backend/app/core/version.py")
     assert 'REQUIRED_ANDROID_VERSION = "1.0.5"' in _read("backend/app/core/version.py")
     assert 'version = "1.0.5"' in _read("backend/pyproject.toml")
-    assert "version: 1.0.5+47" in _read("android/pubspec.yaml")
+    assert "version: 1.0.5+48" in _read("android/pubspec.yaml")
     assert "const String appRelease = '1.0.5';" in _read("android/lib/release_contract.dart")
     assert "const String minimumBackendVersion = '1.0.5';" in _read("android/lib/release_contract.dart")
     workflow = _read(".github/workflows/android-release.yml")
@@ -44,7 +44,7 @@ def test_history_upload_is_bounded_and_does_not_spend_ai_per_record() -> None:
     assert "postBatchChunked(this, events, 25)" in activity
     assert "fun postBatchChunked" in client
     assert "chunkSize: Int = 25" in client
-    assert 'payload.provider in {"android_sms_history", "android_call_log"}' in service
+    assert 'payload.provider in {"android_sms_history", "android_mms_history", "android_call_log"}' in service
     assert "return fallback" in service
 
 

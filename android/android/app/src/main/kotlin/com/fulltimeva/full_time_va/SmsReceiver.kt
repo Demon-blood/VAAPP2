@@ -21,9 +21,10 @@ class SmsReceiver : BroadcastReceiver() {
         val externalId = "sms:$timestamp:${sender.hashCode()}:${body.hashCode()}"
 
         // The default SMS handler is responsible for persisting SMS_DELIVER messages.
+        var persistedUri: android.net.Uri? = null
         if (intent.action == Telephony.Sms.Intents.SMS_DELIVER_ACTION) {
             try {
-                context.contentResolver.insert(
+                persistedUri = context.contentResolver.insert(
                     Telephony.Sms.Inbox.CONTENT_URI,
                     ContentValues().apply {
                         put(Telephony.Sms.ADDRESS, sender)
@@ -67,10 +68,13 @@ class SmsReceiver : BroadcastReceiver() {
                 }
                 VaBackendClient.removeQueuedCommunicationEvent(context, externalId)
                 val decision = response.optJSONObject("decision")
-                if (decision?.optBoolean("action_required", false) == true || decision?.optBoolean("protected", false) == true) {
+                if (decision?.optBoolean("delete_from_device", false) == true && persistedUri != null) {
+                    try { context.contentResolver.delete(persistedUri!!, null, null) } catch (_: Exception) {}
+                }
+                if (decision?.optBoolean("interrupt", false) == true) {
                     VaBackendClient.notifyAttention(
                         context,
-                        "Message needs you",
+                        "Message needs you now",
                         if (sender.isBlank()) body else "$sender · $body",
                         externalId,
                     )

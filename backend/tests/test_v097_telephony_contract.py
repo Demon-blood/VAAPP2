@@ -9,7 +9,7 @@ def test_v097_release_identity() -> None:
     pyproject = (ROOT / "backend/pyproject.toml").read_text()
     assert 'version = "1.0.5"' in pyproject
     assert '"twilio>=9,<10"' in pyproject
-    assert "version: 1.0.5+47" in (ROOT / "android/pubspec.yaml").read_text()
+    assert "version: 1.0.5+48" in (ROOT / "android/pubspec.yaml").read_text()
     app_state = (ROOT / "android/lib/app_state.dart").read_text()
     assert "_versionAtLeast(backendVersion, minimumBackendVersion)" in app_state
     assert "App $appRelease requires backend $minimumBackendVersion or newer." in app_state
