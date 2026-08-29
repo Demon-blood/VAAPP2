@@ -124,6 +124,7 @@ from app.services.autonomous_core import (
     va_overview,
 )
 from app.services.capability_registry import capability_matrix as va_capability_matrix
+from app.services.commitment_graph import commitment_detail as va_commitment_detail, list_commitments as list_va_commitments
 from app.services.autonomy_policy import learn_successful_reply
 from app.services.certificate_service import generate_enable_banking_keypair
 from app.services.android_signing import install_repository_signing, repository_signing_status
@@ -294,6 +295,8 @@ async def system_info() -> dict:
             "fulfillment_automation",
             "phone_deployment",
             "v1_product_status",
+            "commitment_graph",
+            "executive_work_queue",
         ],
     }
 
@@ -1287,6 +1290,30 @@ async def fulltime_va_capabilities(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     return await va_capability_matrix(db)
+
+
+
+
+@router.get("/api/va/commitments")
+async def fulltime_va_commitments(
+    stage: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=200, ge=1, le=1000),
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    return await list_va_commitments(db, stage=stage, limit=limit)
+
+
+@router.get("/api/va/commitments/{objective_id}")
+async def fulltime_va_commitment_detail(
+    objective_id: int,
+    _: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = await va_commitment_detail(db, objective_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="VA commitment not found")
+    return row
 
 
 @router.get("/api/va/objectives")

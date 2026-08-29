@@ -49,6 +49,7 @@ def human_briefing_summary(
     needs_you: list[dict[str, Any]],
     *,
     period: str = "daily",
+    commitments: dict[str, Any] | None = None,
 ) -> str:
     greeting = {
         "morning": "Good morning.",
@@ -79,8 +80,26 @@ def human_briefing_summary(
         parts.append("I am keeping an eye on the bills coming due and will only involve you if a real authorization or exception appears.")
     if int(stats.get("calendar_changes") or 0):
         parts.append("I updated your calendar where incoming information required it.")
-    if int(stats.get("provider_problems") or 0):
-        parts.append("A provider or internal service had an issue; I am keeping that system-owned and retrying or containing it rather than turning it into your task.")
+    commitments = commitments or {}
+    working = commitments.get("working_now") if isinstance(commitments.get("working_now"), list) else []
+    waiting = commitments.get("waiting_external") if isinstance(commitments.get("waiting_external"), list) else []
+    resolving = commitments.get("resolving_internal") if isinstance(commitments.get("resolving_internal"), list) else []
+    if working:
+        lead = working[0] if isinstance(working[0], dict) else {}
+        title = str(lead.get("title") or "the main open commitment").strip()
+        commitment = lead.get("commitment") if isinstance(lead.get("commitment"), dict) else {}
+        next_action = str(commitment.get("next_action") or "").strip()
+        parts.append(f"The main thing I am actively working on is {title}.")
+        if next_action:
+            parts.append(f"My next step there is to {next_action[:1].lower() + next_action[1:]}.")
+    if waiting:
+        lead = waiting[0] if isinstance(waiting[0], dict) else {}
+        title = str(lead.get("title") or "one open item").strip()
+        commitment = lead.get("commitment") if isinstance(lead.get("commitment"), dict) else {}
+        waiting_on = str(commitment.get("waiting_on") or "the other side").replace("_", " ")
+        parts.append(f"I am also still holding {title}; it is waiting on {waiting_on}, and I will keep the follow-through with me.")
+    if resolving or int(stats.get("provider_problems") or 0):
+        parts.append("There is also some internal/provider cleanup in progress. I am keeping that system-owned rather than turning it into your task.")
     return " ".join(parts)
 
 

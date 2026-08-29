@@ -8,10 +8,10 @@ def _read(path: str) -> str:
 
 
 def test_v103_release_identity_and_routes():
-    assert 'APP_VERSION = "1.0.5"' in _read("backend/app/core/version.py")
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.5"' in _read("backend/app/core/version.py")
-    assert 'version = "1.0.5"' in _read("backend/pyproject.toml")
-    assert "version: 1.0.5+48" in _read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.6"' in _read("backend/app/core/version.py")
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.6"' in _read("backend/app/core/version.py")
+    assert 'version = "1.0.6"' in _read("backend/pyproject.toml")
+    assert "version: 1.0.6+49" in _read("android/pubspec.yaml")
     workflow = _read(".github/workflows/android-release.yml")
     assert "Full-Time-VA-Android-v1.0.5.apk" in workflow
     routes = _read("backend/app/api/fulfillment_routes.py")

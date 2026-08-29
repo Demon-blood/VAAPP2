@@ -1557,3 +1557,33 @@ class FormSubmission(Base):
     verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# v1.0.6 Executive Commitment Graph ---------------------------------------------
+
+
+class VACommitmentEdge(Base):
+    """Durable relationship between VAObjective commitment nodes.
+
+    VAObjective remains the source of truth for the committed outcome. Edges add
+    dependency/continuation structure without duplicating objective state.
+    """
+
+    __tablename__ = "va_commitment_edges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    from_objective_id: Mapped[int] = mapped_column(ForeignKey("va_objectives.id", ondelete="CASCADE"), index=True)
+    to_objective_id: Mapped[int] = mapped_column(ForeignKey("va_objectives.id", ondelete="CASCADE"), index=True)
+    relation: Mapped[str] = mapped_column(String(40), default="depends_on", index=True)
+    source: Mapped[str] = mapped_column(String(120), default="derived")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "from_objective_id",
+            "to_objective_id",
+            "relation",
+            name="uq_va_commitment_edge",
+        ),
+        Index("ix_va_commitment_edges_pair", "from_objective_id", "to_objective_id"),
+    )

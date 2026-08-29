@@ -8,13 +8,13 @@ def _read(path: str) -> str:
 
 
 def test_v105_release_identity():
-    assert 'APP_VERSION = "1.0.5"' in _read("backend/app/core/version.py")
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.5"' in _read("backend/app/core/version.py")
-    assert 'version = "1.0.5"' in _read("backend/pyproject.toml")
-    assert "version: 1.0.5+48" in _read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.6"' in _read("backend/app/core/version.py")
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.6"' in _read("backend/app/core/version.py")
+    assert 'version = "1.0.6"' in _read("backend/pyproject.toml")
+    assert "version: 1.0.6+49" in _read("android/pubspec.yaml")
     contract = _read("android/lib/release_contract.dart")
-    assert "const String appRelease = '1.0.5';" in contract
-    assert "const String minimumBackendVersion = '1.0.5';" in contract
+    assert "const String appRelease = '1.0.6';" in contract
+    assert "const String minimumBackendVersion = '1.0.6';" in contract
     workflow = _read(".github/workflows/android-release.yml")
     assert "Full-Time-VA-Android-v1.0.5.apk" in workflow
 

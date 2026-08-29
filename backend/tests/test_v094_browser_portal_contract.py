@@ -7,9 +7,9 @@ def _root() -> Path:
 
 def test_v094_release_identity_and_real_browser_runtime() -> None:
     root = _root()
-    assert 'APP_VERSION = "1.0.5"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version = "1.0.5"' in (root / "backend/pyproject.toml").read_text()
-    assert 'version: 1.0.5+48' in (root / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.6"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version = "1.0.6"' in (root / "backend/pyproject.toml").read_text()
+    assert 'version: 1.0.6+49' in (root / "android/pubspec.yaml").read_text()
     assert '"playwright>=1.61,<2"' in (root / "backend/pyproject.toml").read_text()
     docker = (root / "backend/Dockerfile").read_text()
     assert "python -m playwright install --with-deps chromium" in docker

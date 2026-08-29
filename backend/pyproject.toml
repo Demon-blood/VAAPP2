@@ -1,6 +1,6 @@
 [project]
 name = "full-time-va-backend"
-version = "1.0.5"
+version = "1.0.6"
 description = "Production backend for the Full-Time VA Android application"
 requires-python = ">=3.11"
 dependencies = [

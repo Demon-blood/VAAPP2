@@ -18,8 +18,20 @@ class VaOperationsPage extends StatelessWidget {
     final overview = state.vaOverview;
     final metrics = Map<String, dynamic>.from((overview['metrics'] as Map?) ?? const {});
     final totals = Map<String, dynamic>.from((metrics['totals'] as Map?) ?? const {});
-    final needsUser = (overview['needs_user'] as List? ?? const []).cast<Map>();
-    final recent = (overview['recent_objectives'] as List? ?? const []).cast<Map>();
+    final commitmentOverview = Map<String, dynamic>.from((overview['commitments'] as Map?) ?? const {});
+    List<Map<String, dynamic>> commitmentRows(dynamic raw) => (raw as List? ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    final needsUser = (overview['needs_user'] as List? ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    final workingNow = commitmentRows(commitmentOverview['working_now']);
+    final waitingExternal = commitmentRows(commitmentOverview['waiting_external']);
+    final resolvingInternal = commitmentRows(commitmentOverview['resolving_internal']);
+    final recentlyCompleted = commitmentRows(commitmentOverview['recently_completed']);
+    final executiveSummary = '${commitmentOverview['summary'] ?? ''}'.trim();
     final capabilities = (state.vaCapabilities['capabilities'] as List? ?? const []).cast<Map>();
     final rate = (metrics['autonomous_completion_rate'] as num?)?.toDouble();
     final active = (metrics['active_objectives'] as num?)?.toInt() ?? 0;
@@ -40,6 +52,27 @@ class VaOperationsPage extends StatelessWidget {
             backlog: (overview['event_backlog'] as num?)?.toInt() ?? 0,
           ),
           const SizedBox(height: 12),
+          if (executiveSummary.isNotEmpty) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.assistant_rounded, color: VaTheme.primaryBright),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        executiveSummary,
+                        style: const TextStyle(fontWeight: FontWeight.w700, height: 1.35),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
@@ -77,6 +110,72 @@ class VaOperationsPage extends StatelessWidget {
             ],
           const SizedBox(height: 20),
           const _SectionHeader(
+            title: 'VA-owned work · Working now',
+            subtitle: 'The commitments I am actively progressing or verifying.',
+          ),
+          const SizedBox(height: 8),
+          if (workingNow.isEmpty)
+            const _StateCard(
+              icon: Icons.task_alt_rounded,
+              title: 'No active execution right now',
+              detail: 'Anything waiting elsewhere remains tracked below.',
+              accent: VaTheme.success,
+            )
+          else
+            for (final row in workingNow) ...[
+              _ObjectiveCard(row: row),
+              const SizedBox(height: 8),
+            ],
+          const SizedBox(height: 20),
+          const _SectionHeader(
+            title: 'Waiting / following up',
+            subtitle: 'Still owned by the VA. I will check again or chase the counterparty automatically.',
+          ),
+          const SizedBox(height: 8),
+          if (waitingExternal.isEmpty)
+            const _StateCard(
+              icon: Icons.hourglass_empty_rounded,
+              title: 'Nothing is waiting outside VAAPP',
+              detail: 'There are no provider or counterparty waits at the moment.',
+              accent: VaTheme.secondary,
+            )
+          else
+            for (final row in waitingExternal) ...[
+              _ObjectiveCard(row: row),
+              const SizedBox(height: 8),
+            ],
+          if (resolvingInternal.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            const _SectionHeader(
+              title: 'VA is resolving',
+              subtitle: 'Internal capability or system problems stay with the VA instead of becoming your task.',
+            ),
+            const SizedBox(height: 8),
+            for (final row in resolvingInternal) ...[
+              _ObjectiveCard(row: row),
+              const SizedBox(height: 8),
+            ],
+          ],
+          const SizedBox(height: 20),
+          const _SectionHeader(
+            title: 'Recently finished',
+            subtitle: 'Closed only after the required outcome evidence was observed.',
+          ),
+          const SizedBox(height: 8),
+          if (recentlyCompleted.isEmpty)
+            const _StateCard(
+              icon: Icons.history_rounded,
+              title: 'No recently verified commitments',
+              detail: 'Verified completions will appear here for a concise audit trail.',
+              accent: VaTheme.secondary,
+            )
+          else
+            for (final row in recentlyCompleted) ...[
+              _ObjectiveCard(row: row),
+              const SizedBox(height: 8),
+            ],
+          const SizedBox(height: 20),
+          const _SectionHeader(
             title: 'Execution capabilities',
             subtitle: 'Real executors only. READY means configured but not yet proven by end-to-end provider delivery.',
           ),
@@ -99,24 +198,6 @@ class VaOperationsPage extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 20),
-          const _SectionHeader(
-            title: 'VA-owned work',
-            subtitle: 'Durable objectives remain here until their real outcome is verified.',
-          ),
-          const SizedBox(height: 8),
-          if (recent.isEmpty)
-            const _StateCard(
-              icon: Icons.inbox_outlined,
-              title: 'No objectives yet',
-              detail: 'The autonomous core will create objectives from actionable events.',
-              accent: VaTheme.secondary,
-            )
-          else
-            for (final raw in recent.take(30)) ...[
-              _ObjectiveCard(row: Map<String, dynamic>.from(raw)),
-              const SizedBox(height: 8),
-            ],
         ],
       ),
     );
@@ -490,13 +571,13 @@ class _OperatorHero extends StatelessWidget {
                 Icon(Icons.hub_rounded, color: VaTheme.primaryBright),
                 SizedBox(width: 9),
                 Expanded(
-                  child: Text('Full-Time VA operator', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+                  child: Text('Full-Time VA operator · Executive desk', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             const Text(
-              'Observe → own → execute → verify → follow up',
+              'I keep ownership until the real-world outcome is verified.',
               style: TextStyle(color: VaTheme.textMuted),
             ),
             const SizedBox(height: 18),
@@ -669,11 +750,17 @@ class _ObjectiveCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = '${row['status'] ?? 'unknown'}';
     final accent = _statusColor(status);
+    final commitment = Map<String, dynamic>.from((row['commitment'] as Map?) ?? const {});
+    final commitmentStage = '${commitment['stage'] ?? ''}';
     final reason = needsUser
         ? '${row['needs_user_reason'] ?? ''}'
-        : '${row['blocked_reason'] ?? row['last_error'] ?? ''}';
-    final steps = (row['steps'] as List? ?? const []).length;
-    final evidence = (row['evidence_count'] as num?)?.toInt() ?? 0;
+        : commitmentStage == 'blocked_internal'
+            ? 'I am resolving this internally. You do not need to do anything.'
+            : '';
+    final evidence = (commitment['verified_evidence'] as num?)?.toInt() ?? (row['evidence_count'] as num?)?.toInt() ?? 0;
+    final nextAction = '${commitment['next_action'] ?? ''}'.trim();
+    final waitingOn = '${commitment['waiting_on'] ?? 'none'}'.trim();
+    final nextCheck = '${commitment['next_check_at'] ?? ''}'.trim();
     final userAction = Map<String, dynamic>.from((row['user_action'] as Map?) ?? const {});
     final specific = needsUser && userAction['kind'] == 'specific_authorization';
     final external = needsUser && userAction['kind'] == 'external_authorization';
@@ -740,9 +827,24 @@ class _ObjectiveCard extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 9),
-            Text('$steps persisted step${steps == 1 ? '' : 's'} · $evidence verified outcome${evidence == 1 ? '' : 's'}',
-                style: const TextStyle(color: VaTheme.textMuted, fontSize: 11)),
+            if (nextAction.isNotEmpty) ...[
+              const SizedBox(height: 9),
+              Text('Next: $nextAction', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+            ],
+            if (waitingOn.isNotEmpty && waitingOn != 'none') ...[
+              const SizedBox(height: 5),
+              Text('Waiting on $waitingOn. I still own the follow-through.', style: const TextStyle(color: VaTheme.textMuted, fontSize: 11)),
+            ],
+            if (nextCheck.isNotEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text('The next check is already scheduled.', style: TextStyle(color: VaTheme.textMuted, fontSize: 11)),
+              ),
+            if (evidence > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('Verified evidence recorded: $evidence', style: const TextStyle(color: VaTheme.textMuted, fontSize: 11)),
+              ),
             if (specific && onAuthorize != null && onDecline != null) ...[
               const SizedBox(height: 10),
               Row(

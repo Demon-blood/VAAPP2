@@ -868,11 +868,14 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         "needs_you": len(needs_you),
     }
 
+    from app.services.commitment_graph import executive_commitment_overview
+
+    commitments = await executive_commitment_overview(db)
     periods = await briefing_period_schedule(db, local_now)
     ready_periods = [item for item in periods if item["enabled"] and item["ready"]]
     briefing_period = ready_periods[-1]["name"] if ready_periods else "daily"
     summary_text = human_briefing_summary(
-        stats, payments, upcoming_bills, needs_you, period=briefing_period
+        stats, payments, upcoming_bills, needs_you, period=briefing_period, commitments=commitments
     )
     headline = (
         "Everything is under control."
@@ -896,6 +899,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         "timezone": getattr(tz, "key", str(tz)),
         "headline": headline,
         "summary_text": summary_text,
+        "commitments": commitments,
         "stats": stats,
         "mail": mail,
         "mail_category_counts": dict(Counter(item["category"] for item in mail)),

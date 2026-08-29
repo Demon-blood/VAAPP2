@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1436,11 +1436,23 @@ async def execute_ready_steps(db: AsyncSession, *, limit: int = 25) -> int:
         (
             await db.execute(
                 select(VAObjectiveStep)
+                .join(VAObjective, VAObjective.id == VAObjectiveStep.objective_id)
                 .where(
                     VAObjectiveStep.status.in_(["pending", "retry"]),
                     VAObjectiveStep.run_after <= now,
                 )
-                .order_by(VAObjectiveStep.run_after.asc(), VAObjectiveStep.objective_id.asc(), VAObjectiveStep.position.asc())
+                .order_by(
+                    case(
+                        (VAObjective.priority == "urgent", 0),
+                        (VAObjective.priority == "high", 1),
+                        (VAObjective.priority == "normal", 2),
+                        else_=3,
+                    ),
+                    VAObjective.due_at.asc().nullslast(),
+                    VAObjectiveStep.run_after.asc(),
+                    VAObjectiveStep.objective_id.asc(),
+                    VAObjectiveStep.position.asc(),
+                )
                 .limit(max(1, min(limit, 100)))
             )
         ).scalars()
@@ -2303,6 +2315,7 @@ async def process_due_followups(db: AsyncSession, *, limit: int = 100) -> int:
 
 async def run_core_cycle(db: AsyncSession, *, create_manual_run: bool = False) -> dict[str, Any]:
     from app.services.communication_correlation import repair_communication_correlation
+    from app.services.commitment_graph import reconcile_commitment_graph
 
     communication_correlation = await repair_communication_correlation(db)
     from app.services.communication_backlog_repair import repair_communication_backlog
@@ -2321,8 +2334,10 @@ async def run_core_cycle(db: AsyncSession, *, create_manual_run: bool = False) -
     executed = await execute_ready_steps(db)
     verified = await verify_ready_steps(db)
     reconciled_after = await reconcile_source_objectives(db)
+    commitment_graph = await reconcile_commitment_graph(db)
     return {
         "communication_correlation": communication_correlation,
+        "commitment_graph": commitment_graph,
         "communication_backlog": communication_backlog,
         "seeded": seeded,
         "events_processed": processed,
@@ -2397,6 +2412,9 @@ async def objective_public(db: AsyncSession, row: VAObjective, *, include_timeli
             for step in steps
         ],
     }
+    from app.services.commitment_graph import commitment_projection
+
+    payload["commitment"] = await commitment_projection(db, row)
     if row.status == "needs_user":
         from app.services.specific_authorization import user_action_for_objective
 
@@ -2443,8 +2461,11 @@ async def get_objective(db: AsyncSession, objective_id: int) -> dict[str, Any] |
 
 
 async def va_overview(db: AsyncSession) -> dict[str, Any]:
+    from app.services.commitment_graph import executive_commitment_overview
+
     metrics = await autonomy_summary(db)
     capabilities = await capability_matrix(db)
+    commitments = await executive_commitment_overview(db)
     event_backlog = int(
         (
             await db.execute(select(func.count(VAEvent.id)).where(VAEvent.status == "new"))
@@ -2483,6 +2504,7 @@ async def va_overview(db: AsyncSession) -> dict[str, Any]:
         "status": "operational" if event_backlog == 0 else "processing",
         "metrics": metrics,
         "capabilities": capabilities,
+        "commitments": commitments,
         "event_backlog": event_backlog,
         "due_followups": due_followups,
         "needs_user": [await objective_public(db, row) for row in needs_rows],
