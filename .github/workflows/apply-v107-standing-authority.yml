@@ -97,7 +97,7 @@ jobs:
           echo '313046491ebfd1ba47ae819bd9febc92c10adefd2cb2272efdbc0267e39649ed  /tmp/test_v107_standing_authority.py' | sha256sum -c -
           echo 'f1ef6f5116c95847c151449ce14cebee4ba43dfd73033b904a1d93c51305c8cf  /tmp/test_v107_standing_authority_contract.py' | sha256sum -c -
           echo '6b8a267c1efda9fa5b91cb22a77ef438f0d8395cf360ffd5dbe4506e734fc1cd  /tmp/V1.0.7_STANDING_AUTHORITY_AND_RISK_BOUNDED_DELEGATION.md' | sha256sum -c -
-          echo '21ab2f56f808dad25f7b397d8a173f095790259d910b8ed7affda6eae8052d38  $RUNNER_TEMP/apply-v107.py' | sha256sum -c -
+          printf '%s  %s\n' '21ab2f56f808dad25f7b397d8a173f095790259d910b8ed7affda6eae8052d38' "$RUNNER_TEMP/apply-v107.py" | sha256sum -c -
           python3 -m py_compile \
             "$RUNNER_TEMP/apply-v107.py" \
             /tmp/standing_authority.py \
