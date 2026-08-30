@@ -5,11 +5,11 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_v097_release_identity() -> None:
-    assert 'APP_VERSION = "1.0.11"' in (ROOT / "backend/app/core/version.py").read_text()
+    assert 'APP_VERSION = "1.0.12"' in (ROOT / "backend/app/core/version.py").read_text()
     pyproject = (ROOT / "backend/pyproject.toml").read_text()
-    assert 'version = "1.0.11"' in pyproject
+    assert 'version = "1.0.12"' in pyproject
     assert '"twilio>=9,<10"' in pyproject
-    assert "version: 1.0.11+54" in (ROOT / "android/pubspec.yaml").read_text()
+    assert "version: 1.0.12+55" in (ROOT / "android/pubspec.yaml").read_text()
     app_state = (ROOT / "android/lib/app_state.dart").read_text()
     assert "_versionAtLeast(backendVersion, minimumBackendVersion)" in app_state
     assert "App $appRelease requires backend $minimumBackendVersion or newer." in app_state

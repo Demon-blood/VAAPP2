@@ -6,23 +6,23 @@ Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–10 and production v1.0 are complete. The verified maintenance baseline for this release is commit `4b3b38903545c8598695660c666c3080aff171e2` (`v1.0.10 — Payment Recovery & Human Boundary Integrity`). GitHub Actions run `33328116694` completed successfully end-to-end, including backend tests, Ruff gates, Flutter analysis/tests, persistent signing, signed Android APK build, source verification, and prerelease publication under tag `va-android-110-4-1`.
+Phases 1–10 and production v1.0 are complete. The verified maintenance baseline for this release is commit `221205e82444f9c0bff2589cf3ffc015408e664a` (`v1.0.11 — Fulfillment Side-Effect Recovery & Duplicate Suppression`). GitHub Actions run `33331650005` completed successfully end-to-end, including backend tests, Ruff gates, Flutter analysis/tests, persistent signing, signed Android APK build, source verification, and prerelease publication under tag `va-android-111-2-1`.
 
-Verified v1.0.10 release identity: backend `1.0.10` / Android `1.0.10+53`. The operator subsequently reported production deployment and phone smoke testing complete.
+Verified v1.0.11 release identity: backend `1.0.11` / Android `1.0.11+54`. The operator subsequently reported production deployment and phone smoke testing complete.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
 ## Current maintenance candidate
 
-Backend `1.0.11` / Android `1.0.11+54`.
+Backend `1.0.12` / Android `1.0.12+55`.
 
-Current candidate: **v1.0.11 — Fulfillment Side-Effect Recovery & Duplicate Suppression**.
+Current candidate: **v1.0.12 — Telephony Creation Recovery & Retry Integrity**.
 
-v1.0.11 closes a duplicate-execution boundary in browser-backed Fulfillment. If a non-replay-safe provider action may already have happened but its postcondition is not yet visible, VAAPP retains the original action and browser operation, marks the outcome `creation_uncertain`, and performs verification-only revisits. Security boundaries, provider timeouts, and runtime errors during those revisits preserve the uncertainty state rather than reopening replay. It never creates a replacement business action merely because confirmation was delayed. Provider/system ambiguity remains VA-owned; genuine portal authentication remains a separate human boundary.
+v1.0.12 closes the remaining ambiguity gap in outbound Twilio call creation. If the irreversible provider create request may have succeeded but VAAPP missed both the response and the normal CallSid callback, VAAPP searches authenticated Twilio call history using exact source/destination numbers and a narrow local creation-time match. Exactly one unbound `outbound-api` candidate is required to recover the existing call intent. Zero, multiple, paginated, or unavailable provider evidence remains VA-owned and cannot trigger a redial. Follow-up retry is permitted only after the previous attempt has a real CallSid and a terminal provider state. Genuine material voice-conversation decisions and authentication remain separate human boundaries.
 
 The guarded installer commits this candidate only after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and a signed release APK build pass. Prerelease publication remains separately verifiable after the source commit.
 
-Next work after the v1.0.11 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.12 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 

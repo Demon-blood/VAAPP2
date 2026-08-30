@@ -2,17 +2,17 @@
   "updated": "2026-08-30",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "4b3b38903545c8598695660c666c3080aff171e2",
-  "verified_baseline_version": "1.0.10",
-  "verified_baseline_android_version": "1.0.10+53",
+  "verified_baseline_commit": "221205e82444f9c0bff2589cf3ffc015408e664a",
+  "verified_baseline_version": "1.0.11",
+  "verified_baseline_android_version": "1.0.11+54",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33328116694,
-  "verified_baseline_release_tag": "va-android-110-4-1",
+  "verified_maintenance_actions_run_id": 33331650005,
+  "verified_baseline_release_tag": "va-android-111-2-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.11 Fulfillment Side-Effect Recovery & Duplicate Suppression",
-  "current_version": "1.0.11",
-  "current_android_version": "1.0.11+54",
+  "current_phase_name": "v1.0.12 Telephony Creation Recovery & Retry Integrity",
+  "current_version": "1.0.12",
+  "current_android_version": "1.0.12+55",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -29,7 +29,8 @@
     "Needs You is reserved for genuine human boundaries",
     "terminal payment completion requires independent provider or bank evidence",
     "uncertain payment creation never triggers an automatic duplicate retry",
-    "a non-replay-safe provider side effect is never repeated solely because its postcondition is missing"
+    "a non-replay-safe provider side effect is never repeated solely because its postcondition is missing",
+    "an outbound call with unknown provider creation outcome is never redialed before provider identity is resolved"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -39,5 +40,14 @@
     "unresolved ambiguity remains VA-owned and schedules another verification check",
     "verification-time security, timeout, and runtime failures cannot downgrade ambiguity to ordinary failed",
     "genuine portal authentication remains the only user boundary in this recovery path"
+  ],
+  "v112_features": [
+    "ambiguous outbound Twilio creation is reconciled against authenticated provider call history",
+    "provider recovery requires exact To and From numbers plus outbound-api direction and a narrow creation-time match",
+    "exactly one unbound provider CallSid is required before a durable call intent can be recovered",
+    "zero or multiple provider candidates remain VA-owned without guessing or redialing",
+    "provider lookup failure remains system-owned and creates no fake Needs You",
+    "follow-up retries require a bound provider CallSid and terminal provider state",
+    "existing material voice-conversation boundaries remain unchanged"
   ]
 }
