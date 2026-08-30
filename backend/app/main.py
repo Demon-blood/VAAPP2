@@ -8,6 +8,7 @@ from app.api.routes import router
 from app.api.telephony_routes import router as telephony_router
 from app.api.fulfillment_routes import router as fulfillment_router
 from app.api.v105_routes import router as v105_router
+from app.api.v107_routes import router as v107_router
 from app.api_autopilot import router as autopilot_router
 from app.core.database import SessionLocal, init_db
 from app.core.version import APP_VERSION
@@ -137,6 +138,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 app.include_router(v105_router)
+app.include_router(v107_router)
 app.include_router(router)
 app.include_router(autopilot_router)
 app.include_router(telephony_router)

@@ -23,6 +23,7 @@ class VaOperationsPage extends StatelessWidget {
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
+    final authorities = state.vaAuthorities;
     final needsUser = (overview['needs_user'] as List? ?? const <dynamic>[])
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
@@ -81,6 +82,29 @@ class VaOperationsPage extends StatelessWidget {
               label: const Text('Run VA now'),
             ),
           ),
+
+          const SizedBox(height: 20),
+          const _SectionHeader(
+            title: 'Standing authority',
+            subtitle: 'Routine communications and Bounded portal transactions can be delegated inside explicit limits. Hard human boundaries always stay with you.',
+          ),
+          const SizedBox(height: 8),
+          if (authorities.isEmpty)
+            const _StateCard(
+              icon: Icons.admin_panel_settings_outlined,
+              title: 'Standing authority is off by default',
+              detail: 'Enable only the scopes you want the VA to execute without repeat approval.',
+              accent: VaTheme.secondary,
+            )
+          else
+            for (final row in authorities) ...[
+              _StandingAuthorityCard(
+                row: row,
+                onChanged: (value) => _toggleAuthority(context, row, value),
+                onConfigure: () => _configureAuthority(context, row),
+              ),
+              const SizedBox(height: 8),
+            ],
           const SizedBox(height: 20),
           _SectionHeader(
             title: 'Needs You',
@@ -201,6 +225,129 @@ class VaOperationsPage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+
+  Future<void> _toggleAuthority(
+    BuildContext context,
+    Map<String, dynamic> row,
+    bool enabled,
+  ) async {
+    final key = '${row['key'] ?? ''}'.trim();
+    if (key.isEmpty) return;
+    try {
+      await context.read<AppState>().updateVaAuthority(key, {'enabled': enabled});
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(enabled ? 'Standing authority enabled inside its configured bounds.' : 'Standing authority disabled.')),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _configureAuthority(
+    BuildContext context,
+    Map<String, dynamic> row,
+  ) async {
+    final key = '${row['key'] ?? ''}'.trim();
+    if (key.isEmpty) return;
+    final dailyController = TextEditingController(text: '${row['max_actions_per_day'] ?? ''}');
+    final amountController = TextEditingController(text: '${row['max_amount_eur'] ?? ''}');
+    final counterpartiesController = TextEditingController(
+      text: (row['counterparties'] as List? ?? const []).map((item) => '$item').join(', '),
+    );
+    var maxRisk = '${row['max_risk'] ?? 'high'}';
+    if (!<String>{'low', 'normal', 'medium', 'high'}.contains(maxRisk)) maxRisk = 'high';
+    final browserPolicy = key == 'browser_transactions';
+    final payload = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) => AlertDialog(
+          title: Text('${row['title'] ?? 'Standing authority'} limits'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: maxRisk,
+                  decoration: const InputDecoration(labelText: 'Maximum risk'),
+                  items: const [
+                    DropdownMenuItem(value: 'low', child: Text('Low')),
+                    DropdownMenuItem(value: 'normal', child: Text('Normal')),
+                    DropdownMenuItem(value: 'medium', child: Text('Medium')),
+                    DropdownMenuItem(value: 'high', child: Text('High')),
+                  ],
+                  onChanged: (value) => setState(() => maxRisk = value ?? maxRisk),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: dailyController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Maximum actions per day'),
+                ),
+                if (browserPolicy) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: amountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Maximum EUR per transaction'),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: counterpartiesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Optional counterparty allowlist',
+                    helperText: 'Comma-separated. Leave empty to use the scope without a counterparty filter.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Bank/provider authentication, OTP or credentials, identity proof, signatures/contracts, medical/legal consent, security changes, critical-risk work, and physical acts remain specific human steps.',
+                  style: TextStyle(color: VaTheme.textMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final daily = int.tryParse(dailyController.text.trim());
+                if (daily == null || daily < 1 || daily > 200) return;
+                final values = <String, dynamic>{
+                  'enabled': row['enabled'] == true,
+                  'max_risk': maxRisk,
+                  'max_actions_per_day': daily,
+                  'counterparties': counterpartiesController.text
+                      .split(',')
+                      .map((item) => item.trim())
+                      .where((item) => item.isNotEmpty)
+                      .toList(),
+                };
+                if (browserPolicy) values['max_amount_eur'] = amountController.text.trim();
+                Navigator.pop(dialogContext, values);
+              },
+              child: const Text('Save limits'),
+            ),
+          ],
+        ),
+      ),
+    );
+    dailyController.dispose();
+    amountController.dispose();
+    counterpartiesController.dispose();
+    if (payload == null || !context.mounted) return;
+    try {
+      await context.read<AppState>().updateVaAuthority(key, payload);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Standing-authority limits updated.')));
+      }
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
   }
 
   Future<void> _runNow(BuildContext context) async {
@@ -952,4 +1099,68 @@ class _StateCard extends StatelessWidget {
           ),
         ),
       );
+}
+
+
+class _StandingAuthorityCard extends StatelessWidget {
+  const _StandingAuthorityCard({
+    required this.row,
+    required this.onChanged,
+    required this.onConfigure,
+  });
+
+  final Map<String, dynamic> row;
+  final ValueChanged<bool> onChanged;
+  final VoidCallback onConfigure;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = row['enabled'] == true;
+    final maxActions = (row['max_actions_per_day'] as num?)?.toInt();
+    final usage = (row['usage_today'] as num?)?.toInt() ?? 0;
+    final amount = '${row['max_amount_eur'] ?? ''}'.trim();
+    final risk = '${row['max_risk'] ?? 'high'}';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${row['title'] ?? row['key'] ?? 'Authority'}',
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  ),
+                ),
+                Switch(value: enabled, onChanged: onChanged),
+              ],
+            ),
+            Text('${row['description'] ?? ''}', style: const TextStyle(color: VaTheme.textMuted)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                Chip(label: Text('risk ≤ $risk')),
+                if (maxActions != null) Chip(label: Text('$usage / $maxActions today')),
+                if (amount.isNotEmpty) Chip(label: Text('≤ EUR $amount')),
+                if ((row['counterparties'] as List? ?? const []).isNotEmpty)
+                  Chip(label: Text('${(row['counterparties'] as List).length} allowed counterparties')),
+              ],
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onConfigure,
+                icon: const Icon(Icons.tune_rounded),
+                label: const Text('Configure limits'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

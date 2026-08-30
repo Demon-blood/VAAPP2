@@ -95,6 +95,7 @@ async def _task_proposal(db: AsyncSession, task: Task) -> dict[str, Any]:
                     "provider": "gmail",
                     "channel": "email",
                     "counterparty": email.sender,
+                    "category": email.category,
                     "subject": str(reply.get("subject") or f"Re: {email.subject}"),
                     "proposed_reply": str(reply.get("body") or "")[:4000],
                 }
@@ -114,6 +115,8 @@ async def _communication_proposal(event: CommunicationEvent) -> dict[str, Any]:
         "provider": event.provider,
         "channel": event.channel,
         "counterparty": event.sender,
+        "category": event.category,
+        "protected": event.protected,
         "source_excerpt": (event.body or "")[:1200],
     }
     proposed_reply = str(decision.get("reply_text") or "").strip()
@@ -181,7 +184,13 @@ async def _current_specific_view(db: AsyncSession, objective: VAObjective, actio
     return view
 
 
-async def _queue_authorized_email_reply(db: AsyncSession, objective: VAObjective, task: Task) -> str:
+async def _queue_authorized_email_reply(
+    db: AsyncSession,
+    objective: VAObjective,
+    task: Task,
+    *,
+    authorization_policy: str = "specific_objective_authorization",
+) -> str:
     email = (
         await db.execute(
             select(EmailMessage).where(EmailMessage.provider_message_id == task.source_id).limit(1)
@@ -209,14 +218,20 @@ async def _queue_authorized_email_reply(db: AsyncSession, objective: VAObjective
         priority=email.priority or "normal",
         expect_reply=bool(decision.task or decision.support_case or decision.action_required),
         follow_up_hours=48,
-        policy="specific_objective_authorization",
+        policy=authorization_policy,
     )
     task.status = "waiting"
     task.requires_approval = False
     return "queued"
 
 
-async def _queue_authorized_device_reply(db: AsyncSession, objective: VAObjective, event: CommunicationEvent) -> str:
+async def _queue_authorized_device_reply(
+    db: AsyncSession,
+    objective: VAObjective,
+    event: CommunicationEvent,
+    *,
+    authorization_policy: str = "specific_objective_authorization",
+) -> str:
     decision = _loads(event.decision_json)
     text = str(decision.get("reply_text") or "").strip()
     if not text:
@@ -232,7 +247,12 @@ async def _queue_authorized_device_reply(db: AsyncSession, objective: VAObjectiv
             event_id=event.id,
             action_type="reply",
             target=event.sender,
-            payload_json=_dump({"text": text, "channel": "sms", "authorized_objective_id": objective.id}),
+            payload_json=_dump({
+                "text": text,
+                "channel": "sms",
+                "authorized_objective_id": objective.id,
+                "authorization_policy": authorization_policy,
+            }),
             idempotency_key=key,
             status="pending",
             requires_user_action=False,
@@ -243,12 +263,158 @@ async def _queue_authorized_device_reply(db: AsyncSession, objective: VAObjectiv
     # executor proposal as specifically authorized. Communication ownership uses
     # this marker to avoid creating a second approval loop for the same action.
     decision["specific_authorized"] = True
+    if authorization_policy.startswith("standing_authority:"):
+        decision["standing_authorized"] = True
     event.decision_json = _dump(decision)
     from app.services.communication_ownership import register_device_communication
 
     await register_device_communication(db, event=event, action=action)
     event.action_required = False
     return "queued"
+
+
+async def apply_standing_authority_objectives(
+    db: AsyncSession,
+    *,
+    limit: int = 100,
+) -> dict[str, int]:
+    """Resume exact executable Needs You proposals covered by explicit authority.
+
+    This function deliberately skips provider/bank authorization and proposals that
+    do not have a concrete executor. Authority removes repeat decision work; it does
+    not manufacture execution or completion evidence.
+    """
+    from app.services.autonomous_core import _transition_objective
+    from app.services.standing_authority import (
+        evaluate_standing_authority,
+        record_standing_authority_use,
+    )
+
+    rows = list(
+        (
+            await db.execute(
+                select(VAObjective)
+                .where(VAObjective.status == "needs_user")
+                .order_by(VAObjective.priority.desc(), VAObjective.due_at.asc().nullslast(), VAObjective.id.asc())
+                .limit(max(1, min(int(limit or 100), 500)))
+            )
+        ).scalars()
+    )
+    result = {"checked": 0, "authorized": 0, "blocked": 0}
+    for objective in rows:
+        if _external_authorization(objective):
+            continue
+
+        proposal: dict[str, Any] | None = None
+        task: Task | None = None
+        event: CommunicationEvent | None = None
+        if objective.source_type == "task" and str(objective.source_id).isdigit():
+            task = await db.get(Task, int(objective.source_id))
+            if task is not None and task.requires_approval and task.status in {"open", "waiting"}:
+                if task.source_type == "email_reply":
+                    proposal = await _task_proposal(db, task)
+        elif objective.source_type == "communication_event" and str(objective.source_id).isdigit():
+            event = await db.get(CommunicationEvent, int(objective.source_id))
+            if event is not None and event.direction == "incoming" and event.action_required:
+                decision = _loads(event.decision_json)
+                if str(decision.get("reply_text") or "").strip():
+                    proposal = await _communication_proposal(event)
+
+        if proposal is None:
+            continue
+        result["checked"] += 1
+        authority = await evaluate_standing_authority(
+            db,
+            action_type=str(proposal.get("action_type") or ""),
+            risk_level=objective.risk_level,
+            proposal=proposal,
+        )
+        if not authority.get("allowed"):
+            continue
+
+        policy = f"standing_authority:{authority['policy_key']}"
+        try:
+            if task is not None:
+                task.requires_approval = False
+                execution = await _queue_authorized_email_reply(
+                    db,
+                    objective,
+                    task,
+                    authorization_policy=policy,
+                )
+            elif event is not None:
+                event.action_required = False
+                execution = await _queue_authorized_device_reply(
+                    db,
+                    objective,
+                    event,
+                    authorization_policy=policy,
+                )
+                legacy_tasks = list(
+                    (
+                        await db.execute(
+                            select(Task).where(
+                                Task.source_type == "communication",
+                                Task.source_id == str(event.id),
+                            )
+                        )
+                    ).scalars()
+                )
+                for legacy in legacy_tasks:
+                    legacy.requires_approval = False
+                    if legacy.status in {"open", "waiting"}:
+                        legacy.status = "cancelled"
+            else:
+                continue
+        except Exception as exc:
+            await _transition_objective(
+                db,
+                objective,
+                "blocked_system",
+                reason="Standing authority covers this action, but executor preparation failed internally.",
+                error=str(exc),
+            )
+            result["blocked"] += 1
+            continue
+
+        if execution == "queued":
+            context = _loads(objective.context_json)
+            context["standing_authority"] = {
+                "policy_key": str(authority.get("policy_key") or ""),
+                "decision": "authorized",
+                "action_type": str(proposal.get("action_type") or ""),
+                "applied_at": datetime.utcnow().isoformat() + "Z",
+            }
+            objective.context_json = _dump(context)
+            await record_standing_authority_use(
+                db,
+                decision=authority,
+                action_type=str(proposal.get("action_type") or ""),
+                proposal=proposal,
+                objective=objective,
+            )
+            await _transition_objective(
+                db,
+                objective,
+                "cancelled",
+                reason=(
+                    "Explicit standing authority covered this exact proposal; the decision objective "
+                    "was superseded by the durable executor objective."
+                ),
+            )
+            result["authorized"] += 1
+        else:
+            await _transition_objective(
+                db,
+                objective,
+                "blocked_capability",
+                reason=f"Standing authority covers this action, but {execution}.",
+            )
+            result["blocked"] += 1
+
+    if result["authorized"] or result["blocked"]:
+        await db.commit()
+    return result
 
 
 async def authorize_specific_objective(

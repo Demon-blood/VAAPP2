@@ -72,6 +72,7 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic> vaOverview = {};
   Map<String, dynamic> vaCapabilities = {};
   List<Map<String, dynamic>> vaObjectives = [];
+  List<Map<String, dynamic>> vaAuthorities = [];
 
   Future<void> initialize() async {
     try {
@@ -163,6 +164,7 @@ class AppState extends ChangeNotifier {
     vaOverview = {};
     vaCapabilities = {};
     vaObjectives = [];
+    vaAuthorities = [];
     systemInfo = {};
     endpointErrors = {};
     serverWarning = null;
@@ -245,6 +247,7 @@ class AppState extends ChangeNotifier {
         _safeGet('/api/documents/profile-facts', optional: true),
         _safeGet('/api/finance/forecast', optional: true),
         _safeGet('/api/portal-documents/sources', optional: true),
+        _safeGet('/api/va/authorities', optional: true),
       ]);
 
       if (results[0] is Map)
@@ -316,6 +319,7 @@ class AppState extends ChangeNotifier {
       if (results[44] is Map)
         financeForecast = Map<String, dynamic>.from(results[44] as Map);
       if (results[45] is List) portalDocumentSources = _list(results[45]);
+      if (results[46] is List) vaAuthorities = _list(results[46]);
       await _refreshNativeCommunicationState();
 
       githubRepositories = [];
@@ -779,6 +783,25 @@ class AppState extends ChangeNotifier {
     await _run(() async {
       result = Map<String, dynamic>.from(
         await api.postJson('/api/va/run') as Map,
+      );
+      await refreshAll(showBusy: false);
+    });
+    return result;
+  }
+
+
+  Future<Map<String, dynamic>> updateVaAuthority(
+    String policyKey,
+    Map<String, dynamic> values,
+  ) async {
+    late Map<String, dynamic> result;
+    await _run(() async {
+      result = Map<String, dynamic>.from(
+        await api.putJson(
+              '/api/va/authorities/${Uri.encodeComponent(policyKey)}',
+              values,
+            )
+            as Map,
       );
       await refreshAll(showBusy: false);
     });

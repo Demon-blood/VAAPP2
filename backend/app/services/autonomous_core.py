@@ -2326,6 +2326,9 @@ async def run_core_cycle(db: AsyncSession, *, create_manual_run: bool = False) -
     seeded = await seed_system_events(db)
     processed = await process_pending_events(db)
     reconciled_before = await reconcile_source_objectives(db)
+    from app.services.specific_authorization import apply_standing_authority_objectives
+
+    standing_authority = await apply_standing_authority_objectives(db)
     recovered_user_blockers = await recover_resolved_user_blockers(db)
     followups = await process_due_followups(db)
     # Follow-up events created above are intentionally converted to objectives in
@@ -2343,6 +2346,7 @@ async def run_core_cycle(db: AsyncSession, *, create_manual_run: bool = False) -
         "events_processed": processed,
         "steps_executed": executed,
         "steps_verified": verified,
+        "standing_authority": standing_authority,
         "followups_due": followups,
         "resolved_user_blockers_recovered": recovered_user_blockers,
         "source_reconciliation": {

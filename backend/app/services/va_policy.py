@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -160,7 +162,7 @@ async def authorize_step(
                 "reason": "A persisted browser operation and portal are required",
                 "capability": capability,
             }
-        from app.models.entities import BrowserOperation
+        from app.models.entities import BrowserOperation, BrowserPortal
         operation = await db.get(BrowserOperation, operation_id)
         if operation is None:
             return {
@@ -171,19 +173,53 @@ async def authorize_step(
                 "capability": capability,
             }
         try:
-            import json
             summary = json.loads(operation.plan_json or "{}")
         except (TypeError, json.JSONDecodeError):
             summary = {}
         material = bool(isinstance(summary, dict) and summary.get("material_commitment"))
+        standing_authority: dict[str, Any] | None = None
         if material and operation.material_approved_at is None:
-            return {
-                "allowed": False,
-                "needs_user": True,
-                "resolution": "material_decision",
-                "reason": "This browser workflow would create a material payment/contract/security commitment and requires the account holder's decision",
-                "capability": capability,
+            portal = await db.get(BrowserPortal, operation.portal_id)
+            proposal = {
+                "action_type": "browser_operation",
+                "summary": objective.title,
+                "operation": "material portal commitment",
+                "material_commitment": True,
+                "provider": portal.slug if portal is not None else str(operation.portal_id),
+                "plan_text": json.dumps(summary, ensure_ascii=False, sort_keys=True, default=str)[:16000],
             }
+            from app.services.standing_authority import (
+                evaluate_standing_authority,
+                record_standing_authority_use,
+            )
+
+            standing_authority = await evaluate_standing_authority(
+                db,
+                action_type="browser_operation",
+                risk_level=objective.risk_level,
+                proposal=proposal,
+            )
+            if standing_authority.get("allowed"):
+                operation.material_approved_at = datetime.utcnow()
+                await record_standing_authority_use(
+                    db,
+                    decision=standing_authority,
+                    action_type="browser_operation",
+                    proposal=proposal,
+                    objective=objective,
+                    entity_type="browser_operation",
+                    entity_id=str(operation.id),
+                )
+                await db.flush()
+            else:
+                return {
+                    "allowed": False,
+                    "needs_user": True,
+                    "resolution": "material_decision",
+                    "reason": str(standing_authority.get("reason") or "This browser workflow requires the account holder's material decision"),
+                    "capability": capability,
+                    "standing_authority": standing_authority,
+                }
         if objective.risk_level == "critical" and not material:
             return {
                 "allowed": False,
@@ -198,6 +234,7 @@ async def authorize_step(
             "resolution": "automatic",
             "reason": "The operation is constrained to an allowlisted portal with encrypted session state and explicit postcondition verification",
             "capability": capability,
+            "standing_authority": standing_authority,
         }
 
     if action_type in {"device_communication_action", "device_followup_action"}:
