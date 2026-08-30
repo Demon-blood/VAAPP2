@@ -597,6 +597,14 @@ def _as_list(value: Any) -> list[str]:
     return [str(value)] if str(value) else []
 
 
+def operation_requires_postcondition_reconciliation(operation: BrowserOperation) -> bool:
+    """Return True when a non-replay-safe provider side effect still lacks proof."""
+    return (
+        operation.side_effect_step is not None
+        and operation.current_step >= operation.side_effect_step
+    )
+
+
 async def verify_page(page: Page, portal: BrowserPortal, verification: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
     assert_portal_url(portal, page.url)
     settle_ms = max(0, min(int(verification.get("settle_ms") or 0), 15000))
@@ -1044,11 +1052,13 @@ async def execute_browser_operation(db: AsyncSession, operation_id: int) -> dict
                     raise
                 assert_portal_url(portal, page.url)
 
-                # If a worker died after a potentially mutating click/submit, reconcile
-                # against the explicit postcondition before doing anything else.
-                if operation.status == "dispatching" or (
-                    operation.side_effect_step is not None and operation.current_step == operation.side_effect_step
-                ):
+                # Any unverified non-replay-safe side effect is reconciliation-only.
+                # Authenticate if necessary, then inspect the provider postcondition before
+                # any original business recipe step is allowed to run again.
+                if operation_requires_postcondition_reconciliation(operation):
+                    await _auto_login_if_needed(
+                        db, operation, portal, page, context, session, credential
+                    )
                     verified, verification_details = await verify_page(page, portal, verification)
                     if verified:
                         operation.status = "verified"
@@ -1152,8 +1162,8 @@ async def execute_browser_operation(db: AsyncSession, operation_id: int) -> dict
                         raise
 
                     operation.current_step = index + 1
-                    operation.side_effect_step = None
-                    operation.side_effect_started_at = None
+                    # Keep the durable side-effect marker until the provider postcondition
+                    # is verified. Clearing it here would permit a later duplicate replay.
                     operation.last_url = _safe_url_for_log(page.url)
                     operation.resume_url_encrypted = encrypt_text(page.url)
                     operation.page_title = (await page.title())[:1000]
@@ -1164,7 +1174,12 @@ async def execute_browser_operation(db: AsyncSession, operation_id: int) -> dict
                         page,
                         evidence_type="browser_step_observed",
                         step_index=index,
-                        details={"kind": step.get("kind"), "result": result, "side_effect": side_effect},
+                        details={
+                            "kind": step.get("kind"),
+                            "result": result,
+                            "side_effect": side_effect,
+                            "replay_safe": replay_safe,
+                        },
                         screenshot=side_effect,
                     )
                     await _save_storage_state(db, context, session, status="authenticated")
@@ -1180,6 +1195,8 @@ async def execute_browser_operation(db: AsyncSession, operation_id: int) -> dict
                     operation.status = "verified"
                     operation.verified_at = utcnow()
                     operation.last_error = ""
+                    operation.side_effect_step = None
+                    operation.side_effect_started_at = None
                     await _add_evidence(
                         db,
                         operation,
@@ -1191,18 +1208,45 @@ async def execute_browser_operation(db: AsyncSession, operation_id: int) -> dict
                     )
                     await _save_storage_state(db, context, session, status="authenticated")
                 else:
-                    operation.status = "failed"
-                    operation.last_error = "Browser plan ran, but the required provider postcondition was not verified"
-                    await _add_evidence(
-                        db,
-                        operation,
-                        page,
-                        evidence_type="browser_postcondition_failed",
-                        step_index=len(steps),
-                        details=verification_details,
-                        screenshot=True,
-                    )
-                    await _save_storage_state(db, context, session, status="ready", error=operation.last_error)
+                    if operation.side_effect_step is not None:
+                        operation.status = "creation_uncertain"
+                        operation.last_error = (
+                            "Provider side effect may already have occurred, but the required postcondition "
+                            "is not yet verified. Automatic replay is blocked; VAAPP will reconcile only."
+                        )
+                        await _add_evidence(
+                            db,
+                            operation,
+                            page,
+                            evidence_type="browser_ambiguous_outcome",
+                            step_index=operation.side_effect_step,
+                            details={
+                                "postcondition_verified": False,
+                                "final_verification": verification_details,
+                                "automatic_replay": False,
+                            },
+                            screenshot=True,
+                        )
+                        await _save_storage_state(
+                            db, context, session, status="ambiguous", error=operation.last_error
+                        )
+                    else:
+                        operation.status = "failed"
+                        operation.last_error = (
+                            "Browser plan ran, but the required provider postcondition was not verified"
+                        )
+                        await _add_evidence(
+                            db,
+                            operation,
+                            page,
+                            evidence_type="browser_postcondition_failed",
+                            step_index=len(steps),
+                            details=verification_details,
+                            screenshot=True,
+                        )
+                        await _save_storage_state(
+                            db, context, session, status="ready", error=operation.last_error
+                        )
                 await db.commit()
                 return {"operation_id": operation.id, "status": operation.status}
             except BrowserNeedsUserAuth as challenge:
@@ -1229,20 +1273,46 @@ async def execute_browser_operation(db: AsyncSession, operation_id: int) -> dict
             finally:
                 await browser.close()
     except BrowserSecurityError as exc:
-        operation.status = "failed"
-        operation.last_error = str(exc)[:4000]
+        error = str(exc)[:3000]
+        if operation_requires_postcondition_reconciliation(operation):
+            operation.status = "creation_uncertain"
+            operation.last_error = (
+                f"Provider verification hit a browser security boundary: {error}. "
+                "Automatic replay remains blocked."
+            )[:4000]
+            operation.verify_after = utcnow() + timedelta(minutes=60)
+        else:
+            operation.status = "failed"
+            operation.last_error = error
         await db.commit()
         return {"operation_id": operation.id, "status": operation.status}
     except PlaywrightTimeoutError as exc:
+        operation.verify_after = utcnow() + timedelta(seconds=min(120, 10 * max(1, operation.attempts)))
+        if operation_requires_postcondition_reconciliation(operation):
+            operation.status = "creation_uncertain"
+            operation.last_error = (
+                f"Provider timeout during side-effect reconciliation: {exc}. "
+                "Automatic replay remains blocked."
+            )[:4000]
+            await db.commit()
+            return {"operation_id": operation.id, "status": operation.status}
         operation.last_error = f"Browser provider timeout: {exc}"[:4000]
         operation.status = "retry" if operation.attempts < operation.max_attempts else "failed"
-        operation.verify_after = utcnow() + timedelta(seconds=min(120, 10 * max(1, operation.attempts)))
         await db.commit()
         if operation.status == "retry":
             raise
         return {"operation_id": operation.id, "status": operation.status}
     except Exception as exc:
         message = str(exc)
+        if operation_requires_postcondition_reconciliation(operation):
+            operation.status = "creation_uncertain"
+            operation.last_error = (
+                f"Provider/runtime error during side-effect reconciliation: {message}. "
+                "Automatic replay remains blocked."
+            )[:4000]
+            operation.verify_after = utcnow() + timedelta(seconds=min(120, 10 * max(1, operation.attempts)))
+            await db.commit()
+            return {"operation_id": operation.id, "status": operation.status}
         if "Executable doesn't exist" in message or "playwright install" in message.lower():
             operation.status = "blocked_capability"
             operation.last_error = "Chromium browser runtime is not installed in the backend deployment"
@@ -1336,10 +1406,14 @@ async def resume_browser_operation(db: AsyncSession, operation_id: int) -> Brows
     operation = await db.get(BrowserOperation, operation_id)
     if operation is None:
         raise LookupError("Browser operation not found")
-    if operation.status not in {"needs_user_auth", "retry", "failed"}:
+    if operation.status not in {"needs_user_auth", "retry", "failed", "creation_uncertain"}:
         raise ValueError("Browser operation is not resumable in its current state")
     if operation.status == "failed" and operation.side_effect_step is not None:
         raise ValueError("A failed operation with an ambiguous side effect cannot be blindly retried")
+    if operation.status == "creation_uncertain" and operation.side_effect_step is None:
+        raise ValueError(
+            "An uncertain browser operation without a durable side-effect marker cannot be resumed safely"
+        )
     operation.resume_sequence += 1
     operation.status = "pending"
     operation.last_error = ""

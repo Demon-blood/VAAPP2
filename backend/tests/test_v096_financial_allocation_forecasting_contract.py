@@ -5,9 +5,9 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_v096_release_identity() -> None:
-    assert 'APP_VERSION = "1.0.10"' in (ROOT / "backend/app/core/version.py").read_text()
-    assert 'version = "1.0.10"' in (ROOT / "backend/pyproject.toml").read_text()
-    assert "version: 1.0.10+53" in (ROOT / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.11"' in (ROOT / "backend/app/core/version.py").read_text()
+    assert 'version = "1.0.11"' in (ROOT / "backend/pyproject.toml").read_text()
+    assert "version: 1.0.11+54" in (ROOT / "android/pubspec.yaml").read_text()
     workflow = (ROOT / ".github/workflows/android-release.yml").read_text()
     assert "Full-Time-VA-Android-v1.0.5.apk" in workflow
 

@@ -28,7 +28,11 @@ from app.models.fulfillment_entities import (
 )
 from app.models.telephony_entities import TelephonyCall
 from app.services.audit import write_audit
-from app.services.browser_operator import enqueue_browser_operation, prepare_browser_operation
+from app.services.browser_operator import (
+    enqueue_browser_operation,
+    prepare_browser_operation,
+    resume_browser_operation,
+)
 from app.services.runtime_config import get_runtime_value
 from app.services.telephony_service import create_outbound_call, reconcile_call
 
@@ -1282,9 +1286,34 @@ async def _reconcile_existing_action(db: AsyncSession, request: FulfillmentReque
             if request.request_type == "logistics":
                 await _tracking_browser_failure(db, request, action, operation)
                 return
-            action.status = "blocked_system" if operation.status == "creation_uncertain" else "failed"
-            action.last_error = operation.last_error or operation.status
             request.status = "blocked_system" if operation.status == "creation_uncertain" else "failed"
+            if operation.status == "creation_uncertain":
+                request.requires_user_action = False
+                request.needs_user_reason = ""
+                try:
+                    await resume_browser_operation(db, operation.id)
+                except ValueError as exc:
+                    action.status = "blocked_system"
+                    action.last_error = str(exc)[:8000]
+                    request.status = "blocked_system"
+                    request.last_error = action.last_error
+                    request.next_action_at = utcnow() + timedelta(minutes=60)
+                else:
+                    action.status = "waiting_provider"
+                    action.last_error = operation.last_error or (
+                        "Provider side effect is awaiting postcondition verification"
+                    )
+                    request.status = "waiting_provider"
+                    request.last_error = (
+                        "Provider side effect has an uncertain outcome; the original action is retained "
+                        "and only its postcondition will be rechecked. Automatic replay is blocked."
+                    )
+                    request.next_action_at = utcnow() + timedelta(minutes=30)
+                await _sync_va_state(db, request)
+                return
+            action.status = "failed"
+            action.last_error = operation.last_error or operation.status
+            request.status = "failed"
             request.last_error = action.last_error
             await _sync_va_state(db, request)
             return

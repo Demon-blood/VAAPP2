@@ -1,4 +1,4 @@
-# VAAPP v1.0.10 — Payment Recovery & Human Boundary Integrity
+# VAAPP v1.0.11 — Fulfillment Side-Effect Recovery & Duplicate Suppression
 
 Updated: 2026-08-30
 
@@ -6,32 +6,32 @@ Updated: 2026-08-30
 
 - Repository: `Demon-blood/VAAPP2`
 - Branch: `main`
-- Verified v1.0.9 source baseline: `12afd780fdeb83fe89f0a6c3010d268dde683103`
-- Verified v1.0.9 GitHub Actions run: `33323619938` — success
-- Verified v1.0.9 prerelease tag: `va-android-109-4-1`
-- v1.0.9 release identity: backend `1.0.9`, Android `1.0.9+52`
+- Verified v1.0.10 source baseline: `4b3b38903545c8598695660c666c3080aff171e2`
+- Verified v1.0.10 GitHub Actions run: `33328116694` — success
+- Verified v1.0.10 prerelease tag: `va-android-110-4-1`
+- v1.0.10 release identity: backend `1.0.10`, Android `1.0.10+53`
 
-The operator subsequently reported production deployment and phone smoke testing complete for v1.0.9.
+The operator subsequently reported production deployment and phone smoke testing complete for v1.0.10.
 
-## v1.0.10 maintenance scope
+## v1.0.11 maintenance scope
 
-v1.0.10 keeps ambiguous payment-creation outcomes VA-owned instead of manufacturing a human approval boundary.
+v1.0.11 prevents duplicate provider mutations when a browser action succeeds but its confirmation/postcondition is delayed or temporarily unverifiable.
 
-- Network/timeout uncertainty after a bank payment POST remains `creation_uncertain` with automatic duplicate retry suppressed.
-- A provider response without a payment identifier also remains VA-owned; an unbound authorization URL is not surfaced as a valid SCA action.
-- The VA reconciles uncertain payment creation against booked transactions from the exact source bank account.
-- Completion requires exactly one provider-backed transaction matching amount, currency, timing, and strong creditor/reference evidence.
-- Zero or multiple candidate transactions remain unresolved and VA-owned.
-- Recovery creates durable `PaymentRecoveryEvidence` before treating the bill as paid.
-- Legacy `payment_creation_uncertain` human tasks are closed by reconciliation rather than kept in Needs You.
-- Genuine bank authorization remains human-bound only when a real provider authorization URL is attached to a provider payment identifier.
-- The Operational Guardian counts unresolved payment creation uncertainty as a system issue, not Needs You.
-- Anti-double-payment behavior is unchanged: an uncertain payment stays active, so a second automatic payment is not submitted while evidence is unresolved.
+- A non-replay-safe side-effect marker persists until explicit provider postcondition verification succeeds.
+- Final postcondition failure after a possible side effect becomes `creation_uncertain`, never ordinary `failed`.
+- The original FulfillmentAction and browser operation are retained; no new business idempotency key is created while the outcome is uncertain.
+- Uncertain operations resume with a new workflow resume sequence in verification-only mode.
+- Verification-only recovery may authenticate to the provider, but it checks the postcondition before any original business recipe step can execute.
+- A still-missing postcondition remains VA-owned with another verification check scheduled.
+- Security boundaries, provider timeouts, and runtime errors during verification-only recovery preserve uncertainty and cannot reopen recipe replay.
+- Unsafe or structurally unrecoverable uncertainty becomes `blocked_system`, not Needs You.
+- Genuine CAPTCHA/OTP/security authentication remains an explicit human boundary through the existing browser auth path.
+- No database schema migration is required.
 
 ## Release identity
 
-- Backend: `1.0.10`
-- Required Android: `1.0.10`
-- Android: `1.0.10+53`
+- Backend: `1.0.11`
+- Required Android: `1.0.11`
+- Android: `1.0.11+54`
 
-This status file is committed only by the guarded v1.0.10 installer after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and the signed release APK build have passed. GitHub prerelease publication remains a separate final workflow step and must be independently verified after the run.
+This status file is committed only by the guarded v1.0.11 installer after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and the signed release APK build have passed. GitHub prerelease publication remains a separate final workflow step and must be independently verified after the run.
