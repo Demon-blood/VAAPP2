@@ -106,6 +106,7 @@ jobs:
             case "$path" in
               MANIFEST.sha256|\
               STATUS.md|\
+              README.txt|\
               apply_v109_briefing_ledger.py|\
               preview/backend/app/services/briefing_delivery.py|\
               preview/backend/tests/test_v109_briefing_delivery.py|\
