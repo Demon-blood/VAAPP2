@@ -304,7 +304,7 @@ async def _oauth_state(db: AsyncSession, *, mutate: bool) -> dict[str, Any]:
 
 async def _payment_state(db: AsyncSession) -> dict[str, Any]:
     cutoff = _now() - timedelta(days=7)
-    rows = list(
+    rejected = list(
         (
             await db.execute(
                 select(Payment).where(
@@ -314,9 +314,22 @@ async def _payment_state(db: AsyncSession) -> dict[str, Any]:
             )
         ).scalars()
     )
+    uncertain = list(
+        (
+            await db.execute(
+                select(Payment).where(
+                    Payment.updated_at >= cutoff,
+                    Payment.status == "creation_uncertain",
+                    Payment.external_payment_id.is_(None),
+                )
+            )
+        ).scalars()
+    )
     return {
-        "recent_rejections": len(rows),
-        "provider_user_action_required": sum(1 for row in rows if row.requires_user_action),
+        "recent_rejections": len(rejected),
+        "provider_user_action_required": sum(1 for row in rejected if row.requires_user_action),
+        "creation_uncertain": len(uncertain),
+        "system_owned_uncertainty": len(uncertain),
     }
 
 
@@ -374,7 +387,7 @@ async def operational_guardian_status(db: AsyncSession) -> dict[str, Any]:
     payments = await _payment_state(db)
     workflow = await _workflow_state(db, mutate=False)
     needs_user = len(bank["expiring"]) + len(oauth["reconnect_required"])
-    system_issues = len(workflow["stale"])
+    system_issues = len(workflow["stale"]) + payments["system_owned_uncertainty"]
     status = "needs_user" if needs_user else "degraded" if system_issues else "healthy"
     return {
         "status": status,
@@ -396,7 +409,11 @@ async def run_operational_guardian(db: AsyncSession) -> dict[str, Any]:
     await db.commit()
 
     needs_user = len(bank["expiring"]) + len(oauth["reconnect_required"])
-    system_issues = len(workflow["stale"]) - len(workflow["self_healed"])
+    system_issues = (
+        len(workflow["stale"])
+        - len(workflow["self_healed"])
+        + payments["system_owned_uncertainty"]
+    )
     changed = bank["created"] + bank["completed"] + oauth["created"] + oauth["completed"] + len(workflow["self_healed"])
     if changed:
         await write_audit(

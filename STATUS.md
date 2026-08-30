@@ -1,57 +1,37 @@
-# VAAPP v1.0.9 — Prepared Source Patch Status
+# VAAPP v1.0.10 — Payment Recovery & Human Boundary Integrity
 
-## Repository baseline verified
+Updated: 2026-08-30
+
+## Source of truth
 
 - Repository: `Demon-blood/VAAPP2`
 - Branch: `main`
-- Required baseline: `2bfed2996167dbc440bb4f2a7b95f13c987f8a86`
-- Baseline was independently rechecked and still matched when this bundle was produced.
-- Existing release identity remains v1.0.8 / Android 1.0.8+51 until this patch is validated and published.
+- Verified v1.0.9 source baseline: `12afd780fdeb83fe89f0a6c3010d268dde683103`
+- Verified v1.0.9 GitHub Actions run: `33323619938` — success
+- Verified v1.0.9 prerelease tag: `va-android-109-4-1`
+- v1.0.9 release identity: backend `1.0.9`, Android `1.0.9+52`
 
-## What the applicator implements
+The operator subsequently reported production deployment and phone smoke testing complete for v1.0.9.
 
-- Additive `BriefingDelivery` ledger keyed by authenticated device + delivery key.
-- Server-signed delivery proof carrying the server-generated briefing window.
-- Server-authoritative `delivered_at`; Android cannot submit an authoritative client timestamp/window.
-- Device-isolated lookup of the last successfully acknowledged briefing boundary.
-- 72-hour maximum stale-boundary lookback.
-- Existing `GET /api/autopilot/briefing` retained; additive `POST /api/autopilot/briefing/deliveries` acknowledgement endpoint.
-- Scheduled Android notification is shown before any delivery proof is persisted or acknowledged.
-- Successful OS notification writes a durable local pending ACK; transient ACK failures retry silently before the next briefing fetch.
-- Urgent `interrupt=true` notification path remains independent.
-- Versions advance to backend/app 1.0.9, required Android 1.0.9, Android 1.0.9+52.
-- Living historical release-contract tests advance only explicit current-version literals; historical workflow/release names are preserved.
-- Applicator refuses any `.github/workflows/*` diff and requires the exact v1.0.8 baseline plus a clean worktree.
+## v1.0.10 maintenance scope
 
-## Validation actually performed in this ChatGPT session
+v1.0.10 keeps ambiguous payment-creation outcomes VA-owned instead of manufacturing a human approval boundary.
 
-Passed:
+- Network/timeout uncertainty after a bank payment POST remains `creation_uncertain` with automatic duplicate retry suppressed.
+- A provider response without a payment identifier also remains VA-owned; an unbound authorization URL is not surfaced as a valid SCA action.
+- The VA reconciles uncertain payment creation against booked transactions from the exact source bank account.
+- Completion requires exactly one provider-backed transaction matching amount, currency, timing, and strong creditor/reference evidence.
+- Zero or multiple candidate transactions remain unresolved and VA-owned.
+- Recovery creates durable `PaymentRecoveryEvidence` before treating the bill as paid.
+- Legacy `payment_creation_uncertain` human tasks are closed by reconciliation rather than kept in Needs You.
+- Genuine bank authorization remains human-bound only when a real provider authorization URL is attached to a provider payment identifier.
+- The Operational Guardian counts unresolved payment creation uncertainty as a system issue, not Needs You.
+- Anti-double-payment behavior is unchanged: an uncertain payment stays active, so a second automatic payment is not submitted while evidence is unresolved.
 
-- Python compilation of the guarded applicator.
-- AST parsing of all newly generated Python service/test modules.
-- Synthetic exact-anchor execution of the Android patch logic, including notification → local dedupe/pending proof → ACK ordering.
-- Guard/release-contract review against the existing v1.0.8 installer convention.
-- Independent final check that GitHub `main` remains at the expected v1.0.8 commit.
+## Release identity
 
-Not run / not claimed:
+- Backend: `1.0.10`
+- Required Android: `1.0.10`
+- Android: `1.0.10+53`
 
-- Full backend pytest suite.
-- Ruff over the actual patched repository.
-- Flutter analyze/tests against the actual patched repository.
-- Android release APK build.
-- Commit/push to `main`.
-- GitHub v1.0.9 release publication.
-- Production deployment/runtime verification.
-- Phone installation/smoke test.
-
-Those gates require an actual writable checkout/repository execution environment. The current GitHub App connection can read the public repository but a branch-write attempt to `Demon-blood/VAAPP2` returned HTTP 403, so publication was intentionally not claimed.
-
-## Apply locally if needed
-
-From a clean checkout whose HEAD is exactly the required baseline:
-
-```powershell
-python .\apply_v109_briefing_ledger.py D:\path\to\VAAPP2
-```
-
-The script fails closed if the baseline is wrong, the worktree is dirty, an expected source anchor changed, or a GitHub workflow file appears in the diff. It does not commit or publish automatically.
+This status file is committed only by the guarded v1.0.10 installer after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and the signed release APK build have passed. GitHub prerelease publication remains a separate final workflow step and must be independently verified after the run.
