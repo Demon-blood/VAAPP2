@@ -10,7 +10,7 @@ from pathlib import Path
 EXPECTED_BASELINE = "221205e82444f9c0bff2589cf3ffc015408e664a"
 BUNDLE_ROOT = Path(__file__).resolve().parent
 EXPECTED_PREVIEW_SHA256 = {
-    'preview/backend/tests/test_v112_telephony_creation_recovery.py': '60ceaf749415df1a0ecafa3265b4c05b2b9ced2d81e3711bdce98d0f641ab4b4',
+    'preview/backend/tests/test_v112_telephony_creation_recovery.py': 'ef39041b347cb161afd71cefe1974e3b6d32a2afd00bfa5f3d67f381d909d7b2',
     'preview/backend/tests/test_v112_telephony_creation_recovery_contract.py': 'be7a0e3adaac13282ba28438d185f5ca0315c51905b9347e7d91fc18d061534c',
     'preview/docs/V1.0.12_TELEPHONY_CREATION_RECOVERY.md': 'fe2828ab5ada9f9568a60978487dd6d5d670edbd4f60ef0cb11c67427e7ce27f',
 }

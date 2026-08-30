@@ -1,6 +1,6 @@
 name: Apply v1.0.12 Telephony Creation Recovery & Retry Integrity
 
-# Patch bundle revision: r1-telephony-creation-recovery
+# Patch bundle revision: r2-test-ruff-fix
 
 on:
   workflow_dispatch:

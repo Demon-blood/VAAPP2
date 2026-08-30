@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import ClassVar
 
 import pytest
 from sqlalchemy import func, select
@@ -24,7 +25,7 @@ async def db():
 
 
 async def _uncertain_call(db, *, started_at: datetime | None = None) -> TelephonyCall:
-    started = started_at or datetime(2026, 8, 30, 19, 0, 0)
+    started = started_at or datetime(2026, 8, 30, 19, 0, 0, tzinfo=UTC)
     token = "v112-telephony-token"
     call = TelephonyCall(
         idempotency_key="v112-call-intent",
@@ -62,8 +63,8 @@ class FakeResponse:
 
 
 class FakeClient:
-    payload = {"calls": []}
-    requests: list[dict] = []
+    payload: ClassVar[dict[str, list[dict]]] = {"calls": []}
+    requests: ClassVar[list[dict]] = []
 
     def __init__(self, *args, **kwargs):
         self.args = args
@@ -181,7 +182,7 @@ async def test_multiple_provider_candidates_remain_va_owned_and_unbound(db, monk
 @pytest.mark.asyncio
 async def test_retry_child_is_blocked_until_provider_identity_and_terminal_state(db):
     call = await _uncertain_call(db)
-    call.next_retry_at = datetime.utcnow() - timedelta(minutes=1)
+    call.next_retry_at = datetime.now(UTC) - timedelta(minutes=1)
     await db.commit()
 
     child = await telephony_service._create_retry_call(db, call)
