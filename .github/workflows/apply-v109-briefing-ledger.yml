@@ -1,5 +1,7 @@
 name: Apply v1.0.9 Briefing Ledger & Quiet Operations
 
+# Patch bundle revision: r2-utc-ruff
+
 on:
   workflow_dispatch:
   push:
@@ -22,7 +24,7 @@ jobs:
     env:
       FLUTTER_VERSION: '3.38.7'
       WORKFLOW_PATH: '.github/workflows/apply-v109-briefing-ledger.yml'
-      PATCH_SCRIPT: 'apply_v109_briefing_ledger.py'
+      PATCH_SCRIPT: 'apply_v109_briefing_ledger_r2.py'
       SOURCE_BASE: '2bfed2996167dbc440bb4f2a7b95f13c987f8a86'
       APP_VERSION: '1.0.9'
       ANDROID_BUILD: '52'
@@ -108,6 +110,7 @@ jobs:
               STATUS.md|\
               README.txt|\
               apply_v109_briefing_ledger.py|\
+              apply_v109_briefing_ledger_r2.py|\
               preview/backend/app/services/briefing_delivery.py|\
               preview/backend/tests/test_v109_briefing_delivery.py|\
               preview/backend/tests/test_v109_briefing_ledger_contract.py|\
