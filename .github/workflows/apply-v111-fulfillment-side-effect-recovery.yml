@@ -1,6 +1,6 @@
 name: Apply v1.0.11 Fulfillment Side-Effect Recovery & Duplicate Suppression
 
-# Patch bundle revision: r2-uncertainty-exception-closure
+# Patch bundle revision: r3-contract-scope-compatibility
 
 on:
   workflow_dispatch:

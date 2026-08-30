@@ -60,7 +60,10 @@ def test_provider_runtime_failures_cannot_downgrade_ambiguous_side_effect_to_fai
 def test_fulfillment_keeps_uncertainty_va_owned_and_reuses_same_browser_operation():
     fulfillment = read("backend/app/services/fulfillment_service.py")
     assert "resume_browser_operation" in fulfillment
-    branch = fulfillment.split('if operation.status == "creation_uncertain":', 1)[1].split(
+    reconcile = fulfillment.split("async def _reconcile_existing_action", 1)[1].split(
+        "async def run_request", 1
+    )[0]
+    branch = reconcile.split('if operation.status == "creation_uncertain":', 1)[1].split(
         'action.status = "failed"', 1
     )[0]
     assert "await resume_browser_operation(db, operation.id)" in branch
