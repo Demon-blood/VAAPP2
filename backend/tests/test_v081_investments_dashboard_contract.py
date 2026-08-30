@@ -7,8 +7,8 @@ def _root() -> Path:
 
 def test_v081_release_identity_and_dedicated_money_tab() -> None:
     root = _root()
-    assert 'APP_VERSION = "1.0.8"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version: 1.0.8+51' in (root / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.9"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version: 1.0.9+52' in (root / "android/pubspec.yaml").read_text()
     money = (root / "android/lib/screens/money_page.dart").read_text()
     assert "Tab(text: 'Investments')" in money
     assert 'InvestmentsPage()' in money

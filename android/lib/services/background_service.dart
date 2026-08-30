@@ -8,6 +8,8 @@ import 'package:workmanager/workmanager.dart';
 const vaBackgroundTask = 'full_time_va_priority_check';
 const _dailyBriefingDayKey = 'last_va_daily_briefing_day'; // legacy migration key
 const _briefingPeriodKey = 'last_va_briefing_period';
+const _briefingPendingAckKey = 'pending_va_briefing_ack_key';
+const _briefingPendingAckTokenKey = 'pending_va_briefing_ack_token';
 const _prioritySignatureKey = 'last_va_priority_signature';
 
 final FlutterLocalNotificationsPlugin notifications = FlutterLocalNotificationsPlugin();
@@ -31,6 +33,34 @@ String _prioritySignature(List<dynamic> items) {
   return normalized.join('||');
 }
 
+Future<bool> _ackBriefingDelivery({
+  required String base,
+  required String token,
+  required String deliveryKey,
+  required String deliveryToken,
+}) async {
+  if (deliveryKey.isEmpty || deliveryToken.isEmpty) return false;
+  try {
+    final response = await http.post(
+      Uri.parse('$base/api/autopilot/briefing/deliveries'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'delivery_key': deliveryKey,
+        'delivery_token': deliveryToken,
+      }),
+    ).timeout(const Duration(seconds: 15));
+    return response.statusCode >= 200 && response.statusCode < 300;
+  } catch (_) {
+    // The notification was shown, but delivery could not be proven to the backend.
+    // Keep the durable local proof pending so a later poll can retry silently.
+    return false;
+  }
+}
+
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((taskName, inputData) async {
@@ -41,6 +71,23 @@ void callbackDispatcher() {
     if (base == null || token == null) return true;
 
     try {
+      // A successful OS notification can outlive a transient backend/network failure.
+      // Retry that proof before fetching the next briefing so its window can advance.
+      final pendingAckKey = await storage.read(key: _briefingPendingAckKey) ?? '';
+      final pendingAckToken = await storage.read(key: _briefingPendingAckTokenKey) ?? '';
+      if (pendingAckKey.isNotEmpty && pendingAckToken.isNotEmpty) {
+        final acknowledged = await _ackBriefingDelivery(
+          base: base,
+          token: token,
+          deliveryKey: pendingAckKey,
+          deliveryToken: pendingAckToken,
+        );
+        if (acknowledged) {
+          await storage.delete(key: _briefingPendingAckKey);
+          await storage.delete(key: _briefingPendingAckTokenKey);
+        }
+      }
+
       final response = await http.get(
         Uri.parse('$base/api/autopilot/briefing'),
         headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'},
@@ -107,6 +154,23 @@ void callbackDispatcher() {
             await storage.write(key: _briefingPeriodKey, value: key);
             // Keep the legacy key updated so downgrades do not duplicate the evening briefing.
             await storage.write(key: _dailyBriefingDayKey, value: briefingDate);
+            final deliveryToken = '${period['delivery_token'] ?? ''}';
+            if (deliveryToken.isNotEmpty) {
+              // Persist proof-of-show intent before the network ACK. If the ACK fails, the
+              // next poll retries silently without showing the same notification again.
+              await storage.write(key: _briefingPendingAckKey, value: key);
+              await storage.write(key: _briefingPendingAckTokenKey, value: deliveryToken);
+              final acknowledged = await _ackBriefingDelivery(
+                base: base,
+                token: token,
+                deliveryKey: key,
+                deliveryToken: deliveryToken,
+              );
+              if (acknowledged) {
+                await storage.delete(key: _briefingPendingAckKey);
+                await storage.delete(key: _briefingPendingAckTokenKey);
+              }
+            }
           }
         } else {
           // Compatibility with an older backend that exposes only one daily ready flag.

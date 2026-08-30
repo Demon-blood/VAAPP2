@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.models.entities import Device, OperationPreference, WorkflowJob, WorkflowRun
 from app.services.autopilot_service import dispatch_intent, operations_profile, provider_health_snapshot
 from app.services.operational_guardian import operational_guardian_status
+from app.services.briefing_delivery import acknowledge_briefing_delivery
 from app.services.briefing_service import daily_briefing
 from app.services.workflow_engine import recover_autopilot_exceptions, requeue_dead_letter
 
@@ -75,9 +76,30 @@ async def autopilot_health(
 @router.get("/briefing")
 async def get_daily_briefing(
     db: AsyncSession = Depends(get_db),
-    _: Device = Depends(require_device),
+    device: Device = Depends(require_device),
 ) -> dict:
-    return await daily_briefing(db)
+    return await daily_briefing(db, device=device)
+
+
+@router.post("/briefing/deliveries")
+async def post_briefing_delivery(
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    device: Device = Depends(require_device),
+) -> dict:
+    delivery_key = str(payload.get("delivery_key") or "").strip()
+    delivery_token = str(payload.get("delivery_token") or "").strip()
+    if not delivery_key or not delivery_token:
+        raise HTTPException(status_code=400, detail="delivery_key and delivery_token are required")
+    try:
+        return await acknowledge_briefing_delivery(
+            db,
+            device=device,
+            delivery_key=delivery_key,
+            delivery_token=delivery_token,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/profile")

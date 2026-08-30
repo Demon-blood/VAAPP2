@@ -23,8 +23,8 @@ def test_release_version_is_v072() -> None:
     root = Path(__file__).parents[2]
     version = (root / "backend" / "app" / "core" / "version.py").read_text()
     pubspec = (root / "android" / "pubspec.yaml").read_text()
-    assert 'APP_VERSION = "1.0.8"' in version
-    assert "version: 1.0.8+51" in pubspec
+    assert 'APP_VERSION = "1.0.9"' in version
+    assert "version: 1.0.9+52" in pubspec
 
 
 def test_daily_intelligence_covers_full_exception_only_briefing_contract() -> None:
