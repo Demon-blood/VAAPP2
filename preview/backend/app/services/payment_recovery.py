@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -215,7 +216,7 @@ async def reconcile_uncertain_payment(
             account.external_account_id,
             date_from=date_from,
         )
-    except Exception as exc:
+    except (enable_banking.EnableBankingConfigurationError, httpx.RequestError, json.JSONDecodeError) as exc:
         await write_audit(
             db,
             "payment_creation_reconciliation_provider_failed",

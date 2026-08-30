@@ -1,5 +1,7 @@
 name: Apply v1.0.10 Payment Recovery & Human Boundary Integrity
 
+# Patch bundle revision: r2-ruff-ble001
+
 on:
   workflow_dispatch:
   push:

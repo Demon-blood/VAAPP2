@@ -8,7 +8,7 @@ from pathlib import Path
 
 EXPECTED_BASELINE = "12afd780fdeb83fe89f0a6c3010d268dde683103"
 BUNDLE_ROOT = Path(__file__).resolve().parent
-EXPECTED_PREVIEW_SHA256 = {'preview/backend/app/services/payment_recovery.py': 'd353d1053d5d91ad8dde7ca8956cd3de3c2be6d37cac69dac3e6a5ee68be0289', 'preview/backend/tests/test_v110_payment_uncertainty.py': '0d578f1033cf44772c49eb307dd49c8be9948e0896d895ff9d2935f5a081dafc', 'preview/backend/tests/test_v110_payment_uncertainty_contract.py': 'e08cfae9b991a26ee50259f6349e00e7db0dd743d835c466ab855e35ffcd9251', 'preview/docs/V1.0.10_PAYMENT_UNCERTAINTY_RECOVERY.md': '629ec59ee4eda0dc3d31ff48b05857972faa2a2a0f4c1d96b177fe2d3d9b0f39'}
+EXPECTED_PREVIEW_SHA256 = {'preview/backend/app/services/payment_recovery.py': '5760339b63c36777c87d499873c15a0640308b4473d1a9243e722715b4d93182', 'preview/backend/tests/test_v110_payment_uncertainty.py': '0d578f1033cf44772c49eb307dd49c8be9948e0896d895ff9d2935f5a081dafc', 'preview/backend/tests/test_v110_payment_uncertainty_contract.py': 'e08cfae9b991a26ee50259f6349e00e7db0dd743d835c466ab855e35ffcd9251', 'preview/docs/V1.0.10_PAYMENT_UNCERTAINTY_RECOVERY.md': '629ec59ee4eda0dc3d31ff48b05857972faa2a2a0f4c1d96b177fe2d3d9b0f39'}
 
 
 def read_text(path: Path) -> str:
