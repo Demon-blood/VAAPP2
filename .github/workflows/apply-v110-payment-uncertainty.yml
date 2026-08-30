@@ -1,0 +1,318 @@
+name: Apply v1.0.10 Payment Recovery & Human Boundary Integrity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-v110-payment-uncertainty.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-v110-payment-uncertainty
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      FLUTTER_VERSION: '3.38.7'
+      WORKFLOW_PATH: '.github/workflows/apply-v110-payment-uncertainty.yml'
+      PATCH_SCRIPT: 'apply_v110_payment_uncertainty.py'
+      SOURCE_BASE: '12afd780fdeb83fe89f0a6c3010d268dde683103'
+      APP_VERSION: '1.0.10'
+      ANDROID_BUILD: '53'
+      RELEASE_TAG: va-android-110-${{ github.run_number }}-${{ github.run_attempt }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Check out installer commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          cat > "$RUNNER_TEMP/git-askpass.sh" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/git-askpass.sh"
+          for attempt in 1 2 3 4 5; do
+            if GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+              git fetch --no-tags --depth=1 origin "$GITHUB_SHA"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Installer commit fetch failed after five attempts." >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          for attempt in 1 2 3 4 5; do
+            if GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+              git fetch --no-tags --depth=1 origin "$SOURCE_BASE"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "v1.0.9 source baseline fetch failed after five attempts." >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          git checkout --detach "$GITHUB_SHA"
+          rm -f "$RUNNER_TEMP/git-askpass.sh"
+
+      - name: Fail closed on source drift
+        run: |
+          set -euo pipefail
+          test -f "$WORKFLOW_PATH"
+          test -f "$PATCH_SCRIPT"
+          grep -q "EXPECTED_BASELINE = \"$SOURCE_BASE\"" "$PATCH_SCRIPT"
+
+          mapfile -t changed < <(git diff --name-only "$SOURCE_BASE" "$GITHUB_SHA")
+          for path in "${changed[@]}"; do
+            case "$path" in
+              apply_v110_payment_uncertainty.py|\
+              preview/backend/app/services/payment_recovery.py|\
+              preview/backend/tests/test_v110_payment_uncertainty.py|\
+              preview/backend/tests/test_v110_payment_uncertainty_contract.py|\
+              preview/docs/V1.0.10_PAYMENT_UNCERTAINTY_RECOVERY.md|\
+              MANIFEST_v110.sha256|\
+              .github/workflows/apply-v110-payment-uncertainty.yml)
+                ;;
+              *)
+                echo "Refusing to patch: application source drift since $SOURCE_BASE: $path" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          test "$(git show "$SOURCE_BASE":backend/app/core/version.py | tr -d '\r')" = \
+            $'APP_VERSION = "1.0.9"\nREQUIRED_ANDROID_VERSION = "1.0.9"'
+          test "$(git show "$SOURCE_BASE":android/pubspec.yaml | grep '^version:')" = \
+            'version: 1.0.9+52'
+          test "$(cat backend/app/core/version.py | tr -d '\r')" = \
+            $'APP_VERSION = "1.0.9"\nREQUIRED_ANDROID_VERSION = "1.0.9"'
+          test "$(grep '^version:' android/pubspec.yaml)" = 'version: 1.0.9+52'
+
+      - name: Apply guarded v1.0.10 source patch
+        run: |
+          set -euo pipefail
+          PATCH_WORKTREE="$RUNNER_TEMP/vaapp-v110-source"
+          rm -rf "$PATCH_WORKTREE"
+          git worktree add --detach "$PATCH_WORKTREE" "$SOURCE_BASE"
+          python3 "$GITHUB_WORKSPACE/$PATCH_SCRIPT" "$PATCH_WORKTREE"
+          git -C "$PATCH_WORKTREE" add -A
+          git -C "$PATCH_WORKTREE" diff --cached --check
+          if git -C "$PATCH_WORKTREE" diff --cached --name-only | grep -q '^\.github/workflows/'; then
+            echo "Refusing to continue: source patch attempted to modify a workflow." >&2
+            exit 1
+          fi
+          git -C "$PATCH_WORKTREE" diff --cached --binary > "$RUNNER_TEMP/v110-source.patch"
+          test -s "$RUNNER_TEMP/v110-source.patch"
+          git -C "$PATCH_WORKTREE" diff --cached --name-only | tee "$RUNNER_TEMP/v110-changed-files.txt"
+          grep -qx 'backend/app/services/payment_recovery.py' "$RUNNER_TEMP/v110-changed-files.txt"
+          grep -qx 'backend/tests/test_v110_payment_uncertainty.py' "$RUNNER_TEMP/v110-changed-files.txt"
+          grep -qx 'backend/tests/test_v110_payment_uncertainty_contract.py' "$RUNNER_TEMP/v110-changed-files.txt"
+          grep -qx 'docs/V1.0.10_PAYMENT_UNCERTAINTY_RECOVERY.md' "$RUNNER_TEMP/v110-changed-files.txt"
+          test "$(cat "$PATCH_WORKTREE/backend/app/core/version.py" | tr -d '\r')" = \
+            $'APP_VERSION = "1.0.10"\nREQUIRED_ANDROID_VERSION = "1.0.10"'
+          test "$(grep '^version:' "$PATCH_WORKTREE/android/pubspec.yaml")" = 'version: 1.0.10+53'
+          echo "PATCH_WORKTREE=$PATCH_WORKTREE" >> "$GITHUB_ENV"
+
+      - name: Test backend
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/va-venv"
+          source "$RUNNER_TEMP/va-venv/bin/activate"
+          python -m pip install --upgrade pip
+          cd "$PATCH_WORKTREE"
+          pip install -e './backend[dev]'
+          python -m compileall -q backend/app backend/tests
+          ruff check \
+            backend/app/services/payment_recovery.py \
+            backend/tests/test_v110_payment_uncertainty.py \
+            backend/tests/test_v110_payment_uncertainty_contract.py
+          ruff check backend/app backend/tests --select E9,F63,F7,F82
+          PUBLIC_BASE_URL=https://example.invalid \
+          PAIRING_SECRET=github-actions-pairing-secret-00000000 \
+          TOKEN_ENCRYPTION_KEY=MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE= \
+          pytest -q backend/tests
+
+      - name: Install Flutter
+        run: |
+          set -euo pipefail
+          FLUTTER_DIR="$RUNNER_TEMP/flutter"
+          for attempt in 1 2 3 4 5; do
+            if git clone --filter=blob:none --depth=1 --branch "$FLUTTER_VERSION" \
+              https://github.com/flutter/flutter.git "$FLUTTER_DIR"; then
+              break
+            fi
+            rm -rf "$FLUTTER_DIR"
+            if [ "$attempt" -eq 5 ]; then
+              echo "Flutter SDK download failed after five attempts." >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          echo "$FLUTTER_DIR/bin" >> "$GITHUB_PATH"
+          "$FLUTTER_DIR/bin/flutter" config --no-analytics
+          "$FLUTTER_DIR/bin/flutter" --version
+          "$FLUTTER_DIR/bin/flutter" precache --android
+
+      - name: Prepare Android release signing
+        run: |
+          set -euo pipefail
+          for name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing GitHub Actions secret: $name" >&2
+              exit 1
+            fi
+          done
+          KEYSTORE_PATH="$RUNNER_TEMP/full-time-va-release.p12"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Analyze test and build Android v1.0.10
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
+          cd "$PATCH_WORKTREE/android"
+          flutter create \
+            --platforms=android \
+            --org com.fulltimeva \
+            --project-name full_time_va \
+            .
+          cp tooling/app-build.gradle.kts android/app/build.gradle.kts
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "android/app/src/main/res/mipmap-$density"
+            cp "tooling/app_icon/ic_launcher_${density}.png" \
+              "android/app/src/main/res/mipmap-$density/ic_launcher.png"
+            cp "tooling/app_icon/ic_launcher_${density}.png" \
+              "android/app/src/main/res/mipmap-$density/ic_launcher_round.png"
+          done
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter test
+          for attempt in 1 2 3 4 5; do
+            if (cd android && ./gradlew --version); then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Gradle wrapper download failed after five attempts." >&2
+              exit 1
+            fi
+            rm -rf "$HOME/.gradle/wrapper/dists"
+            sleep $((attempt * 10))
+          done
+          for attempt in 1 2 3; do
+            if flutter build apk --release; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Android release build failed after three attempts." >&2
+              exit 1
+            fi
+            sleep $((attempt * 15))
+          done
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          cp "$APK" "$RUNNER_TEMP/Full-Time-VA-Android-v1.0.10.apk"
+          sha256sum "$RUNNER_TEMP/Full-Time-VA-Android-v1.0.10.apk" \
+            > "$RUNNER_TEMP/Full-Time-VA-Android-v1.0.10.apk.sha256"
+          test "$(grep '^version:' pubspec.yaml)" = 'version: 1.0.10+53'
+
+      - name: Apply validated source to current main checkout
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git reset --hard "$GITHUB_SHA"
+          git clean -fd
+          git apply --index "$RUNNER_TEMP/v110-source.patch"
+          git diff --cached --check
+          if git diff --cached --name-only | grep -q '^\.github/workflows/'; then
+            echo "Refusing to commit: workflow entered generated source diff." >&2
+            exit 1
+          fi
+          test "$(cat backend/app/core/version.py | tr -d '\r')" = \
+            $'APP_VERSION = "1.0.10"\nREQUIRED_ANDROID_VERSION = "1.0.10"'
+          test "$(grep '^version:' android/pubspec.yaml)" = 'version: 1.0.10+53'
+          grep -q 'class PaymentRecoveryEvidence' backend/app/models/entities.py
+          grep -q 'reconcile_uncertain_payment' backend/app/services/workflow_engine.py
+          grep -q 'system_owned_uncertainty' backend/app/services/operational_guardian.py
+          git diff --cached --stat
+
+      - name: Commit and push v1.0.10 source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cat > "$RUNNER_TEMP/git-askpass.sh" <<'EOF'
+          #!/usr/bin/env bash
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/git-askpass.sh"
+          REMOTE_SHA="$(GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+            git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [ "$REMOTE_SHA" != "$GITHUB_SHA" ]; then
+            echo "Refusing to push: main moved while validation was running." >&2
+            exit 1
+          fi
+          git commit -m "feat: recover uncertain payments without fake Needs You [skip ci]"
+          NEW_SHA="$(git rev-parse HEAD)"
+          echo "NEW_SHA=$NEW_SHA" >> "$GITHUB_ENV"
+          GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 git push origin HEAD:main
+          rm -f "$RUNNER_TEMP/git-askpass.sh"
+
+      - name: Verify pushed source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REMOTE_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')"
+          test "$REMOTE_SHA" = "$NEW_SHA"
+          VERSION_CONTENT="$(gh api "repos/${GITHUB_REPOSITORY}/contents/backend/app/core/version.py?ref=$NEW_SHA" \
+            --jq '.content' | base64 --decode | tr -d '\r')"
+          test "$VERSION_CONTENT" = $'APP_VERSION = "1.0.10"\nREQUIRED_ANDROID_VERSION = "1.0.10"'
+          PUBSPEC_VERSION="$(gh api "repos/${GITHUB_REPOSITORY}/contents/android/pubspec.yaml?ref=$NEW_SHA" \
+            --jq '.content' | base64 --decode | grep '^version:')"
+          test "$PUBSPEC_VERSION" = 'version: 1.0.10+53'
+
+      - name: Publish signed v1.0.10 APK prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            "$RUNNER_TEMP/Full-Time-VA-Android-v1.0.10.apk" \
+            "$RUNNER_TEMP/Full-Time-VA-Android-v1.0.10.apk.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$NEW_SHA" \
+            --title "Full-Time VA Android v1.0.10 · Payment Recovery & Human Boundary Integrity" \
+            --prerelease \
+            --notes "v1.0.10 keeps uncertain payment creation VA-owned, blocks duplicate retries, reconciles against unique provider-backed booked bank transactions, records recovery evidence, removes fake payment Needs You escalation, and preserves genuine bank SCA/authorization boundaries. Backend tests, Ruff gates, Flutter analysis/tests, and the signed Android release build passed before source publication."
