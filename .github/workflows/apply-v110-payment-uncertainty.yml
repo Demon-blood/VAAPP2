@@ -1,6 +1,6 @@
 name: Apply v1.0.10 Payment Recovery & Human Boundary Integrity
 
-# Patch bundle revision: r3-backend-contracts
+# Patch bundle revision: r4-final-contracts
 
 on:
   workflow_dispatch:
