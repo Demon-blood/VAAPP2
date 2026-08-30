@@ -2,17 +2,17 @@
   "updated": "2026-08-30",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "12afd780fdeb83fe89f0a6c3010d268dde683103",
-  "verified_baseline_version": "1.0.9",
-  "verified_baseline_android_version": "1.0.9+52",
+  "verified_baseline_commit": "4b3b38903545c8598695660c666c3080aff171e2",
+  "verified_baseline_version": "1.0.10",
+  "verified_baseline_android_version": "1.0.10+53",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33323619938,
-  "verified_baseline_release_tag": "va-android-109-4-1",
+  "verified_maintenance_actions_run_id": 33328116694,
+  "verified_baseline_release_tag": "va-android-110-4-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.10 Payment Recovery & Human Boundary Integrity",
-  "current_version": "1.0.10",
-  "current_android_version": "1.0.10+53",
+  "current_phase_name": "v1.0.11 Fulfillment Side-Effect Recovery & Duplicate Suppression",
+  "current_version": "1.0.11",
+  "current_android_version": "1.0.11+54",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -28,6 +28,16 @@
     "provider and system defects remain VA-owned",
     "Needs You is reserved for genuine human boundaries",
     "terminal payment completion requires independent provider or bank evidence",
-    "uncertain payment creation never triggers an automatic duplicate retry"
+    "uncertain payment creation never triggers an automatic duplicate retry",
+    "a non-replay-safe provider side effect is never repeated solely because its postcondition is missing"
+  ],
+  "v111_features": [
+    "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
+    "missing postconditions after provider mutation become creation_uncertain instead of terminal failed",
+    "uncertain fulfillment reuses the same action and browser operation instead of creating a duplicate action",
+    "recovery resumes in provider-postcondition verification mode before any business recipe step can run",
+    "unresolved ambiguity remains VA-owned and schedules another verification check",
+    "verification-time security, timeout, and runtime failures cannot downgrade ambiguity to ordinary failed",
+    "genuine portal authentication remains the only user boundary in this recovery path"
   ]
 }
