@@ -25,6 +25,24 @@ class Device(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class BriefingDelivery(Base):
+    __tablename__ = "briefing_deliveries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    delivery_key: Mapped[str] = mapped_column(String(120))
+    period: Mapped[str] = mapped_column(String(24), default="")
+    window_start: Mapped[datetime] = mapped_column(DateTime)
+    window_end: Mapped[datetime] = mapped_column(DateTime)
+    delivered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("device_id", "delivery_key", name="uq_briefing_delivery_device_key"),
+        Index("ix_briefing_delivery_device_window", "device_id", "window_end"),
+    )
+
+
 class OAuthConnection(Base):
     __tablename__ = "oauth_connections"
 

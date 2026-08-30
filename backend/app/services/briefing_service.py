@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import get_settings
@@ -17,6 +17,7 @@ from app.models.entities import (
     Bill,
     CommunicationAction,
     CommunicationEvent,
+    Device,
     DocumentRecord,
     EmailMessage,
     FinancialRecord,
@@ -30,6 +31,7 @@ from app.models.entities import (
     Task,
     WorkflowJob,
 )
+from app.services.briefing_delivery import issue_briefing_delivery_token, resolve_briefing_window_start
 from app.services.runtime_config import get_runtime_value
 from app.services.briefing_policy import briefing_period_schedule, filter_needs_you, human_briefing_summary
 from app.services.workflow_engine import failure_recovery_class, failure_signature
@@ -293,7 +295,7 @@ def _summary_text(
     return " ".join(parts)
 
 
-async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
+async def daily_briefing(db: AsyncSession, *, device: Device | None = None) -> dict[str, Any]:
     """Return an executive briefing while preserving v0.5.x response keys.
 
     The briefing reuses persisted decisions and audit data; generating it does not make
@@ -319,14 +321,33 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         delivery_hour = 19
     enabled = (await get_runtime_value(db, "daily_briefing_enabled", "true")).lower() == "true"
 
-    since = now - timedelta(hours=window_hours)
+    periods = await briefing_period_schedule(db, local_now)
+    since, acknowledged_delivery = await resolve_briefing_window_start(
+        db,
+        device_id=device.id if device is not None else None,
+        now=now,
+        fallback_hours=window_hours,
+    )
+    if device is not None:
+        for period in periods:
+            if period["enabled"] and period["ready"]:
+                period["delivery_token"] = issue_briefing_delivery_token(
+                    device,
+                    delivery_key=str(period["delivery_key"]),
+                    window_start=since,
+                    window_end=now,
+                )
     upcoming = now + timedelta(days=7)
 
     mail_rows = list(
         (
             await db.execute(
                 select(EmailMessage)
-                .where(EmailMessage.received_at.is_not(None), EmailMessage.received_at >= since)
+                .where(
+                    EmailMessage.received_at.is_not(None),
+                    EmailMessage.received_at >= since,
+                    EmailMessage.received_at <= now,
+                )
                 .order_by(EmailMessage.received_at.desc(), EmailMessage.id.desc())
                 .limit(100)
             )
@@ -346,7 +367,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         (
             await db.execute(
                 select(Task)
-                .where(Task.status == "completed", Task.updated_at >= since)
+                .where(Task.status == "completed", Task.updated_at >= since, Task.updated_at <= now)
                 .order_by(Task.updated_at.desc(), Task.id.desc())
                 .limit(50)
             )
@@ -370,7 +391,12 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         (
             await db.execute(
                 select(Bill)
-                .where(or_(Bill.created_at >= since, Bill.updated_at >= since))
+                .where(
+                    or_(
+                        and_(Bill.created_at >= since, Bill.created_at <= now),
+                        and_(Bill.updated_at >= since, Bill.updated_at <= now),
+                    )
+                )
                 .order_by(Bill.updated_at.desc(), Bill.id.desc())
                 .limit(50)
             )
@@ -383,7 +409,13 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
                 select(Payment, Bill, BankAccount)
                 .outerjoin(Bill, Bill.id == Payment.bill_id)
                 .outerjoin(BankAccount, BankAccount.id == Payment.bank_account_id)
-                .where(or_(Payment.created_at >= since, Payment.updated_at >= since, Payment.requires_user_action.is_(True)))
+                .where(
+                    or_(
+                        and_(Payment.created_at >= since, Payment.created_at <= now),
+                        and_(Payment.updated_at >= since, Payment.updated_at <= now),
+                        Payment.requires_user_action.is_(True),
+                    )
+                )
                 .order_by(Payment.updated_at.desc(), Payment.id.desc())
                 .limit(50)
             )
@@ -419,7 +451,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         (
             await db.execute(
                 select(FinancialRecord)
-                .where(FinancialRecord.created_at >= since)
+                .where(FinancialRecord.created_at >= since, FinancialRecord.created_at <= now)
                 .order_by(FinancialRecord.created_at.desc())
                 .limit(50)
             )
@@ -429,7 +461,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         (
             await db.execute(
                 select(DocumentRecord)
-                .where(DocumentRecord.created_at >= since)
+                .where(DocumentRecord.created_at >= since, DocumentRecord.created_at <= now)
                 .order_by(DocumentRecord.created_at.desc(), DocumentRecord.id.desc())
                 .limit(50)
             )
@@ -449,7 +481,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         (
             await db.execute(
                 select(AuditLog)
-                .where(AuditLog.created_at >= since)
+                .where(AuditLog.created_at >= since, AuditLog.created_at <= now)
                 .order_by(AuditLog.created_at.desc())
                 .limit(200)
             )
@@ -469,7 +501,11 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         (
             await db.execute(
                 select(CommunicationEvent)
-                .where(CommunicationEvent.occurred_at.is_not(None), CommunicationEvent.occurred_at >= since)
+                .where(
+                    CommunicationEvent.occurred_at.is_not(None),
+                    CommunicationEvent.occurred_at >= since,
+                    CommunicationEvent.occurred_at <= now,
+                )
                 .order_by(CommunicationEvent.occurred_at.desc(), CommunicationEvent.id.desc())
                 .limit(100)
             )
@@ -482,6 +518,7 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
                     CommunicationAction.action_type == "reply",
                     CommunicationAction.status == "completed",
                     CommunicationAction.updated_at >= since,
+                    CommunicationAction.updated_at <= now,
                 )
             )
         ).scalar_one()
@@ -490,7 +527,13 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         (
             await db.execute(
                 select(OwnAccountTransfer)
-                .where(or_(OwnAccountTransfer.created_at >= since, OwnAccountTransfer.updated_at >= since, OwnAccountTransfer.requires_user_action.is_(True)))
+                .where(
+                    or_(
+                        and_(OwnAccountTransfer.created_at >= since, OwnAccountTransfer.created_at <= now),
+                        and_(OwnAccountTransfer.updated_at >= since, OwnAccountTransfer.updated_at <= now),
+                        OwnAccountTransfer.requires_user_action.is_(True),
+                    )
+                )
                 .order_by(OwnAccountTransfer.updated_at.desc(), OwnAccountTransfer.id.desc())
                 .limit(50)
             )
@@ -871,7 +914,6 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
     from app.services.commitment_graph import executive_commitment_overview
 
     commitments = await executive_commitment_overview(db)
-    periods = await briefing_period_schedule(db, local_now)
     ready_periods = [item for item in periods if item["enabled"] and item["ready"]]
     briefing_period = ready_periods[-1]["name"] if ready_periods else "daily"
     summary_text = human_briefing_summary(
@@ -896,6 +938,10 @@ async def daily_briefing(db: AsyncSession) -> dict[str, Any]:
         "window_hours": window_hours,
         "window_start": since.isoformat() + "Z",
         "window_end": now.isoformat() + "Z",
+        "window_source": "acknowledged_delivery" if acknowledged_delivery is not None else "fallback",
+        "last_acknowledged_delivery_key": (
+            acknowledged_delivery.delivery_key if acknowledged_delivery is not None else None
+        ),
         "timezone": getattr(tz, "key", str(tz)),
         "headline": headline,
         "summary_text": summary_text,

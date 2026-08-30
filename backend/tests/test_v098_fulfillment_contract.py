@@ -5,9 +5,9 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_v098_release_identity() -> None:
-    assert 'APP_VERSION = "1.0.8"' in (ROOT / "backend/app/core/version.py").read_text()
-    assert 'version = "1.0.8"' in (ROOT / "backend/pyproject.toml").read_text()
-    assert "version: 1.0.8+51" in (ROOT / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.9"' in (ROOT / "backend/app/core/version.py").read_text()
+    assert 'version = "1.0.9"' in (ROOT / "backend/pyproject.toml").read_text()
+    assert "version: 1.0.9+52" in (ROOT / "android/pubspec.yaml").read_text()
     state = (ROOT / "android/lib/app_state.dart").read_text()
     assert "_versionAtLeast(backendVersion, minimumBackendVersion)" in state
     workflow = (ROOT / ".github/workflows/android-release.yml").read_text()

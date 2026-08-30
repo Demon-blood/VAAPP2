@@ -7,9 +7,9 @@ def _root() -> Path:
 
 def test_v090_release_identity_and_core_routes() -> None:
     root = _root()
-    assert 'APP_VERSION = "1.0.8"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version = "1.0.8"' in (root / "backend/pyproject.toml").read_text()
-    assert 'version: 1.0.8+51' in (root / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.9"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version = "1.0.9"' in (root / "backend/pyproject.toml").read_text()
+    assert 'version: 1.0.9+52' in (root / "android/pubspec.yaml").read_text()
     workflow = (root / ".github/workflows/android-release.yml").read_text()
     assert "Full-Time-VA-Android-v1.0.5.apk" in workflow
     routes = (root / "backend/app/api/routes.py").read_text()

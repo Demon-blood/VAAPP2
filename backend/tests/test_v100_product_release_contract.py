@@ -10,10 +10,10 @@ def _read(path: str) -> str:
 
 def test_v100_release_identity_is_consistent() -> None:
     version = _read("backend/app/core/version.py")
-    assert 'APP_VERSION = "1.0.8"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.8"' in version
-    assert 'version = "1.0.8"' in _read("backend/pyproject.toml")
-    assert "version: 1.0.8+51" in _read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.9"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.9"' in version
+    assert 'version = "1.0.9"' in _read("backend/pyproject.toml")
+    assert "version: 1.0.9+52" in _read("android/pubspec.yaml")
     workflow = _read(".github/workflows/android-release.yml")
     assert "Full-Time-VA-Android-v1.0.5.apk" in workflow
     assert "Full-Time VA Android v1.0.5" in workflow
@@ -21,8 +21,8 @@ def test_v100_release_identity_is_consistent() -> None:
 
 def test_android_uses_one_runtime_release_contract() -> None:
     contract = _read("android/lib/release_contract.dart")
-    assert "const String appRelease = '1.0.8';" in contract
-    assert "const String minimumBackendVersion = '1.0.8';" in contract
+    assert "const String appRelease = '1.0.9';" in contract
+    assert "const String minimumBackendVersion = '1.0.9';" in contract
 
     state = _read("android/lib/app_state.dart")
     assert "import 'release_contract.dart';" in state

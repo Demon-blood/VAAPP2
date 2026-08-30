@@ -8,13 +8,13 @@ def read(path: str) -> str:
 
 
 def test_v108_release_identity_and_operational_guardian_contract():
-    assert 'APP_VERSION = "1.0.8"' in read("backend/app/core/version.py")
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.8"' in read("backend/app/core/version.py")
-    assert 'version = "1.0.8"' in read("backend/pyproject.toml")
-    assert "version: 1.0.8+51" in read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.9"' in read("backend/app/core/version.py")
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.9"' in read("backend/app/core/version.py")
+    assert 'version = "1.0.9"' in read("backend/pyproject.toml")
+    assert "version: 1.0.9+52" in read("android/pubspec.yaml")
     release = read("android/lib/release_contract.dart")
-    assert "appRelease = '1.0.8'" in release
-    assert "minimumBackendVersion = '1.0.8'" in release
+    assert "appRelease = '1.0.9'" in release
+    assert "minimumBackendVersion = '1.0.9'" in release
 
     service = read("backend/app/services/operational_guardian.py")
     assert 'source_type="operational_guardian"' in service
