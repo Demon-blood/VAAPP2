@@ -9,7 +9,6 @@ from app.core.database import Base
 from app.models.entities import GmailOutboundMessage
 from app.services import gmail_delivery
 
-
 NOW = datetime(2026, 8, 30, 20, 0, 0, tzinfo=UTC).replace(tzinfo=None)
 
 
@@ -62,7 +61,6 @@ async def test_ambiguous_send_older_than_thirty_minutes_stays_va_owned_without_r
 
     async def no_match(_db, _message_id, *, sent_only):
         assert sent_only is True
-        return None
 
     async def forbidden_send(*_args, **_kwargs):
         raise AssertionError("ambiguous Gmail intent must never be re-POSTed")
@@ -113,7 +111,6 @@ async def test_historical_failed_uncertain_without_evidence_reenters_reconciliat
 
     async def no_match(_db, _message_id, *, sent_only):
         assert sent_only is True
-        return None
 
     async def forbidden_send(*_args, **_kwargs):
         raise AssertionError("historical ambiguity must not create a second provider submission")
