@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 from xml.etree import ElementTree as ET
 
@@ -1151,6 +1152,189 @@ async def _apply_provider_status(
         await _set_objective_state(db, call, "blocked_system", reason=reason, error=reason)
 
 
+def _twilio_provider_timestamp(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parsed: datetime | None = None
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed
+
+
+async def _twilio_creation_candidates(
+    db: AsyncSession, call: TelephonyCall
+) -> list[dict[str, Any]]:
+    config = await _twilio_config(db)
+    if not config["account_sid"] or not config["auth_token"]:
+        raise ValueError("Twilio reconciliation credentials are not configured")
+    target = normalize_e164(decrypt_text(call.target_encrypted))
+    from_number = normalize_e164(decrypt_text(call.from_number_encrypted))
+    reference = call.started_at or call.created_at
+    if reference.tzinfo is not None:
+        reference = reference.astimezone(UTC).replace(tzinfo=None)
+    endpoint = f"https://api.twilio.com/2010-04-01/Accounts/{config['account_sid']}/Calls.json"
+    params = {
+        "To": target,
+        "From": from_number,
+        "StartTimeAfter": (reference - timedelta(days=1)).date().isoformat(),
+        "StartTimeBefore": (reference + timedelta(days=2)).date().isoformat(),
+        "PageSize": "100",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(
+            endpoint,
+            auth=httpx.BasicAuth(config["account_sid"], config["auth_token"]),
+            params=params,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    if not isinstance(payload, dict) or not isinstance(payload.get("calls"), list):
+        raise ValueError("Twilio call-list response did not contain a calls list")
+    if payload.get("next_page_uri"):
+        raise ValueError(
+            "Twilio call-list recovery exceeded one bounded page; a unique provider match cannot be proven"
+        )
+
+    candidates: list[dict[str, Any]] = []
+    for raw in payload["calls"]:
+        if not isinstance(raw, dict):
+            continue
+        sid = str(raw.get("sid") or "").strip()
+        if not sid:
+            continue
+        try:
+            candidate_to = normalize_e164(str(raw.get("to") or ""))
+            candidate_from = normalize_e164(str(raw.get("from") or ""))
+        except ValueError:
+            continue
+        if candidate_to != target or candidate_from != from_number:
+            continue
+        if str(raw.get("direction") or "").strip().lower() != "outbound-api":
+            continue
+        observed_at = _twilio_provider_timestamp(raw.get("date_created") or raw.get("start_time"))
+        if observed_at is None:
+            continue
+        if abs((observed_at - reference).total_seconds()) > 10 * 60:
+            continue
+        already_bound = (
+            await db.execute(
+                select(TelephonyCall.id).where(
+                    TelephonyCall.external_call_sid == sid,
+                    TelephonyCall.id != call.id,
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if already_bound is not None:
+            continue
+        candidates.append(raw)
+    return candidates
+
+
+async def _recover_uncertain_call_creation(db: AsyncSession, call: TelephonyCall) -> bool:
+    if call.direction != "outbound" or call.external_call_sid or call.status != "creation_uncertain":
+        return False
+    try:
+        candidates = await _twilio_creation_candidates(db, call)
+    except (httpx.HTTPError, ValueError) as exc:
+        call.status = "creation_uncertain"
+        call.failure_reason = (
+            f"Twilio creation recovery is temporarily unavailable: {exc}. "
+            "The original call remains VA-owned and blind redial remains blocked."
+        )[:4000]
+        await _set_objective_state(
+            db,
+            call,
+            "verifying",
+            reason="Provider call creation remains ambiguous",
+            error=call.failure_reason,
+        )
+        await write_audit(
+            db,
+            "telephony_call_creation_recovery_deferred",
+            entity_type="telephony_call",
+            entity_id=str(call.id),
+            result="blocked",
+            details={"retry_suppressed": True, "provider": "twilio"},
+        )
+        await db.commit()
+        return False
+
+    if len(candidates) != 1:
+        if candidates:
+            reason = (
+                f"Multiple Twilio calls match this ambiguous creation intent ({len(candidates)} candidates); "
+                "provider identity cannot be bound safely and blind redial remains blocked."
+            )
+            event_type = "provider_create_recovery_ambiguous"
+        else:
+            reason = (
+                "No unique Twilio call can yet prove this ambiguous creation intent; "
+                "blind redial remains blocked while VAAPP keeps the original intent."
+            )
+            event_type = "provider_create_recovery_pending"
+        call.status = "creation_uncertain"
+        call.failure_reason = reason[:4000]
+        await _set_objective_state(db, call, "verifying", reason=reason, error=reason)
+        await _record_evidence(
+            db,
+            call,
+            event_key=f"twilio-create-recovery:{call.id}:{len(candidates)}",
+            event_type=event_type,
+            signature_verified=False,
+            details={
+                "provider": "twilio",
+                "provider_api_authenticated": True,
+                "candidate_count": len(candidates),
+                "retry_suppressed": True,
+            },
+        )
+        await db.commit()
+        return False
+
+    candidate = candidates[0]
+    sid = str(candidate.get("sid") or "").strip()
+    await _bind_sid(db, call, sid)
+    call.failure_reason = ""
+    provider_status = str(candidate.get("status") or "").strip().lower()
+    if provider_status:
+        call.provider_status = provider_status
+    await _record_evidence(
+        db,
+        call,
+        event_key=f"twilio-create-recovered:{sid}",
+        event_type="provider_create_recovered",
+        provider_status=provider_status,
+        external_ref=sid,
+        signature_verified=False,
+        details={
+            "provider": "twilio",
+            "provider_api_authenticated": True,
+            "match_basis": ["exact_to", "exact_from", "outbound_api", "creation_time_window"],
+            "retry_suppressed": True,
+        },
+    )
+    await write_audit(
+        db,
+        "telephony_call_creation_recovered",
+        entity_type="telephony_call",
+        entity_id=str(call.id),
+        result="success",
+        details={"provider": "twilio", "external_ref": sid, "retry_suppressed": True},
+    )
+    if provider_status:
+        await _apply_provider_status(db, call, provider_status, candidate)
+    await db.commit()
+    return True
+
+
 async def reconcile_call(db: AsyncSession, call: TelephonyCall) -> TelephonyCall:
     if not call.external_call_sid:
         if call.status == "creating" and call.updated_at < utcnow() - timedelta(minutes=15):
@@ -1158,6 +1342,8 @@ async def reconcile_call(db: AsyncSession, call: TelephonyCall) -> TelephonyCall
             call.failure_reason = "Call creation was interrupted before a Twilio CallSid was recorded; blind retry is blocked."
             await _set_objective_state(db, call, "verifying", reason=call.failure_reason)
             await db.commit()
+        if call.status == "creation_uncertain":
+            await _recover_uncertain_call_creation(db, call)
         return call
     config = await _twilio_config(db)
     if not config["account_sid"] or not config["auth_token"]:
@@ -1194,6 +1380,10 @@ async def reconcile_call(db: AsyncSession, call: TelephonyCall) -> TelephonyCall
 
 async def _create_retry_call(db: AsyncSession, parent: TelephonyCall) -> TelephonyCall | None:
     next_attempt = parent.attempt + 1
+    if not parent.external_call_sid or parent.provider_status not in PROVIDER_TERMINAL:
+        # Never create a new provider side effect while the previous attempt might
+        # still exist or still be active. Keep the scheduled retry for later reconciliation.
+        return None
     if next_attempt > parent.max_attempts or parent.needs_user or parent.verification_status == "verified":
         parent.next_retry_at = None
         await db.commit()
@@ -1247,7 +1437,13 @@ async def _create_retry_call(db: AsyncSession, parent: TelephonyCall) -> Telepho
 
 
 async def reconcile_telephony(db: AsyncSession) -> dict[str, int]:
-    result = {"reconciled": 0, "creation_uncertain": 0, "retries_started": 0}
+    result = {
+        "reconciled": 0,
+        "creation_uncertain": 0,
+        "creation_recovered": 0,
+        "creation_unresolved": 0,
+        "retries_started": 0,
+    }
     stale_cutoff = utcnow() - timedelta(minutes=15)
     stale = list(
         (
@@ -1268,6 +1464,24 @@ async def reconcile_telephony(db: AsyncSession) -> dict[str, int]:
     if stale:
         await db.commit()
 
+    uncertain = list(
+        (
+            await db.execute(
+                select(TelephonyCall).where(
+                    TelephonyCall.direction == "outbound",
+                    TelephonyCall.status == "creation_uncertain",
+                    TelephonyCall.external_call_sid.is_(None),
+                ).order_by(TelephonyCall.id.asc()).limit(50)
+            )
+        ).scalars()
+    )
+    for call in uncertain:
+        recovered = await _recover_uncertain_call_creation(db, call)
+        if recovered:
+            result["creation_recovered"] += 1
+        else:
+            result["creation_unresolved"] += 1
+
     active = list(
         (
             await db.execute(
@@ -1287,6 +1501,8 @@ async def reconcile_telephony(db: AsyncSession) -> dict[str, int]:
             await db.execute(
                 select(TelephonyCall).where(
                     TelephonyCall.direction == "outbound",
+                    TelephonyCall.external_call_sid.is_not(None),
+                    TelephonyCall.provider_status.in_(PROVIDER_TERMINAL),
                     TelephonyCall.next_retry_at.is_not(None),
                     TelephonyCall.next_retry_at <= utcnow(),
                     TelephonyCall.attempt < TelephonyCall.max_attempts,
