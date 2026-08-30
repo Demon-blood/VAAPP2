@@ -242,6 +242,18 @@ async def provider_health_enqueue_job() -> None:
             logger.exception("Failed to enqueue provider-health Autopilot job")
 
 
+async def operational_guardian_job() -> None:
+    if not settings.automation_enabled:
+        return
+    async with SessionLocal() as db:
+        try:
+            from app.services.operational_guardian import run_operational_guardian
+
+            await run_operational_guardian(db)
+        except Exception:
+            logger.exception("Operational guardian continuity check failed")
+
+
 async def proactive_planner_enqueue_job() -> None:
     if not settings.automation_enabled:
         return
@@ -454,6 +466,16 @@ def start_scheduler() -> None:
         "interval",
         minutes=5,
         id="autopilot_provider_health_enqueue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=now,
+    )
+    scheduler.add_job(
+        operational_guardian_job,
+        "interval",
+        minutes=15,
+        id="operational_guardian",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

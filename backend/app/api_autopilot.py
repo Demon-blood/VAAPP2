@@ -11,6 +11,7 @@ from app.core.auth import require_device
 from app.core.database import get_db
 from app.models.entities import Device, OperationPreference, WorkflowJob, WorkflowRun
 from app.services.autopilot_service import dispatch_intent, operations_profile, provider_health_snapshot
+from app.services.operational_guardian import operational_guardian_status
 from app.services.briefing_service import daily_briefing
 from app.services.workflow_engine import recover_autopilot_exceptions, requeue_dead_letter
 
@@ -56,6 +57,7 @@ async def autopilot_health(
         ).scalar_one()
     )
     providers = await provider_health_snapshot(db)
+    reliability = await operational_guardian_status(db)
     return {
         "status": "degraded" if stalled else providers["status"],
         "jobs": counts,
@@ -65,6 +67,7 @@ async def autopilot_health(
         "actionable_dead_letters": providers.get("dead_letter_jobs", 0),
         "setup_required": providers.get("setup_required", []),
         "providers": providers["providers"],
+        "reliability": reliability,
         "checked_at": now.isoformat() + "Z",
     }
 

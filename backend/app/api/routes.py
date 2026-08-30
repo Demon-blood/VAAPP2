@@ -299,6 +299,8 @@ async def system_info() -> dict:
             "executive_work_queue",
             "standing_authority",
             "risk_bounded_delegation",
+            "operational_guardian",
+            "consent_continuity",
         ],
     }
 

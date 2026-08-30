@@ -24,6 +24,7 @@ class VaOperationsPage extends StatelessWidget {
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
     final authorities = state.vaAuthorities;
+    final reliability = Map<String, dynamic>.from((state.autopilotHealth['reliability'] as Map?) ?? const {});
     final needsUser = (overview['needs_user'] as List? ?? const <dynamic>[])
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
@@ -105,6 +106,13 @@ class VaOperationsPage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
+          const SizedBox(height: 20),
+          const _SectionHeader(
+            title: 'Operational continuity',
+            subtitle: 'Consent continuity is watched ahead of expiry. System recovery stays VA-owned.',
+          ),
+          const SizedBox(height: 8),
+          _ReliabilityGuardianCard(reliability: reliability),
           const SizedBox(height: 20),
           _SectionHeader(
             title: 'Needs You',
@@ -1157,6 +1165,70 @@ class _StandingAuthorityCard extends StatelessWidget {
                 icon: const Icon(Icons.tune_rounded),
                 label: const Text('Configure limits'),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReliabilityGuardianCard extends StatelessWidget {
+  const _ReliabilityGuardianCard({required this.reliability});
+
+  final Map<String, dynamic> reliability;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = '${reliability['status'] ?? 'unknown'}';
+    final needsUser = (reliability['needs_user_count'] as num?)?.toInt() ?? 0;
+    final systemIssues = (reliability['system_issue_count'] as num?)?.toInt() ?? 0;
+    final bank = Map<String, dynamic>.from((reliability['bank_consent'] as Map?) ?? const {});
+    final oauth = Map<String, dynamic>.from((reliability['oauth'] as Map?) ?? const {});
+    final workflow = Map<String, dynamic>.from((reliability['workflow'] as Map?) ?? const {});
+    final payments = Map<String, dynamic>.from((reliability['payments'] as Map?) ?? const {});
+    final expiringBank = (bank['expiring'] as List? ?? const []).length;
+    final reconnect = (oauth['reconnect_required'] as List? ?? const []).length;
+    final healed = (workflow['self_healed'] as List? ?? const []).length;
+    final rejected = (payments['recent_rejections'] as num?)?.toInt() ?? 0;
+    final healthy = status == 'healthy';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  healthy ? Icons.health_and_safety_rounded : Icons.shield_outlined,
+                  color: healthy ? VaTheme.success : VaTheme.secondary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    healthy ? 'Continuity guard is clear' : 'Continuity guard is tracking exceptions',
+                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Consent continuity is provider-state verified. Refreshable OAuth expiry stays automatic; only genuine reconnect or bank-consent boundaries become Needs You.',
+              style: TextStyle(color: VaTheme.textMuted, height: 1.35),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                Chip(label: Text('Consent continuity: ${expiringBank + reconnect}')),
+                Chip(label: Text('Needs You: $needsUser')),
+                Chip(label: Text('System recovery: $systemIssues')),
+                if (healed > 0) Chip(label: Text('Self-healed: $healed')),
+                if (rejected > 0) Chip(label: Text('Payment rejections (7d): $rejected')),
+              ],
             ),
           ],
         ),

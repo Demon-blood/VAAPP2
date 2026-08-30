@@ -8,13 +8,13 @@ def read(path: str) -> str:
 
 
 def test_v107_release_identity_and_authority_routes():
-    assert 'APP_VERSION = "1.0.7"' in read("backend/app/core/version.py")
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.7"' in read("backend/app/core/version.py")
-    assert 'version = "1.0.7"' in read("backend/pyproject.toml")
-    assert "version: 1.0.7+50" in read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.8"' in read("backend/app/core/version.py")
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.8"' in read("backend/app/core/version.py")
+    assert 'version = "1.0.8"' in read("backend/pyproject.toml")
+    assert "version: 1.0.8+51" in read("android/pubspec.yaml")
     contract = read("android/lib/release_contract.dart")
-    assert "appRelease = '1.0.7'" in contract
-    assert "minimumBackendVersion = '1.0.7'" in contract
+    assert "appRelease = '1.0.8'" in contract
+    assert "minimumBackendVersion = '1.0.8'" in contract
 
     routes = read("backend/app/api/routes.py")
     authority_routes = read("backend/app/api/v107_routes.py")
