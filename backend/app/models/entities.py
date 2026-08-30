@@ -199,6 +199,29 @@ class Payment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class PaymentRecoveryEvidence(Base):
+    __tablename__ = "payment_recovery_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("payments.id", ondelete="CASCADE"), index=True)
+    bank_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bank_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    transaction_id: Mapped[str] = mapped_column(String(255))
+    match_basis: Mapped[str] = mapped_column(String(80))
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "payment_id",
+            "transaction_id",
+            name="uq_payment_recovery_payment_transaction",
+        ),
+    )
+
+
 class AutomationRule(Base):
     __tablename__ = "automation_rules"
 

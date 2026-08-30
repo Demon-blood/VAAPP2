@@ -307,28 +307,25 @@ async def create_payment_for_bill(db: AsyncSession, *, bill_id: int, bank_accoun
         raise
     except (httpx.RequestError, TimeoutError) as exc:
         payment.status = "creation_uncertain"
-        payment.requires_user_action = True
+        payment.requires_user_action = False
         payment.failure_reason = (
-            f"Payment creation outcome is uncertain; automatic retry is blocked until the bank is checked: {exc}"
+            "Payment creation outcome is uncertain; automatic retry is blocked while "
+            f"the VA reconciles independent bank evidence: {exc}"
         )[:2000]
         bill.status = "payment_initiated"
-        db.add(
-            Task(
-                title=f"Check bank before retrying {bill.creditor_name}",
-                description=payment.failure_reason,
-                source_type="payment_creation_uncertain",
-                source_id=str(payment.id),
-                priority="urgent",
-                requires_approval=True,
-            )
-        )
         await write_audit(
             db,
             "payment_creation_uncertain",
             entity_type="payment",
             entity_id=str(payment.id),
             result="blocked",
-            details={"bill_id": bill.id, "retry_suppressed": True, "error": str(exc)},
+            details={
+                "bill_id": bill.id,
+                "retry_suppressed": True,
+                "ownership": "va",
+                "requires_user_action": False,
+                "error": str(exc),
+            },
         )
         await db.commit()
         return payment
@@ -336,28 +333,23 @@ async def create_payment_for_bill(db: AsyncSession, *, bill_id: int, bank_accoun
     external_id = str(response.get("payment_id") or response.get("id") or "").strip() or None
     payment.external_payment_id = external_id
     payment.authorization_url = str(response.get("url") or "").strip() or None
-    payment.requires_user_action = bool(payment.authorization_url)
     if external_id is None:
         payment.status = "creation_uncertain"
-        payment.requires_user_action = True
-        payment.failure_reason = "Payment provider returned success without a payment identifier; automatic retry is blocked."
+        payment.requires_user_action = False
+        payment.authorization_url = None
+        payment.failure_reason = (
+            "Payment provider returned success without a payment identifier; automatic retry is "
+            "blocked while the VA reconciles independent bank evidence."
+        )
     else:
-        payment.status = "authorization_required" if payment.authorization_url else str(response.get("status") or "received").lower()
+        payment.requires_user_action = bool(payment.authorization_url)
+        payment.status = "authorization_required" if payment.authorization_url else str(
+            response.get("status") or "received"
+        ).lower()
     bill.status = "payment_initiated"
     state_row.payload_json = json.dumps(
         {"bill_id": bill.id, "bank_account_id": account.id, "payment_id": payment.id, "external_payment_id": external_id}
     )
-    if payment.status == "creation_uncertain":
-        db.add(
-            Task(
-                title=f"Check bank before retrying {bill.creditor_name}",
-                description=payment.failure_reason,
-                source_type="payment_creation_uncertain",
-                source_id=str(payment.id),
-                priority="urgent",
-                requires_approval=True,
-            )
-        )
     await write_audit(
         db,
         "payment_initiated" if external_id else "payment_creation_uncertain",

@@ -1,27 +1,28 @@
 # VAAPP project handoff
 
-Updated: 2026-08-15  
+Updated: 2026-08-30
 Repository: `Demon-blood/VAAPP2`  
 Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–10 and production v1.0 are complete on GitHub. The current verified maintenance release is commit `752d69b224bb8b0bfb96663e1df5089a30442bfb` (`v1.0.5 — Human Boundary & Relationship-Aware Communications`). GitHub Actions run #49 completed successfully end-to-end, including the backend suite, Flutter analysis/tests, persistent-signing Android release build, and GitHub prerelease publication.
+Phases 1–10 and production v1.0 are complete. The verified maintenance baseline for this release is commit `12afd780fdeb83fe89f0a6c3010d268dde683103` (`v1.0.9 — Briefing Ledger & Quiet Operations`). GitHub Actions run `33323619938` completed successfully end-to-end, including backend tests, Ruff gates, Flutter analysis/tests, persistent signing, signed Android APK build, source verification, and prerelease publication under tag `va-android-109-4-1`.
 
-Verified maintenance release: backend `1.0.5` / Android `1.0.5+47`.
+Verified v1.0.9 release identity: backend `1.0.9` / Android `1.0.9+52`. The operator subsequently reported production deployment and phone smoke testing complete.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
-## Current local candidate
+## Current maintenance candidate
 
-Backend `1.0.5` / Android `1.0.5+47`.
+Backend `1.0.10` / Android `1.0.10+53`.
 
-Current maintenance candidate: **v1.0.5 — Human Boundary & Relationship-Aware Communications**.
-Status: **verified by canonical GitHub Actions run #49; backend, Flutter, signed APK, and prerelease publication are green.**
+Current candidate: **v1.0.10 — Payment Recovery & Human Boundary Integrity**.
 
-The candidate adds objective-bound Authorize/Decline decisions, repairs duplicate communication ownership/cross-transport SMS mirrors, adds user-explicit Phase-4 relationship reply preferences, and adds opt-in learned relationship writing style from device-observed non-VA sent history. Authorization remains distinct from completion evidence, and relationship style never grants financial/legal/security/browser/banking or other material execution authority.
+v1.0.10 repairs a human-boundary violation in payment creation recovery. A network drop or provider response without a payment identifier no longer fabricates a Needs You approval. The uncertain payment remains active and duplicate retry stays suppressed while the VA reconciles the exact source bank account for independent booked-transaction evidence. Exactly one strong match can prove completion; zero or multiple matches remain VA-owned and unresolved. Genuine bank SCA/authorization remains human-bound only when the provider supplied a real authorization URL tied to a provider payment identifier.
 
-Next work after the v1.0.5 gate is green: **v1.x maintenance and real-world hardening**.
+The guarded installer commits this candidate only after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and a signed release APK build pass. Prerelease publication remains separately verifiable after the source commit.
+
+Next work after the v1.0.10 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 

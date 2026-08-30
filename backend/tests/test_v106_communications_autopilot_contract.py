@@ -49,7 +49,7 @@ def test_android_sms_mms_conversation_and_quiet_interrupt_contract():
     assert "MessageConversationsPage" in comms
     assert "SMS/MMS conversations" in conversations
     assert "/api/communications/events?limit=1000" in state
-    assert "version: 1.0.9+52" in read("android/pubspec.yaml")
+    assert "version: 1.0.10+53" in read("android/pubspec.yaml")
 
 
 def test_low_value_mail_and_provider_errors_stay_off_user_queue():

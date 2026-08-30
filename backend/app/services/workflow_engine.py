@@ -851,10 +851,12 @@ async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[
         run_financial_allocation_cycle,
     )
     from app.services.financial_reconciliation import reconcile_receipts_with_bank_transactions
+    from app.services.payment_recovery import reconcile_all_uncertain_payments
     from app.services.bank_statement_import import reconcile_statement_transactions_with_bank
 
     bank_sync = await sync_all_banks(db)
     transaction_sync = await sync_bank_transactions(db)
+    uncertain_payment_recovery = await reconcile_all_uncertain_payments(db)
     statement_reconciliation = await reconcile_statement_transactions_with_bank(db)
     receipt_reconciliation = await reconcile_receipts_with_bank_transactions(db)
     refreshed = await refresh_all_payments(db)
@@ -876,6 +878,7 @@ async def _banking_autopilot(db: AsyncSession, payload: dict[str, Any]) -> dict[
     return {
         "bank_sync": bank_sync,
         "transaction_sync": transaction_sync,
+        "payment_uncertainty_recovery": uncertain_payment_recovery,
         "statement_reconciliation": statement_reconciliation,
         "receipt_reconciliation": receipt_reconciliation,
         "payment_initiation": "delegated_to_durable_bill_lifecycle",
@@ -949,6 +952,7 @@ async def _bill_lifecycle(db: AsyncSession, payload: dict[str, Any]) -> dict[str
     from app.core.settings import get_settings
     from app.models.entities import BankAccount, Bill, Creditor, Payment, Task
     from app.services.banking_service import create_payment_for_bill, refresh_payment
+    from app.services.payment_recovery import reconcile_uncertain_payment
 
     bill_id = int(payload.get("bill_id") or 0)
     bill = await db.get(Bill, bill_id)
@@ -968,15 +972,29 @@ async def _bill_lifecycle(db: AsyncSession, payload: dict[str, Any]) -> dict[str
         )
     ).scalar_one_or_none()
     if payment is not None:
-        if payment.external_payment_id:
+        recovery = None
+        if payment.status == "creation_uncertain" and not payment.external_payment_id:
+            recovery = await reconcile_uncertain_payment(db, payment)
+            await db.refresh(payment)
+        elif payment.external_payment_id:
             await refresh_payment(db, payment)
+        human_required = bool(payment.requires_user_action and payment.authorization_url)
+        if payment.status == "completed":
+            state = "settled"
+        elif human_required:
+            state = "authorization_required"
+        elif payment.status == "creation_uncertain":
+            state = "payment_reconciling"
+        else:
+            state = "payment_pending"
         return {
             "bill_id": bill.id,
-            "state": "settled" if payment.status == "completed" else ("authorization_required" if payment.requires_user_action else "payment_pending"),
+            "state": state,
             "payment_id": payment.id,
             "payment_status": payment.status,
-            "requires_user_action": payment.requires_user_action,
-            "authorization_url": payment.authorization_url,
+            "requires_user_action": human_required,
+            "authorization_url": payment.authorization_url if human_required else None,
+            "recovery": recovery,
         }
 
     if bill.status != "validated" or not bill.iban:
@@ -1077,13 +1095,21 @@ async def _bill_lifecycle(db: AsyncSession, payload: dict[str, Any]) -> dict[str
         bank_account_id=selected.id,
         redirect_url=redirect_url,
     )
+    human_required = bool(payment.requires_user_action and payment.authorization_url)
+    state = (
+        "authorization_required"
+        if human_required
+        else "payment_reconciling"
+        if payment.status == "creation_uncertain"
+        else "payment_initiated"
+    )
     return {
         "bill_id": bill.id,
-        "state": "authorization_required" if payment.requires_user_action else "payment_initiated",
+        "state": state,
         "payment_id": payment.id,
         "payment_status": payment.status,
-        "requires_user_action": payment.requires_user_action,
-        "authorization_url": payment.authorization_url,
+        "requires_user_action": human_required,
+        "authorization_url": payment.authorization_url if human_required else None,
     }
 
 
