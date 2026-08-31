@@ -1,6 +1,6 @@
 name: Apply v1.0.14 Own-Account Transfer Recovery & Human Boundary Integrity
 
-# Patch bundle revision: r1-own-transfer-recovery
+# Patch bundle revision: r2-ruff-compatibility
 
 on:
   workflow_dispatch:

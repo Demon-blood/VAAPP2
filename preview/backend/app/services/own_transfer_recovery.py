@@ -71,7 +71,7 @@ def _transaction_date(row: dict[str, Any]) -> datetime | None:
         if not raw:
             continue
         try:
-            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(raw)
         except ValueError:
             try:
                 parsed = datetime.fromisoformat(raw[:10])
