@@ -1,6 +1,6 @@
 name: Apply v1.0.13 Gmail Late-Evidence Recovery & Delivery Continuity
 
-# Patch bundle revision: r2-ruff-test-hygiene
+# Patch bundle revision: r3-v111-status-compatibility
 
 on:
   workflow_dispatch:
