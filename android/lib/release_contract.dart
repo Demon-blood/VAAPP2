@@ -2,5 +2,5 @@
 ///
 /// Keep build metadata in pubspec.yaml. Runtime compatibility checks use these
 /// semantic versions so setup, repair and diagnostics cannot drift apart.
-const String appRelease = '1.0.12';
-const String minimumBackendVersion = '1.0.12';
+const String appRelease = '1.0.13';
+const String minimumBackendVersion = '1.0.13';

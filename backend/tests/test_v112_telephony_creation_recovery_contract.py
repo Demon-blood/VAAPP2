@@ -8,13 +8,13 @@ def read(path: str) -> str:
 
 
 def test_v112_release_identity_is_consistent():
-    assert 'APP_VERSION = "1.0.12"' in read("backend/app/core/version.py")
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.12"' in read("backend/app/core/version.py")
-    assert 'version = "1.0.12"' in read("backend/pyproject.toml")
-    assert "version: 1.0.12+55" in read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.13"' in read("backend/app/core/version.py")
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.13"' in read("backend/app/core/version.py")
+    assert 'version = "1.0.13"' in read("backend/pyproject.toml")
+    assert "version: 1.0.13+56" in read("android/pubspec.yaml")
     release = read("android/lib/release_contract.dart")
-    assert "appRelease = '1.0.12'" in release
-    assert "minimumBackendVersion = '1.0.12'" in release
+    assert "appRelease = '1.0.13'" in release
+    assert "minimumBackendVersion = '1.0.13'" in release
 
 
 def test_uncertain_call_creation_is_recovered_from_unique_provider_evidence_only():

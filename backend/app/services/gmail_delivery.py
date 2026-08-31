@@ -169,6 +169,17 @@ async def send_or_reconcile_gmail_outbound(
         row.verify_after = max(row.verify_after, now + timedelta(minutes=2))
         await db.commit()
         return row
+    if row.status == "failed_uncertain":
+        # Historical v1.0.12 rows are reconciliation-only. Never turn this legacy
+        # state into permission to submit the same provider intent again.
+        row.status = "creation_uncertain"
+        row.verify_after = max(row.verify_after, now + timedelta(minutes=2))
+        row.last_error = (
+            "Historical Gmail delivery ambiguity returned to provider reconciliation; "
+            "automatic resend remains disabled"
+        )
+        await db.commit()
+        return row
     if row.attempts >= row.max_attempts:
         row.status = "failed"
         row.last_error = row.last_error or "Gmail outbound intent has already used its one safe provider submission"
@@ -225,8 +236,8 @@ async def send_or_reconcile_gmail_outbound(
 
         # Timeouts, connection resets, 429 and 5xx can happen after Gmail accepted
         # the request. Never blind-retry this provider intent. Later cycles only
-        # reconcile Sent by the stable RFC Message-ID; unresolved ambiguity fails
-        # closed instead of creating a duplicate message.
+        # reconcile Sent by the stable RFC Message-ID; unresolved ambiguity remains
+        # VA-owned instead of creating a duplicate message.
         row.status = "creation_uncertain"
         row.verify_after = utcnow() + timedelta(minutes=2)
         await write_audit(
@@ -241,31 +252,57 @@ async def send_or_reconcile_gmail_outbound(
         return row
 
 
+def _gmail_uncertain_verify_delay(row: GmailOutboundMessage, now: datetime) -> timedelta:
+    age = now - row.created_at
+    if age < timedelta(minutes=30):
+        return timedelta(minutes=2)
+    if age < timedelta(hours=24):
+        return timedelta(minutes=15)
+    if age < timedelta(days=7):
+        return timedelta(hours=1)
+    return timedelta(hours=6)
+
+
 async def ensure_gmail_outbound_verified(db: AsyncSession, row: GmailOutboundMessage) -> bool:
     if row.status == "verified":
         return True
     now = utcnow()
+
+    # v1.0.12 used failed_uncertain as a terminal timeout after thirty minutes.
+    # It is historical input only now: provider ambiguity stays VA-owned and the
+    # stable RFC Message-ID remains the sole recovery key. No provider re-POST.
+    if row.status == "failed_uncertain":
+        row.status = "creation_uncertain"
+        row.last_error = (
+            "Historical Gmail delivery ambiguity returned to provider reconciliation; "
+            "automatic resend remains disabled"
+        )
+
     try:
         if await reconcile_gmail_outbound(db, row):
             return True
     except Exception as exc:
         row.last_error = f"verification failed: {exc}"[:8000]
-        row.verify_after = now + timedelta(minutes=2)
+        delay = (
+            _gmail_uncertain_verify_delay(row, now)
+            if row.status in {"creation_uncertain", "sent_unverified"}
+            else timedelta(minutes=2)
+        )
+        row.verify_after = now + delay
         await db.commit()
         return False
 
     if row.status in {"creation_uncertain", "sent_unverified"}:
-        # Provider execution may already have happened. Never re-POST. Keep checking
-        # for up to thirty minutes, then fail closed so the objective is surfaced as
-        # a system/provider ambiguity rather than risking a duplicate communication.
+        # Provider execution may already have happened. Never re-POST. The fast
+        # verification window becomes a bounded long-term reconciliation cadence
+        # instead of an arbitrary terminal failure. Late Sent evidence can still
+        # complete the original durable objective days later.
+        row.verify_after = now + _gmail_uncertain_verify_delay(row, now)
         if now - row.created_at >= timedelta(minutes=30):
-            row.status = "failed_uncertain"
             row.last_error = (
-                "Gmail send outcome remained ambiguous for 30 minutes; automatic resend is disabled "
-                "until provider state can be independently established"
+                "Gmail send outcome remains ambiguous; VAAPP will continue provider reconciliation "
+                "using the stable RFC Message-ID without resending this provider intent"
             )
-        else:
-            row.verify_after = now + timedelta(minutes=2)
         await db.commit()
         return False
 

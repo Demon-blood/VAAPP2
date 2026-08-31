@@ -1,4 +1,4 @@
-# VAAPP v1.0.12 — Telephony Creation Recovery & Retry Integrity
+# VAAPP v1.0.13 — Gmail Late-Evidence Recovery & Delivery Continuity
 
 Updated: 2026-08-30
 
@@ -6,33 +6,34 @@ Updated: 2026-08-30
 
 - Repository: `Demon-blood/VAAPP2`
 - Branch: `main`
-- Verified v1.0.11 source baseline: `221205e82444f9c0bff2589cf3ffc015408e664a`
-- Verified v1.0.11 GitHub Actions run: `33331650005` — success
-- Verified v1.0.11 prerelease tag: `va-android-111-2-1`
-- v1.0.11 release identity: backend `1.0.11`, Android `1.0.11+54`
+- Verified v1.0.12 source baseline: `22a392f1341ef19caf8a761cd7bfa44000fdc08c`
+- Verified v1.0.12 GitHub Actions run: `33333446575` — success
+- Verified v1.0.12 prerelease tag: `va-android-112-2-1`
+- v1.0.12 release identity: backend `1.0.12`, Android `1.0.12+55`
+- Historical v1.0.11 evidence remains preserved: source `221205e82444f9c0bff2589cf3ffc015408e664a`, GitHub Actions run `33331650005`, tag `va-android-111-2-1`.
 
-The operator subsequently reported production deployment and phone smoke testing complete for v1.0.11.
+The operator subsequently reported production deployment and phone smoke testing complete for v1.0.12.
 
-## v1.0.12 maintenance scope
+## v1.0.13 maintenance scope
 
-v1.0.12 recovers ambiguous outbound Twilio call creation without ever converting uncertainty into a blind redial.
+v1.0.13 keeps ambiguous Gmail provider delivery under continuous VA ownership instead of abandoning it after an arbitrary thirty-minute window.
 
-- A lost Twilio create response remains `creation_uncertain` and VA-owned.
-- VAAPP queries the authenticated Twilio Calls resource for exact To/From provider evidence.
-- Twilio's day-level filters are narrowed locally by exact normalized numbers, `outbound-api` direction, and a ten-minute durable creation-time window.
-- A candidate CallSid already bound to another durable call intent is excluded.
-- Exactly one candidate is required before VAAPP binds a missing CallSid.
-- Zero candidates remain unresolved without a retry.
-- Multiple candidates remain unresolved without guessing.
-- Provider lookup failure remains a system-owned verification issue and creates no Needs You work.
-- A retry child can be created only after the previous call has a real CallSid and a terminal Twilio provider status.
-- Existing material payment/legal/medical/binding/authentication boundaries during the conversation are unchanged.
-- No database schema migration is required; recovery uses the existing TelephonyEvidence ledger.
+- A possibly accepted Gmail send is never automatically submitted a second time.
+- The deterministic RFC Message-ID remains the stable provider evidence and idempotency key.
+- Fresh ambiguity is reconciled every two minutes, then backs off to fifteen minutes, one hour, and six hours for long-lived uncertainty.
+- Elapsed time alone never converts `creation_uncertain` or `sent_unverified` into terminal failure.
+- Late Gmail Sent evidence can complete the original durable objective after the old thirty-minute boundary.
+- Provider verification outages preserve VA-owned uncertainty and do not create Needs You work.
+- Historical `failed_uncertain` rows are migrated back to `creation_uncertain` reconciliation-only state.
+- Historical Gmail objective steps failed solely by the old ambiguity cutoff are reopened as `verifying`.
+- Definitive Gmail request failures remain system failures.
+- Genuine Gmail authentication/authorization remains the existing `failed_user` human boundary.
+- No database schema migration is required.
 
 ## Release identity
 
-- Backend: `1.0.12`
-- Required Android: `1.0.12`
-- Android: `1.0.12+55`
+- Backend: `1.0.13`
+- Required Android: `1.0.13`
+- Android: `1.0.13+56`
 
-This status file is committed only by the guarded v1.0.12 installer after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and the signed release APK build have passed. GitHub prerelease publication remains a separate final workflow step and must be independently verified after the run.
+This status file is committed only by the guarded v1.0.13 installer after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and the signed release APK build have passed. GitHub prerelease publication remains a separate final workflow step and must be independently verified after the run.

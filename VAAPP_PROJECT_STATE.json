@@ -2,17 +2,17 @@
   "updated": "2026-08-30",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "221205e82444f9c0bff2589cf3ffc015408e664a",
-  "verified_baseline_version": "1.0.11",
-  "verified_baseline_android_version": "1.0.11+54",
+  "verified_baseline_commit": "22a392f1341ef19caf8a761cd7bfa44000fdc08c",
+  "verified_baseline_version": "1.0.12",
+  "verified_baseline_android_version": "1.0.12+55",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33331650005,
-  "verified_baseline_release_tag": "va-android-111-2-1",
+  "verified_maintenance_actions_run_id": 33333446575,
+  "verified_baseline_release_tag": "va-android-112-2-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.12 Telephony Creation Recovery & Retry Integrity",
-  "current_version": "1.0.12",
-  "current_android_version": "1.0.12+55",
+  "current_phase_name": "v1.0.13 Gmail Late-Evidence Recovery & Delivery Continuity",
+  "current_version": "1.0.13",
+  "current_android_version": "1.0.13+56",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -30,7 +30,8 @@
     "terminal payment completion requires independent provider or bank evidence",
     "uncertain payment creation never triggers an automatic duplicate retry",
     "a non-replay-safe provider side effect is never repeated solely because its postcondition is missing",
-    "an outbound call with unknown provider creation outcome is never redialed before provider identity is resolved"
+    "an outbound call with unknown provider creation outcome is never redialed before provider identity is resolved",
+    "ambiguous Gmail delivery remains provider-reconciliation-only and never authorizes a duplicate send"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -49,5 +50,14 @@
     "provider lookup failure remains system-owned and creates no fake Needs You",
     "follow-up retries require a bound provider CallSid and terminal provider state",
     "existing material voice-conversation boundaries remain unchanged"
+  ],
+  "v113_features": [
+    "ambiguous Gmail sends remain reconciliation-owned beyond the former thirty-minute cutoff",
+    "the stable RFC Message-ID remains the sole provider-evidence key and the send is never repeated",
+    "verification cadence backs off from two minutes to fifteen minutes, one hour, then six hours",
+    "late Gmail Sent evidence can complete the original durable objective",
+    "historical failed_uncertain rows and their failed verification steps are reopened safely",
+    "provider verification outages remain VA-owned and create no fake Needs You",
+    "definitive Gmail failures and genuine authentication boundaries remain distinct"
   ]
 }

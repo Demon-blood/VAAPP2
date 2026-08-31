@@ -1494,8 +1494,63 @@ async def _finish_if_all_steps_complete(db: AsyncSession, objective: VAObjective
         await _transition_objective(db, objective, "completed", reason="All persisted steps have verified outcomes")
 
 
+async def _recover_legacy_gmail_uncertainty(db: AsyncSession, now: datetime) -> int:
+    rows = list(
+        (
+            await db.execute(
+                select(GmailOutboundMessage)
+                .where(GmailOutboundMessage.status == "failed_uncertain")
+                .order_by(GmailOutboundMessage.id.asc())
+                .limit(100)
+            )
+        ).scalars()
+    )
+    recovered = 0
+    for outbound in rows:
+        outbound.status = "creation_uncertain"
+        outbound.verify_after = now
+        outbound.last_error = (
+            "Historical Gmail delivery ambiguity returned to provider reconciliation; "
+            "automatic resend remains disabled"
+        )
+        if outbound.step_id:
+            step = await db.get(VAObjectiveStep, outbound.step_id)
+            if (
+                step is not None
+                and step.verification_type == "gmail_outbound_verified"
+                and step.status == "failed"
+            ):
+                objective = await db.get(VAObjective, step.objective_id)
+                if (
+                    objective is not None
+                    and objective.status not in TERMINAL_OBJECTIVE_STATES
+                    and objective.status != "needs_user"
+                ):
+                    step.status = "verifying"
+                    step.finished_at = None
+                    step.run_after = now
+                    step.last_error = ""
+        await write_audit(
+            db,
+            "gmail_outbound_legacy_uncertainty_reopened",
+            entity_type="gmail_outbound_message",
+            entity_id=str(outbound.id),
+            result="deferred",
+            details={
+                "rfc_message_id": outbound.rfc_message_id,
+                "automatic_resend": False,
+                "recovery": "provider_reconciliation_only",
+            },
+        )
+        recovered += 1
+    if recovered:
+        await db.commit()
+    return recovered
+
+
 async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
     now = utcnow()
+    await _recover_legacy_gmail_uncertainty(db, now)
     steps = list(
         (
             await db.execute(
@@ -1536,15 +1591,11 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
                 step.last_error = outbound.last_error
                 await _transition_objective(db, objective, "needs_user", reason=outbound.last_error or "Gmail authorization is required")
                 continue
-            if outbound.status in {"failed", "failed_uncertain"}:
+            if outbound.status == "failed":
                 step.status = "failed"
                 step.finished_at = now
                 step.last_error = outbound.last_error
-                reason = (
-                    "Gmail provider outcome is ambiguous; automatic duplicate send is disabled"
-                    if outbound.status == "failed_uncertain"
-                    else (outbound.last_error or "Gmail send failed without a verified outcome")
-                )
+                reason = outbound.last_error or "Gmail send failed without a verified outcome"
                 await _transition_objective(db, objective, "blocked_system", reason=reason, error=outbound.last_error)
                 continue
             verified = await ensure_gmail_outbound_verified(db, outbound)
