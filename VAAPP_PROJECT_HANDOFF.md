@@ -6,25 +6,25 @@ Branch: `main`
 
 ## Verified source of truth
 
-The verified maintenance baseline for this release is commit `251e2e5a67ba137d2ac7b445a719d4be487df9fc` (`v1.0.17 — Investment Side-Effect Recovery & Human Boundary Integrity`). GitHub Actions run `33981261146` completed successfully end-to-end with 420 backend tests, Ruff gates, Flutter analysis/tests, Android signing, signed APK build, source verification, and prerelease publication under tag `va-android-117-2-1`.
+The verified maintenance baseline for this release is commit `b0005392a799bc5466a5e77febfd34035fb26ce3` (`v1.0.18 — Drive Archive Upload Recovery & Exact-Byte Duplicate Suppression`). GitHub Actions run `33986405236` completed successfully end-to-end with 431 backend tests, Ruff gates, Flutter analysis/tests, Android signing, signed APK build, source verification, and prerelease publication under tag `va-android-118-3-1`.
 
-Verified v1.0.17 release identity: backend `1.0.17` / Android `1.0.17+60`. APK SHA-256: `caf1c2e41efe1abccd96dd6699efa0f7b50323093f1c09ed1a1397e1da9832fc`. The operator subsequently reported production deployment and phone smoke testing complete.
+Verified v1.0.18 release identity: backend `1.0.18` / Android `1.0.18+61`. APK SHA-256: `93aeddafa680ed4cf4b729fadd6401cad6af2f5240ec4cddaa8a355d3e862558`. The operator subsequently reported production deployment and phone smoke testing complete.
 
-Historical v1.0.16 source remains `830c2c87b89972bc0735028584285f2827ac4bf9` with successful Actions run `33975481668` and tag `va-android-116-3-1`. Historical v1.0.15 source remains `2b48b72e720a2e515e346fed253e24c131ae078a` with successful Actions run `33967944880` and tag `va-android-115-3-1`. Historical v1.0.14 source remains `8557dd449db554528ab7e111d0029faf784c996f` with successful Actions run `33961135886` and tag `va-android-114-3-1`.
+Historical v1.0.17 source remains `251e2e5a67ba137d2ac7b445a719d4be487df9fc` with successful Actions run `33981261146` and tag `va-android-117-2-1`. Historical v1.0.16 source remains `830c2c87b89972bc0735028584285f2827ac4bf9` with successful Actions run `33975481668` and tag `va-android-116-3-1`. Historical v1.0.15 source remains `2b48b72e720a2e515e346fed253e24c131ae078a` with successful Actions run `33967944880` and tag `va-android-115-3-1`. Historical v1.0.14 source remains `8557dd449db554528ab7e111d0029faf784c996f` with successful Actions run `33961135886` and tag `va-android-114-3-1`. Historical v1.0.13 source remains `ecaa113d4461a550cb49c6046a42ecf880729346` with successful Actions run `33434347111` and tag `va-android-113-4-1`. Historical v1.0.12 source remains `22a392f1341ef19caf8a761cd7bfa44000fdc08c` with successful Actions run `33333446575` and tag `va-android-112-2-1`. Historical v1.0.11 source remains `221205e82444f9c0bff2589cf3ffc015408e664a` with successful Actions run `33331650005` and tag `va-android-111-2-1`.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
 ## Current maintenance candidate
 
-Backend `1.0.18` / Android `1.0.18+61`.
+Backend `1.0.19` / Android `1.0.19+62`.
 
-Current candidate: **v1.0.18 — Drive Archive Upload Recovery & Exact-Byte Duplicate Suppression**.
+Current candidate: **v1.0.19 — Scheduled Connector Mutation Claim & Retry Integrity**.
 
-v1.0.18 closes the archive-upload response-loss window. Exact-byte content gets one durable upload intent per account scope before Drive mutation. A fresh worker must atomically claim that intent before `files.create()`. Once dispatch is ambiguous, all later work is read-only reconciliation by the existing Drive checksum/account-scope app properties; retries, restarts, and elapsed time never authorize another upload. Provider ambiguity remains VA-owned.
+v1.0.19 closes the generic scheduled-connector response-loss replay window. Every scheduled external mutation receives one durable occurrence intent and an atomic provider-dispatch claim. Once claimed, any ambiguous provider outcome stays VA-owned and cannot flow through ordinary transient workflow replay. Historical pre-claim connector-rule retries are quarantined once at startup. Read-only rules and later independent schedule occurrences continue normally.
 
 The guarded installer commits this candidate only after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and a signed release APK build pass.
 
-Next work after the v1.0.18 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.19 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 

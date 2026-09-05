@@ -8,6 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.entities import AutomationRule, ServiceConnector, Task
 from app.services.audit import write_audit
+from app.services.connector_mutation_recovery import (
+    claim_scheduled_connector_mutation,
+    complete_scheduled_connector_mutation,
+    connector_operation_is_mutating,
+    mark_scheduled_connector_mutation_uncertain,
+    mutation_replay_status,
+    prepare_scheduled_connector_mutation,
+)
 from app.services.connector_service import execute_connector
 from app.services.runtime_config import get_runtime_value
 from app.services.workflow_engine import failure_recovery_class
@@ -84,8 +92,8 @@ async def run_connector_automation_rules(db: AsyncSession) -> dict[str, int]:
         connector = (
             await db.execute(select(ServiceConnector).where(ServiceConnector.slug == connector_slug))
         ).scalar_one_or_none()
-        rule.last_run_at = now
         if connector is None or not operation:
+            rule.last_run_at = now
             rule.last_result = "Connector or operation is missing"
             outcome["failed"] += 1
             await _ensure_rule_exception_task(
@@ -94,13 +102,146 @@ async def run_connector_automation_rules(db: AsyncSession) -> dict[str, int]:
                 description="The connector or requested operation is missing. Connect/configure it before this rule can continue.",
             )
             continue
+
+        parameters = dict(actions.get("parameters") or {})
         try:
-            result = await execute_connector(
-                db,
-                connector,
-                operation,
-                dict(actions.get("parameters") or {}),
+            is_mutating = connector_operation_is_mutating(
+                connector.connector_type, operation, parameters
             )
+        except ValueError as exc:
+            rule.last_run_at = now
+            rule.last_result = str(exc)[:4000]
+            outcome["failed"] += 1
+            await _ensure_rule_exception_task(
+                db,
+                rule,
+                description=f"The scheduled connector operation is invalid and cannot run unattended: {exc}",
+            )
+            continue
+
+        if is_mutating:
+            intent = await prepare_scheduled_connector_mutation(
+                db,
+                rule=rule,
+                connector=connector,
+                operation=operation,
+                parameters=parameters,
+                interval_minutes=interval,
+                now=now,
+            )
+            if intent.status != "prepared":
+                rule.last_run_at = rule.last_run_at or now
+                rule.last_result = mutation_replay_status(intent)
+                outcome["skipped"] += 1
+                if intent.status in {"submitting", "execution_uncertain"}:
+                    await write_audit(
+                        db,
+                        "scheduled_connector_mutation_replay_suppressed",
+                        entity_type="automation_rule",
+                        entity_id=str(rule.id),
+                        result="system_owned",
+                        details={
+                            "connector": connector_slug,
+                            "operation": operation,
+                            "intent_id": intent.id,
+                            "intent_status": intent.status,
+                            "automatic_replay": False,
+                        },
+                    )
+                await db.commit()
+                continue
+
+            claimed = await claim_scheduled_connector_mutation(
+                db, intent=intent, rule=rule, claimed_at=now
+            )
+            if not claimed:
+                rule.last_result = mutation_replay_status(intent)
+                outcome["skipped"] += 1
+                await write_audit(
+                    db,
+                    "scheduled_connector_mutation_replay_suppressed",
+                    entity_type="automation_rule",
+                    entity_id=str(rule.id),
+                    result="system_owned",
+                    details={
+                        "connector": connector_slug,
+                        "operation": operation,
+                        "intent_id": intent.id,
+                        "intent_status": intent.status,
+                        "automatic_replay": False,
+                    },
+                )
+                await db.commit()
+                continue
+
+            try:
+                result = await execute_connector(db, connector, operation, parameters)
+            except Exception as exc:
+                await mark_scheduled_connector_mutation_uncertain(
+                    db, intent=intent, error=exc
+                )
+                rule.last_result = mutation_replay_status(intent)
+                outcome["failed"] += 1
+                stale_task = (
+                    await db.execute(
+                        select(Task).where(
+                            Task.source_type == "automation_rule",
+                            Task.source_id == str(rule.id),
+                            Task.status.in_(["open", "waiting"]),
+                        )
+                    )
+                ).scalar_one_or_none()
+                if stale_task is not None:
+                    stale_task.status = "completed"
+                await write_audit(
+                    db,
+                    "scheduled_connector_mutation_uncertain",
+                    entity_type="automation_rule",
+                    entity_id=str(rule.id),
+                    result="system_owned",
+                    details={
+                        "connector": connector_slug,
+                        "operation": operation,
+                        "intent_id": intent.id,
+                        "error": str(exc),
+                        "automatic_replay": False,
+                    },
+                )
+                await db.commit()
+                continue
+
+            await complete_scheduled_connector_mutation(db, intent=intent, result=result)
+            rule.last_result = json.dumps(result, ensure_ascii=False)[:4000]
+            outcome["executed"] += 1
+            await write_audit(
+                db,
+                "scheduled_connector_rule_executed",
+                entity_type="automation_rule",
+                entity_id=str(rule.id),
+                details={
+                    "connector": connector_slug,
+                    "operation": operation,
+                    "mutation_intent_id": intent.id,
+                },
+            )
+            stale_task = (
+                await db.execute(
+                    select(Task).where(
+                        Task.source_type == "automation_rule",
+                        Task.source_id == str(rule.id),
+                        Task.status.in_(["open", "waiting"]),
+                    )
+                )
+            ).scalar_one_or_none()
+            if stale_task is not None:
+                stale_task.status = "completed"
+            await db.commit()
+            continue
+
+        # Read-only connector operations retain bounded workflow retry semantics.
+        rule.last_run_at = now
+        try:
+            result = await execute_connector(db, connector, operation, parameters)
             rule.last_result = json.dumps(result, ensure_ascii=False)[:4000]
             outcome["executed"] += 1
             await write_audit(
@@ -126,8 +267,7 @@ async def run_connector_automation_rules(db: AsyncSession) -> dict[str, int]:
             outcome["failed"] += 1
             recovery_class = failure_recovery_class("connectors.rules.run", str(exc))
             if recovery_class in {"transient", "user_required"}:
-                # The durable workflow engine owns provider backoff/recovery and will surface
-                # OAuth/security setup only after retries cannot resolve it.
+                # Read-only provider work remains safe to re-run.
                 raise
             await _ensure_rule_exception_task(
                 db,

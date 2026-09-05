@@ -365,6 +365,62 @@ async def repair_v062_gmail_label_conflict_backlog(db: AsyncSession) -> dict[str
     return {"superseded": len(rows), "already_repaired": 0}
 
 
+async def repair_v119_connector_rule_retry_backlog(
+    db: AsyncSession,
+) -> dict[str, int]:
+    marker = (
+        await db.execute(
+            select(AuditLog.id)
+            .where(AuditLog.event_type == "v119_connector_rule_retry_backlog_repaired")
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if marker is not None:
+        return {"superseded": 0, "already_repaired": 1}
+
+    rows = list(
+        (
+            await db.execute(
+                select(WorkflowJob).where(
+                    WorkflowJob.job_type == "connectors.rules.run",
+                    WorkflowJob.status.in_(["running", "retry", "dead_letter"]),
+                )
+            )
+        ).scalars()
+    )
+    now = utcnow()
+    run_ids: set[int] = set()
+    for job in rows:
+        job.status = "superseded"
+        job.result_json = json.dumps(
+            {
+                "reason": "v1.0.19_preclaim_connector_retry_quarantine",
+                "previous_error": job.last_error,
+                "automatic_replay": False,
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+        job.lease_owner = ""
+        job.lease_expires_at = None
+        job.finished_at = job.finished_at or now
+        if job.workflow_run_id is not None:
+            run_ids.add(job.workflow_run_id)
+
+    for run_id in run_ids:
+        await refresh_workflow_status(db, run_id)
+
+    await write_audit(
+        db,
+        "v119_connector_rule_retry_backlog_repaired",
+        entity_type="workflow",
+        entity_id="connectors.rules.run",
+        details={"superseded": len(rows), "automatic_replay": False},
+    )
+    await db.commit()
+    return {"superseded": len(rows), "already_repaired": 0}
+
+
 async def recover_autopilot_exceptions(db: AsyncSession, *, limit: int = 50) -> dict[str, int]:
     """Compact duplicate failures and retry one representative of each active exception."""
 
