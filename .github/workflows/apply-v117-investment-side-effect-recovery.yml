@@ -1,6 +1,6 @@
 name: Apply v1.0.17 Investment Side-Effect Recovery & Human Boundary Integrity
 
-# Patch bundle revision: r1-investment-side-effect-recovery
+# Patch bundle revision: r2-dtz-fix
 
 on:
   workflow_dispatch:

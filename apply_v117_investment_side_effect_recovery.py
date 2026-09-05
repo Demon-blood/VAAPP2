@@ -9,7 +9,7 @@ from pathlib import Path
 
 EXPECTED_BASELINE = "830c2c87b89972bc0735028584285f2827ac4bf9"
 BUNDLE_ROOT = Path(__file__).resolve().parent
-EXPECTED_PREVIEW_SHA256: dict[str, str] = {'preview/backend/app/services/investment_recovery.py': 'b674045ebd37ffc6452252167b50401dd0fd742d3406dcbf8fb68356e849b238',
+EXPECTED_PREVIEW_SHA256: dict[str, str] = {'preview/backend/app/services/investment_recovery.py': 'a92f91a1da585ff0ba9e266589c548125102c14d27239a4e53319c4f5d24a1a8',
  'preview/backend/tests/test_v117_investment_side_effect_recovery.py': '232a23a1c72f274c2c70e53a7bac151d85c6e3af41ee6a2ec7a1681c78817b18',
  'preview/backend/tests/test_v117_investment_side_effect_recovery_contract.py': 'b55f633d9eec779ab8a21fb285660867c28877e1642a423ab7112a4b5a11ce6c',
  'preview/docs/V1.0.17_INVESTMENT_SIDE_EFFECT_RECOVERY.md': 'f091351ef77d2cb53c05b11c4d658ce150df4be67c79bb0192a3c1c31d150711'}

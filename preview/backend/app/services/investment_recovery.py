@@ -383,7 +383,7 @@ async def reconcile_kraken_trade_intent(
         transfer.failure_reason = ""
         intent.status = "verified"
         if intent.verified_at is None:
-            intent.verified_at = datetime.utcnow()
+            intent.verified_at = datetime.now(UTC).replace(tzinfo=None)
         await db.commit()
         return {"state": "verified", "order_id": intent.provider_order_id}
 
@@ -431,7 +431,7 @@ async def reconcile_kraken_trade_intent(
     intent.provider_status = str(observed.get("status") or "")[:40]
     intent.observed_order_json = json.dumps(observed, ensure_ascii=False, default=str)
     intent.status = "verified"
-    intent.verified_at = datetime.utcnow()
+    intent.verified_at = datetime.now(UTC).replace(tzinfo=None)
     transfer.trade_order_id = order_id[:255]
     transfer.status = "invested"
     transfer.failure_reason = ""
