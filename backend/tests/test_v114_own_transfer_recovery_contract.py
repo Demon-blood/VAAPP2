@@ -66,9 +66,9 @@ def test_v114_release_identity_and_historical_evidence_are_preserved() -> None:
     state = _text("VAAPP_PROJECT_STATE.json")
     handoff = _text("VAAPP_PROJECT_HANDOFF.md")
 
-    assert 'APP_VERSION = "1.0.14"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.14"' in version
-    assert "version: 1.0.14+57" in pubspec
+    assert 'APP_VERSION = "1.0.15"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.15"' in version
+    assert "version: 1.0.15+58" in pubspec
     assert "v1.0.13" in status
     assert "v1.0.12" in status
     assert "v1.0.11" in status

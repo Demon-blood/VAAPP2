@@ -1,30 +1,30 @@
 # VAAPP project handoff
 
-Updated: 2026-08-31
+Updated: 2026-09-05
 Repository: `Demon-blood/VAAPP2`  
 Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–10 and production v1.0 are complete. The verified maintenance baseline for this release is commit `ecaa113d4461a550cb49c6046a42ecf880729346` (`v1.0.13 — Gmail Late-Evidence Recovery & Delivery Continuity`). GitHub Actions run `33434347111` completed successfully end-to-end, including backend tests, Ruff gates, Flutter analysis/tests, persistent signing, signed Android APK build, source verification, and prerelease publication under tag `va-android-113-4-1`.
+Phases 1–10 and production v1.0 are complete. The verified maintenance baseline for this release is commit `8557dd449db554528ab7e111d0029faf784c996f` (`v1.0.14 — Own-Account Transfer Recovery & Human Boundary Integrity`). GitHub Actions run `33961135886` completed successfully end-to-end, including 380 backend tests, Ruff gates, Flutter analysis/tests, persistent signing, signed Android APK build, source verification, and prerelease publication under tag `va-android-114-3-1`.
 
-Verified v1.0.13 release identity: backend `1.0.13` / Android `1.0.13+56`. The operator subsequently reported production deployment and phone smoke testing complete.
+Verified v1.0.14 release identity: backend `1.0.14` / Android `1.0.14+57`. APK SHA-256: `1fae494cb449c48a65997f80709b9404a533b76297144a713f0b574f05d2d4c2`. The operator subsequently reported production deployment and phone smoke testing complete.
 
-Historical v1.0.12 source remains `22a392f1341ef19caf8a761cd7bfa44000fdc08c` with successful Actions run `33333446575` and tag `va-android-112-2-1`. Historical v1.0.11 source remains `221205e82444f9c0bff2589cf3ffc015408e664a` with successful Actions run `33331650005` and tag `va-android-111-2-1`.
+Historical v1.0.13 source remains `ecaa113d4461a550cb49c6046a42ecf880729346` with successful Actions run `33434347111` and tag `va-android-113-4-1`. Historical v1.0.12 source remains `22a392f1341ef19caf8a761cd7bfa44000fdc08c` with successful Actions run `33333446575` and tag `va-android-112-2-1`. Historical v1.0.11 source remains `221205e82444f9c0bff2589cf3ffc015408e664a` with successful Actions run `33331650005` and tag `va-android-111-2-1`.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
 ## Current maintenance candidate
 
-Backend `1.0.14` / Android `1.0.14+57`.
+Backend `1.0.15` / Android `1.0.15+58`.
 
-Current candidate: **v1.0.14 — Own-Account Transfer Recovery & Human Boundary Integrity**.
+Current candidate: **v1.0.15 — Generic Browser Late-Evidence Recovery & Objective Continuity**.
 
-v1.0.14 removes the remaining fake-human boundary from Financial Autopilot transfer creation uncertainty. A timeout or missing provider payment ID keeps the original transfer VA-owned, suppresses any unbound authorization URL, and never permits blind recreation. VAAPP reconciles independent booked transactions on the exact source account and completes the transfer only when one unique debit matches the exact amount, currency, destination IBAN, booking window, and provider transaction identity. Zero, multiple, or unavailable evidence remains VA-owned. Genuine bank authorization remains unchanged when it is bound to a real provider payment ID.
+v1.0.15 closes a continuity gap above the v1.0.11 browser side-effect guard. A generic browser objective whose provider mutation may already have happened no longer terminalizes merely because the immediate postcondition is missing. When the durable side-effect marker proves reconciliation-only resume is safe, VAAPP reuses the same BrowserOperation, verifies the provider postcondition before any original business step, keeps the objective in `verifying`, and reopens historical failed verification steps. Markerless uncertainty still fails closed, genuine portal authentication still remains a user boundary, and definitive provider failure remains system-owned. Document/form obligations project active uncertainty as `in_progress` until the linked browser operation is independently verified.
 
 The guarded installer commits this candidate only after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and a signed release APK build pass. Prerelease publication remains separately verifiable after the source commit.
 
-Next work after the v1.0.14 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.15 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 

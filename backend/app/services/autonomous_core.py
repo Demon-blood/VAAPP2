@@ -1341,15 +1341,25 @@ async def _execute_step(db: AsyncSession, objective: VAObjective, step: VAObject
                     reason=operation.challenge_prompt or "Portal authentication is required",
                 )
             elif operation.status == "creation_uncertain":
-                step.status = "failed"
-                step.finished_at = utcnow()
-                step.last_error = operation.last_error
-                await _transition_objective(
+                if not await _resume_browser_reconciliation(
                     db,
-                    objective,
-                    "blocked_system",
-                    reason=operation.last_error or "Browser side-effect outcome is ambiguous; VAAPP will not risk a duplicate submission",
-                )
+                    objective=objective,
+                    step=step,
+                    operation=operation,
+                    now=utcnow(),
+                ):
+                    step.status = "failed"
+                    step.finished_at = utcnow()
+                    step.last_error = operation.last_error
+                    await _transition_objective(
+                        db,
+                        objective,
+                        "blocked_system",
+                        reason=(
+                            operation.last_error
+                            or "Uncertain browser operation lacks a durable side-effect marker; safe replay cannot be proven"
+                        ),
+                    )
             elif operation.status == "blocked_capability":
                 step.status = "blocked_capability"
                 step.last_error = operation.last_error
@@ -1494,6 +1504,93 @@ async def _finish_if_all_steps_complete(db: AsyncSession, objective: VAObjective
         await _transition_objective(db, objective, "completed", reason="All persisted steps have verified outcomes")
 
 
+async def _resume_browser_reconciliation(
+    db: AsyncSession,
+    *,
+    objective: VAObjective,
+    step: VAObjectiveStep,
+    operation: BrowserOperation,
+    now: datetime,
+) -> bool:
+    """Resume one ambiguous browser side effect in provider-postcondition-only mode."""
+    from app.services.browser_operator import (
+        operation_requires_postcondition_reconciliation,
+        resume_browser_operation,
+    )
+
+    if not operation_requires_postcondition_reconciliation(operation):
+        return False
+    try:
+        await resume_browser_operation(db, operation.id)
+    except (LookupError, ValueError):
+        return False
+
+    step.status = "verifying"
+    step.finished_at = None
+    step.last_error = ""
+    step.run_after = max(operation.verify_after, now + timedelta(seconds=10))
+    objective.last_error = ""
+    await _transition_objective(db, objective, "verifying")
+    return True
+
+
+async def _recover_legacy_browser_uncertainty(db: AsyncSession, now: datetime) -> int:
+    """Reopen historically failed generic browser steps when reconciliation is provably safe."""
+    rows = list(
+        (
+            await db.execute(
+                select(VAObjectiveStep)
+                .where(
+                    VAObjectiveStep.status == "failed",
+                    VAObjectiveStep.verification_type == "browser_operation_verified",
+                )
+                .order_by(VAObjectiveStep.id.asc())
+                .limit(100)
+            )
+        ).scalars()
+    )
+    recovered = 0
+    for step in rows:
+        params = _loads(step.parameters_json, {})
+        params = params if isinstance(params, dict) else {}
+        operation_id = int(params.get("browser_operation_id") or 0)
+        operation = await db.get(BrowserOperation, operation_id) if operation_id > 0 else None
+        if operation is None or operation.status != "creation_uncertain":
+            continue
+        objective = await db.get(VAObjective, step.objective_id)
+        if (
+            objective is None
+            or objective.status in TERMINAL_OBJECTIVE_STATES
+            or objective.status == "needs_user"
+        ):
+            continue
+        if not await _resume_browser_reconciliation(
+            db,
+            objective=objective,
+            step=step,
+            operation=operation,
+            now=now,
+        ):
+            continue
+        await write_audit(
+            db,
+            "browser_operation_legacy_uncertainty_reopened",
+            entity_type="browser_operation",
+            entity_id=str(operation.id),
+            result="deferred",
+            details={
+                "objective_id": objective.id,
+                "step_id": step.id,
+                "automatic_replay": False,
+                "recovery": "provider_postcondition_only",
+            },
+        )
+        recovered += 1
+    if recovered:
+        await db.commit()
+    return recovered
+
+
 async def _recover_legacy_gmail_uncertainty(db: AsyncSession, now: datetime) -> int:
     rows = list(
         (
@@ -1550,6 +1647,7 @@ async def _recover_legacy_gmail_uncertainty(db: AsyncSession, now: datetime) -> 
 
 async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
     now = utcnow()
+    await _recover_legacy_browser_uncertainty(db, now)
     await _recover_legacy_gmail_uncertainty(db, now)
     steps = list(
         (
@@ -1732,6 +1830,14 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
                 )
                 continue
             if operation.status == "creation_uncertain":
+                if await _resume_browser_reconciliation(
+                    db,
+                    objective=objective,
+                    step=step,
+                    operation=operation,
+                    now=now,
+                ):
+                    continue
                 step.status = "failed"
                 step.finished_at = now
                 step.last_error = operation.last_error
@@ -1739,7 +1845,10 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
                     db,
                     objective,
                     "blocked_system",
-                    reason=operation.last_error or "Browser side-effect outcome is ambiguous; VAAPP will not blindly replay it",
+                    reason=(
+                        operation.last_error
+                        or "Uncertain browser operation lacks a durable side-effect marker; safe replay cannot be proven"
+                    ),
                 )
                 continue
             if operation.status == "blocked_capability":

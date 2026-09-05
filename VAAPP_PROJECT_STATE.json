@@ -1,18 +1,18 @@
 {
-  "updated": "2026-08-31",
+  "updated": "2026-09-05",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "ecaa113d4461a550cb49c6046a42ecf880729346",
-  "verified_baseline_version": "1.0.13",
-  "verified_baseline_android_version": "1.0.13+56",
+  "verified_baseline_commit": "8557dd449db554528ab7e111d0029faf784c996f",
+  "verified_baseline_version": "1.0.14",
+  "verified_baseline_android_version": "1.0.14+57",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33434347111,
-  "verified_baseline_release_tag": "va-android-113-4-1",
+  "verified_maintenance_actions_run_id": 33961135886,
+  "verified_baseline_release_tag": "va-android-114-3-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.14 Own-Account Transfer Recovery & Human Boundary Integrity",
-  "current_version": "1.0.14",
-  "current_android_version": "1.0.14+57",
+  "current_phase_name": "v1.0.15 Generic Browser Late-Evidence Recovery & Objective Continuity",
+  "current_version": "1.0.15",
+  "current_android_version": "1.0.15+58",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -32,7 +32,8 @@
     "a non-replay-safe provider side effect is never repeated solely because its postcondition is missing",
     "an outbound call with unknown provider creation outcome is never redialed before provider identity is resolved",
     "ambiguous Gmail delivery remains provider-reconciliation-only and never authorizes a duplicate send",
-    "uncertain own-account transfers remain VA-owned and are recovered only from unique booked-bank evidence"
+    "uncertain own-account transfers remain VA-owned and are recovered only from unique booked-bank evidence",
+    "ambiguous generic browser side effects remain provider-reconciliation-owned and never authorize replay"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -69,5 +70,14 @@
     "recovery requires exact amount currency destination IBAN date and one unique provider transaction",
     "zero multiple or unavailable provider evidence remains system-owned",
     "historical bank_transfer_uncertain tasks are closed automatically"
+  ],
+  "v115_features": [
+    "generic browser creation uncertainty remains actively provider-reconciliation-owned",
+    "safe recovery reuses the same BrowserOperation and durable side-effect marker",
+    "provider postcondition verification runs before any original business recipe step",
+    "historical failed browser verification steps reopen automatically when safe",
+    "markerless ambiguity remains blocked_system and never authorizes replay",
+    "document form obligations remain in_progress while duplicate-safe browser reconciliation runs",
+    "genuine portal authentication and definitive system failure remain distinct boundaries"
   ]
 }
