@@ -13,7 +13,7 @@ BUNDLE_ROOT = Path(__file__).resolve().parent
 EXPECTED_PREVIEW_SHA256 = {
     "preview/backend/app/services/own_transfer_recovery.py": "8edc089b777b447e55c60e2600ee260157dd01c45ec60eb8e46c224b479a4f75",
     "preview/backend/tests/test_v114_own_transfer_recovery.py": "a0d815c6e89db8db5ff13c7a9e42a6fa2817a4007fd8fa7a8de547c7567902da",
-    "preview/backend/tests/test_v114_own_transfer_recovery_contract.py": "30d747077915df39c6373d708b27a8d1fb9172604b3ed5f572aee779159d1357",
+    "preview/backend/tests/test_v114_own_transfer_recovery_contract.py": "a63c68779f3d7bf99bd7cd2b9099206e5ca3b499b4c5f714626be973f885b6ac",
     "preview/docs/V1.0.14_OWN_TRANSFER_RECOVERY.md": "ad0d348a007cfd441831e75b839a57c1a1b07f1dfae69944ef81b081da581c95",
 }
 
