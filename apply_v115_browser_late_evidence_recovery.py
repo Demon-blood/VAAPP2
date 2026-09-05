@@ -11,7 +11,7 @@ EXPECTED_BASELINE = "8557dd449db554528ab7e111d0029faf784c996f"
 BUNDLE_ROOT = Path(__file__).resolve().parent
 EXPECTED_PREVIEW_SHA256 = {
     "preview/backend/tests/test_v115_browser_late_evidence_recovery.py": "458cebabf8c6ee77f43306605968b6b9c63a3dd56c6115b50d5b10d8d5c00c90",
-    "preview/backend/tests/test_v115_browser_late_evidence_recovery_contract.py": "ddaaf49e83e37f4c3f438bdb255195f508a45190c3a8aff88e35afd3291a743e",
+    "preview/backend/tests/test_v115_browser_late_evidence_recovery_contract.py": "5394095059ac3e524f9644b1a90a49abf1b6e082538725d6e5cc5ce242ea1bfe",
     "preview/docs/V1.0.15_BROWSER_LATE_EVIDENCE_RECOVERY.md": "96cecbbf7346917a8a76a67072328ee4c3925c87931b73d3c8f2d4aca4e0b34e",
 }
 
@@ -457,6 +457,37 @@ Next work after the v1.0.15 gate is green: **v1.x maintenance and real-world har
     handoff_path.write_text(prefix + suffix, encoding="utf-8")
 
 
+
+def patch_legacy_v095_form_contract(root: Path) -> None:
+    """Advance the historical form contract to the v1.0.15 uncertainty semantics."""
+    path = root / "backend/tests/test_v095_documents_forms_deadlines_contract.py"
+    old = '''def test_form_completion_requires_verified_browser_operation() -> None:
+    source = (_root() / "backend/app/services/document_ownership.py").read_text()
+    assert 'if operation.status == "verified":' in source
+    assert 'row.status = "completed"' in source
+    assert 'submission.status = "verified"' in source
+    assert 'row.completed_at = operation.verified_at or now' in source
+    assert 'if operation.status in {"creation_uncertain", "failed"}:' in source
+    assert 'row.status = "blocked_system"' in source
+    assert 'operation.status == "needs_user_auth"' in source
+    assert 'operation.challenge_type == "form_input"' in source
+'''
+    new = '''def test_form_completion_requires_verified_browser_operation() -> None:
+    source = (_root() / "backend/app/services/document_ownership.py").read_text()
+    assert 'if operation.status == "verified":' in source
+    assert 'row.status = "completed"' in source
+    assert 'submission.status = "verified"' in source
+    assert 'row.completed_at = operation.verified_at or now' in source
+    assert 'if operation.status == "creation_uncertain":' in source
+    assert 'operation_requires_postcondition_reconciliation(operation)' in source
+    assert 'row.status = "in_progress"' in source
+    assert 'if operation.status == "failed":' in source
+    assert 'row.status = "blocked_system"' in source
+    assert 'operation.status == "needs_user_auth"' in source
+    assert 'operation.challenge_type == "form_input"' in source
+'''
+    replace_once(path, old, new)
+
 def bump_versions(root: Path) -> None:
     replace_once(
         root / "backend/app/core/version.py",
@@ -586,6 +617,7 @@ def main() -> None:
     patch_document_ownership(root)
     write_new_files(root)
     patch_project_metadata(root)
+    patch_legacy_v095_form_contract(root)
     bump_versions(root)
     verify_diff(root)
     print("v1.0.15 source patch prepared. Changed files:")

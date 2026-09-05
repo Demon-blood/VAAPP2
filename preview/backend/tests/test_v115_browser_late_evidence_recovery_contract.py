@@ -70,6 +70,16 @@ def test_document_form_projection_reports_active_reconciliation_not_terminal_blo
     assert 'result["blocked"] += 1' in branch
 
 
+
+def test_legacy_v095_form_contract_tracks_reconciliation_owned_uncertainty():
+    legacy = _text("backend/tests/test_v095_documents_forms_deadlines_contract.py")
+    assert 'if operation.status in {"creation_uncertain", "failed"}:' not in legacy
+    assert 'if operation.status == "creation_uncertain":' in legacy
+    assert 'operation_requires_postcondition_reconciliation(operation)' in legacy
+    assert 'row.status = "in_progress"' in legacy
+    assert 'if operation.status == "failed":' in legacy
+    assert 'row.status = "blocked_system"' in legacy
+
 def test_v111_browser_safety_primitive_remains_fail_closed_and_reconciliation_first():
     browser = _text("backend/app/services/browser_operator.py")
     assert "def operation_requires_postcondition_reconciliation" in browser
