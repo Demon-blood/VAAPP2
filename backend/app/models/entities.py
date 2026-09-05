@@ -673,6 +673,34 @@ class OwnAccountTransfer(Base):
     )
 
 
+class OwnAccountTransferRecoveryEvidence(Base):
+    __tablename__ = "own_account_transfer_recovery_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(
+        ForeignKey("own_account_transfers.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    bank_account_id: Mapped[int] = mapped_column(
+        ForeignKey("bank_accounts.id", ondelete="CASCADE"),
+        index=True,
+    )
+    transaction_id: Mapped[str] = mapped_column(String(255))
+    match_basis: Mapped[str] = mapped_column(String(100))
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "bank_account_id",
+            "transaction_id",
+            name="uq_own_transfer_recovery_account_transaction",
+        ),
+    )
+
+
 class FinancialForecastRun(Base):
     __tablename__ = "financial_forecast_runs"
 

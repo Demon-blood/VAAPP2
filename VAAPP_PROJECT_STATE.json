@@ -1,18 +1,18 @@
 {
-  "updated": "2026-08-30",
+  "updated": "2026-08-31",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "22a392f1341ef19caf8a761cd7bfa44000fdc08c",
-  "verified_baseline_version": "1.0.12",
-  "verified_baseline_android_version": "1.0.12+55",
+  "verified_baseline_commit": "ecaa113d4461a550cb49c6046a42ecf880729346",
+  "verified_baseline_version": "1.0.13",
+  "verified_baseline_android_version": "1.0.13+56",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33333446575,
-  "verified_baseline_release_tag": "va-android-112-2-1",
+  "verified_maintenance_actions_run_id": 33434347111,
+  "verified_baseline_release_tag": "va-android-113-4-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.13 Gmail Late-Evidence Recovery & Delivery Continuity",
-  "current_version": "1.0.13",
-  "current_android_version": "1.0.13+56",
+  "current_phase_name": "v1.0.14 Own-Account Transfer Recovery & Human Boundary Integrity",
+  "current_version": "1.0.14",
+  "current_android_version": "1.0.14+57",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -31,7 +31,8 @@
     "uncertain payment creation never triggers an automatic duplicate retry",
     "a non-replay-safe provider side effect is never repeated solely because its postcondition is missing",
     "an outbound call with unknown provider creation outcome is never redialed before provider identity is resolved",
-    "ambiguous Gmail delivery remains provider-reconciliation-only and never authorizes a duplicate send"
+    "ambiguous Gmail delivery remains provider-reconciliation-only and never authorizes a duplicate send",
+    "uncertain own-account transfers remain VA-owned and are recovered only from unique booked-bank evidence"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -59,5 +60,14 @@
     "historical failed_uncertain rows and their failed verification steps are reopened safely",
     "provider verification outages remain VA-owned and create no fake Needs You",
     "definitive Gmail failures and genuine authentication boundaries remain distinct"
+  ],
+  "v114_features": [
+    "uncertain own-account transfer creation remains VA-owned and creates no fake Needs You",
+    "unbound bank authorization URLs are suppressed when the provider payment ID is missing",
+    "the existing transfer and idempotency key remain active so creation is never repeated blindly",
+    "booked source-account transactions provide independent recovery evidence",
+    "recovery requires exact amount currency destination IBAN date and one unique provider transaction",
+    "zero multiple or unavailable provider evidence remains system-owned",
+    "historical bank_transfer_uncertain tasks are closed automatically"
   ]
 }

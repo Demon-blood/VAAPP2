@@ -744,18 +744,8 @@ async def create_own_account_transfer(
     except (httpx.RequestError, TimeoutError) as exc:
         # The request may have reached the provider. Never retry creation blindly.
         transfer.status = "creation_uncertain"
-        transfer.requires_user_action = True
+        transfer.requires_user_action = False
         transfer.failure_reason = f"Provider creation outcome is uncertain; automatic retry blocked: {exc}"[:2000]
-        db.add(
-            Task(
-                title="Check bank before retrying own-account transfer",
-                description=transfer.failure_reason,
-                source_type="bank_transfer_uncertain",
-                source_id=str(transfer.id),
-                priority="urgent",
-                requires_approval=True,
-            )
-        )
         await write_audit(
             db,
             "own_account_transfer_creation_uncertain",
@@ -771,19 +761,13 @@ async def create_own_account_transfer(
     transfer.authorization_url = str(response.get("url") or "").strip() or None
     transfer.requires_user_action = bool(transfer.authorization_url)
     if transfer.external_payment_id is None:
+        # An authorization URL without a provider payment ID cannot be bound to
+        # a specific transfer safely. Keep the uncertainty VA-owned and reconcile
+        # independent booked-bank evidence instead of exposing a fake user boundary.
+        transfer.authorization_url = None
         transfer.status = "creation_uncertain"
-        transfer.requires_user_action = True
+        transfer.requires_user_action = False
         transfer.failure_reason = "Provider returned success without a payment identifier; automatic retry is blocked."
-        db.add(
-            Task(
-                title="Check bank before retrying own-account transfer",
-                description=transfer.failure_reason,
-                source_type="bank_transfer_uncertain",
-                source_id=str(transfer.id),
-                priority="urgent",
-                requires_approval=True,
-            )
-        )
     else:
         transfer.status = "authorization_required" if transfer.requires_user_action else str(response.get("status") or "received").lower()
     state_row.payload_json = json.dumps({"transfer_id": transfer.id, "external_payment_id": transfer.external_payment_id})
@@ -815,7 +799,12 @@ async def create_own_account_transfer(
 
 
 async def refresh_own_account_transfer(db: AsyncSession, transfer: OwnAccountTransfer) -> OwnAccountTransfer:
-    if not transfer.external_payment_id or transfer.status == "creation_uncertain":
+    if transfer.status == "creation_uncertain" and not transfer.external_payment_id:
+        from app.services.own_transfer_recovery import reconcile_uncertain_own_account_transfer
+
+        await reconcile_uncertain_own_account_transfer(db, transfer)
+        return transfer
+    if not transfer.external_payment_id:
         return transfer
     response = await enable_banking.get_payment(db, transfer.external_payment_id)
     status = str(response.get("status") or transfer.status).upper()
@@ -943,6 +932,11 @@ async def _spending_target_for_account(
 
 
 async def run_budget_autopilot(db: AsyncSession, *, redirect_url: str) -> dict[str, Any]:
+    # Recovery of an already-dispatched transfer is independent of whether new
+    # automatic budgeting is currently enabled. It must never require a redial/recreate.
+    from app.services.own_transfer_recovery import reconcile_all_uncertain_own_account_transfers
+
+    await reconcile_all_uncertain_own_account_transfers(db)
     await ensure_default_budget_envelopes(db, "personal")
     await ensure_default_budget_envelopes(db, "pro")
     policies = await ensure_account_autopilot_policies(db)
