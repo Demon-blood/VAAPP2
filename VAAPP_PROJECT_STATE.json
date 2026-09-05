@@ -2,17 +2,17 @@
   "updated": "2026-09-05",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "830c2c87b89972bc0735028584285f2827ac4bf9",
-  "verified_baseline_version": "1.0.16",
-  "verified_baseline_android_version": "1.0.16+59",
+  "verified_baseline_commit": "251e2e5a67ba137d2ac7b445a719d4be487df9fc",
+  "verified_baseline_version": "1.0.17",
+  "verified_baseline_android_version": "1.0.17+60",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33975481668,
-  "verified_baseline_release_tag": "va-android-116-3-1",
+  "verified_maintenance_actions_run_id": 33981261146,
+  "verified_baseline_release_tag": "va-android-117-2-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.17 Investment Side-Effect Recovery & Human Boundary Integrity",
-  "current_version": "1.0.17",
-  "current_android_version": "1.0.17+60",
+  "current_phase_name": "v1.0.18 Drive Archive Upload Recovery & Exact-Byte Duplicate Suppression",
+  "current_version": "1.0.18",
+  "current_android_version": "1.0.18+61",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -35,7 +35,8 @@
     "uncertain own-account transfers remain VA-owned and are recovered only from unique booked-bank evidence",
     "ambiguous generic browser side effects remain provider-reconciliation-owned and never authorize replay",
     "missing device dispatch evidence never authorizes cross-device replay; same-device claim recovery still requires the durable local no-send marker",
-    "investment funding or market-order uncertainty remains VA-owned and never authorizes a duplicate payment or trade"
+    "investment funding or market-order uncertainty remains VA-owned and never authorizes a duplicate payment or trade",
+    "ambiguous Drive archive creation remains reconciliation-only and never authorizes a duplicate exact-byte upload"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -103,5 +104,15 @@
     "automatic trading requires query-open and query-closed permissions before provider mutation",
     "ambiguous or no-id AddOrder outcomes never authorize blind market-order replay",
     "historical trade_pending rows are reconciliation-only against their legacy client-order id"
+  ],
+  "v118_features": [
+    "exact-byte Drive archive intent is durable before provider mutation",
+    "one archive upload intent exists per checksum and account scope",
+    "fresh Drive create requires an atomic prepared-to-submitting claim",
+    "provider app properties reconcile orphaned or late upload evidence",
+    "submitting and creation_uncertain uploads are reconciliation-only",
+    "retries and restarts never authorize duplicate Drive create",
+    "historical exact-byte duplicates bind without another provider mutation",
+    "Drive archive ambiguity remains VA-owned without fake Needs You work"
   ]
 }

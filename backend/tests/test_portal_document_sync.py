@@ -181,9 +181,16 @@ async def test_exact_bytes_upload_once_and_preserve_both_provenance_links(monkey
             "webViewLink": "https://drive.example.test/drive-1",
         }
 
+    async def fake_find(*args, **kwargs):
+        return []
+
     async def fake_analyze(db, record):
         return {"document_id": record.id, "status": "analyzed"}
 
+    monkeypatch.setattr(
+        "app.services.document_ingestion.find_drive_files_by_app_properties",
+        fake_find,
+    )
     monkeypatch.setattr("app.services.document_ingestion.upload_drive_file", fake_upload)
     monkeypatch.setattr("app.services.document_ingestion.analyze_document_record", fake_analyze)
     content = ("Durable signed contract record. " * 40).encode()

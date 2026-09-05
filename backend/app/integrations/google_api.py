@@ -915,6 +915,57 @@ async def ensure_drive_folder(db: AsyncSession, folder_name: str, parent_id: str
     return created["id"]
 
 
+def _drive_query_literal(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+
+
+async def find_drive_files_by_app_properties(
+    db: AsyncSession,
+    *,
+    app_properties: dict[str, str],
+    page_size: int = 100,
+) -> list[dict[str, Any]]:
+    """Read VA-managed Drive files matching every requested app property."""
+    if not app_properties:
+        raise ValueError("Drive app-property reconciliation requires at least one property")
+    service = await drive_service(db)
+    clauses = ["trashed=false"]
+    for key, value in sorted(app_properties.items()):
+        escaped_key = _drive_query_literal(key)
+        escaped_value = _drive_query_literal(value)
+        clauses.append(
+            "appProperties has { "
+            f"key='{escaped_key}' and value='{escaped_value}'"
+            " }"
+        )
+    query = " and ".join(clauses)
+    rows: list[dict[str, Any]] = []
+    page_token: str | None = None
+    while True:
+        response = await _execute_google_request(
+            lambda page_token=page_token: service.files().list(
+                q=query,
+                spaces="drive",
+                fields=(
+                    "nextPageToken,files("
+                    "id,name,mimeType,size,webViewLink,createdTime,appProperties,parents)"
+                ),
+                orderBy="createdTime asc",
+                pageSize=max(1, min(page_size, 1000)),
+                pageToken=page_token,
+            ),
+            attempts=4,
+        )
+        rows.extend(
+            dict(item) for item in response.get("files", []) or []
+            if isinstance(item, dict)
+        )
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+    return rows
+
+
 async def upload_drive_file(
     db: AsyncSession,
     *,

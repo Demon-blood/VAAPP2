@@ -9,13 +9,13 @@ def _read(path: str) -> str:
 
 def test_v116_release_identity() -> None:
     version = _read("backend/app/core/version.py")
-    assert 'APP_VERSION = "1.0.17"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.17"' in version
-    assert 'version = "1.0.17"' in _read("backend/pyproject.toml")
-    assert "version: 1.0.17+60" in _read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.18"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.18"' in version
+    assert 'version = "1.0.18"' in _read("backend/pyproject.toml")
+    assert "version: 1.0.18+61" in _read("android/pubspec.yaml")
     release = _read("android/lib/release_contract.dart")
-    assert "const String appRelease = '1.0.17';" in release
-    assert "const String minimumBackendVersion = '1.0.17';" in release
+    assert "const String appRelease = '1.0.18';" in release
+    assert "const String minimumBackendVersion = '1.0.18';" in release
 
 
 def test_backend_claim_is_durable_idempotent_and_cross_device_exclusive() -> None:

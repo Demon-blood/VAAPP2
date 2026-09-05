@@ -10,14 +10,19 @@ from pathlib import PurePath
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import get_settings
-from app.integrations.google_api import upload_drive_file
+from app.integrations.google_api import (
+    find_drive_files_by_app_properties,
+    upload_drive_file,
+)
 from app.models.entities import Bill, Creditor, DocumentRecord, DocumentSourceReference
 from app.services.ai_policy import local_extract
 from app.services.audit import write_audit
 from app.services.document_ownership import MAX_DOCUMENT_BYTES, _extract_text_from_bytes, analyze_document_record
+from app.services.document_archive_recovery import ensure_document_archive_upload
 from app.services.document_policy import document_category_decision, document_retention_decision
 from app.services.financial_document_policy import PAYABLE_INVOICE, assess_financial_document
 
@@ -205,40 +210,80 @@ async def ingest_document_bytes(
             parent_category=category,
         )
         date = document_date or datetime.utcnow()
-        uploaded = await upload_drive_file(
+        folder_path = [
+            settings.google_drive_archive_folder,
+            "Professional" if account_scope == "pro" else "Personal",
+            resolved_category.replace("/", "-")[:80] or "General",
+            str(date.year),
+        ]
+        app_properties = {
+            "va_managed": "true",
+            "source_type": source_type[:40],
+            "source_id": source_id[:255],
+            "category": resolved_category[:120],
+            "account_scope": account_scope,
+            "checksum_sha256": checksum,
+        }
+        uploaded = await ensure_document_archive_upload(
             db,
+            checksum_sha256=checksum,
+            account_scope=account_scope,
+            source_type=source_type,
+            source_id=source_id,
             name=safe_name,
             mime_type=normalized_mime,
             content=content,
-            folder_path=[
-                settings.google_drive_archive_folder,
-                "Professional" if account_scope == "pro" else "Personal",
-                resolved_category.replace("/", "-")[:80] or "General",
-                str(date.year),
-            ],
-            app_properties={
-                "va_managed": "true",
-                "source_type": source_type[:40],
-                "source_id": source_id[:255],
-                "category": resolved_category[:120],
-                "account_scope": account_scope,
-                "checksum_sha256": checksum,
-            },
+            folder_path=folder_path,
+            app_properties=app_properties,
+            upload_file=upload_drive_file,
+            find_files=find_drive_files_by_app_properties,
         )
-        record = DocumentRecord(
-            source_type=source_type[:40],
-            source_id=source_id[:255],
-            name=str(uploaded.get("name") or safe_name),
-            mime_type=str(uploaded.get("mimeType") or normalized_mime),
-            size_bytes=int(uploaded.get("size") or len(content)),
-            category=resolved_category,
-            account_scope=account_scope,
-            checksum_sha256=checksum,
-            drive_file_id=str(uploaded["id"]),
-            drive_web_url=str(uploaded.get("webViewLink") or ""),
-        )
-        db.add(record)
-        await db.flush()
+
+        record = (
+            await db.execute(
+                select(DocumentRecord)
+                .where(
+                    DocumentRecord.checksum_sha256 == checksum,
+                    DocumentRecord.account_scope == account_scope,
+                )
+                .order_by(DocumentRecord.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if record is not None:
+            created = False
+        else:
+            record = DocumentRecord(
+                source_type=source_type[:40],
+                source_id=source_id[:255],
+                name=str(uploaded.get("name") or safe_name),
+                mime_type=str(uploaded.get("mimeType") or normalized_mime),
+                size_bytes=int(uploaded.get("size") or len(content)),
+                category=resolved_category,
+                account_scope=account_scope,
+                checksum_sha256=checksum,
+                drive_file_id=str(uploaded["id"]),
+                drive_web_url=str(uploaded.get("webViewLink") or ""),
+            )
+            db.add(record)
+            try:
+                await db.flush()
+            except IntegrityError:
+                await db.rollback()
+                record = (
+                    await db.execute(
+                        select(DocumentRecord)
+                        .where(
+                            DocumentRecord.checksum_sha256 == checksum,
+                            DocumentRecord.account_scope == account_scope,
+                        )
+                        .order_by(DocumentRecord.id)
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if record is None:
+                    raise
+                created = False
     provenance_created = await _attach_provenance(
         db,
         document=record,

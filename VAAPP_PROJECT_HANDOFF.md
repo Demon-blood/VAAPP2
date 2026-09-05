@@ -6,25 +6,25 @@ Branch: `main`
 
 ## Verified source of truth
 
-The verified maintenance baseline for this release is commit `830c2c87b89972bc0735028584285f2827ac4bf9` (`v1.0.16 — Device Communication Dispatch Claim & Late-Evidence Continuity`). GitHub Actions run `33975481668` completed successfully end-to-end with 407 backend tests, Ruff gates, Flutter analysis/tests, Android signing, signed APK build, source verification, and prerelease publication under tag `va-android-116-3-1`.
+The verified maintenance baseline for this release is commit `251e2e5a67ba137d2ac7b445a719d4be487df9fc` (`v1.0.17 — Investment Side-Effect Recovery & Human Boundary Integrity`). GitHub Actions run `33981261146` completed successfully end-to-end with 420 backend tests, Ruff gates, Flutter analysis/tests, Android signing, signed APK build, source verification, and prerelease publication under tag `va-android-117-2-1`.
 
-Verified v1.0.16 release identity: backend `1.0.16` / Android `1.0.16+59`. APK SHA-256: `caf9810e4ae1c8bd9db2d9e91222ace01265bd67b7dfdfaa0b472f24787ad622`. The operator subsequently reported production deployment and phone smoke testing complete.
+Verified v1.0.17 release identity: backend `1.0.17` / Android `1.0.17+60`. APK SHA-256: `caf1c2e41efe1abccd96dd6699efa0f7b50323093f1c09ed1a1397e1da9832fc`. The operator subsequently reported production deployment and phone smoke testing complete.
 
-Historical v1.0.15 source remains `2b48b72e720a2e515e346fed253e24c131ae078a` with successful Actions run `33967944880` and tag `va-android-115-3-1`. Historical v1.0.14 source remains `8557dd449db554528ab7e111d0029faf784c996f` with successful Actions run `33961135886` and tag `va-android-114-3-1`. Historical v1.0.13 source remains `ecaa113d4461a550cb49c6046a42ecf880729346` with successful Actions run `33434347111` and tag `va-android-113-4-1`. Historical v1.0.12 source remains `22a392f1341ef19caf8a761cd7bfa44000fdc08c` with successful Actions run `33333446575` and tag `va-android-112-2-1`. Historical v1.0.11 source remains `221205e82444f9c0bff2589cf3ffc015408e664a` with successful Actions run `33331650005` and tag `va-android-111-2-1`.
+Historical v1.0.16 source remains `830c2c87b89972bc0735028584285f2827ac4bf9` with successful Actions run `33975481668` and tag `va-android-116-3-1`. Historical v1.0.15 source remains `2b48b72e720a2e515e346fed253e24c131ae078a` with successful Actions run `33967944880` and tag `va-android-115-3-1`. Historical v1.0.14 source remains `8557dd449db554528ab7e111d0029faf784c996f` with successful Actions run `33961135886` and tag `va-android-114-3-1`.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
 ## Current maintenance candidate
 
-Backend `1.0.17` / Android `1.0.17+60`.
+Backend `1.0.18` / Android `1.0.18+61`.
 
-Current candidate: **v1.0.17 — Investment Side-Effect Recovery & Human Boundary Integrity**.
+Current candidate: **v1.0.18 — Drive Archive Upload Recovery & Exact-Byte Duplicate Suppression**.
 
-v1.0.17 keeps ambiguous Kraken funding payments and market orders under VA-owned reconciliation instead of creating fake user work or permitting blind replay. Funding ambiguity is recovered only from one uniquely matching booked debit on the exact source bank account. Automatic Kraken trading persists a durable client-order intent before AddOrder and reconciles OpenOrders/ClosedOrders by the same `cl_ord_id`; ambiguous or no-id outcomes never authorize a replacement order. Genuine bound bank SCA remains the human boundary.
+v1.0.18 closes the archive-upload response-loss window. Exact-byte content gets one durable upload intent per account scope before Drive mutation. A fresh worker must atomically claim that intent before `files.create()`. Once dispatch is ambiguous, all later work is read-only reconciliation by the existing Drive checksum/account-scope app properties; retries, restarts, and elapsed time never authorize another upload. Provider ambiguity remains VA-owned.
 
 The guarded installer commits this candidate only after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and a signed release APK build pass.
 
-Next work after the v1.0.17 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.18 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 
