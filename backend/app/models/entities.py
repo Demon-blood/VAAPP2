@@ -248,6 +248,37 @@ class AuditLog(Base):
     details_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
+class DocumentArchiveUploadIntent(Base):
+    __tablename__ = "document_archive_upload_intents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    checksum_sha256: Mapped[str] = mapped_column(String(64), index=True)
+    account_scope: Mapped[str] = mapped_column(String(30), index=True)
+    source_type: Mapped[str] = mapped_column(String(40), default="")
+    source_id: Mapped[str] = mapped_column(String(255), default="")
+    name: Mapped[str] = mapped_column(Text)
+    mime_type: Mapped[str] = mapped_column(String(160))
+    folder_path_json: Mapped[str] = mapped_column(Text, default="[]")
+    app_properties_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(40), default="prepared", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    drive_file_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
+    observed_file_json: Mapped[str] = mapped_column(Text, default="{}")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "checksum_sha256", "account_scope",
+            name="uq_document_archive_upload_checksum_scope",
+        ),
+    )
+
+
 class DocumentRecord(Base):
     __tablename__ = "documents"
 

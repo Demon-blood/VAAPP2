@@ -8,13 +8,13 @@ def read(path: str) -> str:
 
 
 def test_v110_release_identity_is_consistent():
-    assert 'APP_VERSION = "1.0.17"' in read("backend/app/core/version.py")
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.17"' in read("backend/app/core/version.py")
-    assert 'version = "1.0.17"' in read("backend/pyproject.toml")
-    assert "version: 1.0.17+60" in read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.18"' in read("backend/app/core/version.py")
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.18"' in read("backend/app/core/version.py")
+    assert 'version = "1.0.18"' in read("backend/pyproject.toml")
+    assert "version: 1.0.18+61" in read("android/pubspec.yaml")
     release = read("android/lib/release_contract.dart")
-    assert "appRelease = '1.0.17'" in release
-    assert "minimumBackendVersion = '1.0.17'" in release
+    assert "appRelease = '1.0.18'" in release
+    assert "minimumBackendVersion = '1.0.18'" in release
 
 
 def test_uncertain_payment_creation_is_system_owned_not_fake_needs_you():

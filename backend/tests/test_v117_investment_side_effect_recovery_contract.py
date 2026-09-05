@@ -11,9 +11,9 @@ def test_v117_release_identity_and_additive_recovery_ledgers() -> None:
     pubspec = (root / "android/pubspec.yaml").read_text()
     models = (root / "backend/app/models/entities.py").read_text()
 
-    assert 'APP_VERSION = "1.0.17"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.17"' in version
-    assert "version: 1.0.17+60" in pubspec
+    assert 'APP_VERSION = "1.0.18"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.18"' in version
+    assert "version: 1.0.18+61" in pubspec
     assert "class InvestmentFundingRecoveryEvidence" in models
     assert '__tablename__ = "investment_funding_recovery_evidence"' in models
     assert "class InvestmentTradeIntent" in models
