@@ -139,6 +139,7 @@ from app.services.banking_service import (
     sync_all_banks,
 )
 from app.services.communications_service import (
+    claim_communication_action,
     complete_communication_action,
     device_call_policy,
     ingest_communication,
@@ -1161,6 +1162,19 @@ async def communication_action_result(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"id": action.id, "status": action.status}
+
+
+@router.post("/api/communications/actions/{action_id}/claim")
+async def communication_claim_action(
+    action_id: int,
+    device: Device = Depends(require_device),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        action, claimed = await claim_communication_action(db, action_id, device_id=device.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"id": action.id, "status": action.status, "claimed": claimed}
 
 
 @router.get("/api/communications/actions/pending")

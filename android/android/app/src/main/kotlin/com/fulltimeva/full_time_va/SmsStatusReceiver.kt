@@ -22,17 +22,22 @@ class SmsStatusReceiver : BroadcastReceiver() {
         thread(name = "va-sms-$kind-result") {
             if (!ok) {
                 if (kind == "sent") {
-                    VaBackendClient.clearActionExecuted(context, actionId)
-                    VaBackendClient.postActionResult(
+                    val multipartUncertain = partCount > 1
+                    if (!multipartUncertain) VaBackendClient.clearActionExecuted(context, actionId)
+                    VaBackendClient.postOrStoreActionResult(
                         context,
                         actionId,
-                        "failed",
+                        if (multipartUncertain) "creation_uncertain" else "failed",
                         "Android SmsManager reported send failure resultCode=$resultCode for part ${partIndex + 1}/$partCount",
                         "android-sms:$actionId",
-                        JSONObject().put("part_index", partIndex).put("part_count", partCount).put("result_code", resultCode),
+                        JSONObject()
+                            .put("part_index", partIndex)
+                            .put("part_count", partCount)
+                            .put("result_code", resultCode)
+                            .put("multipart_uncertain", multipartUncertain),
                     )
                 } else {
-                    VaBackendClient.postActionResult(
+                    VaBackendClient.postOrStoreActionResult(
                         context,
                         actionId,
                         "delivery_failed",

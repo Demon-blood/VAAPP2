@@ -5,11 +5,19 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.ai_client import AIConfigurationError, AIQuotaDeferred, analyze_communication
-from app.models.entities import CommunicationAction, CommunicationDeliveryEvidence, CommunicationEvent, CommunicationRule, Task
+from app.models.entities import (
+    CommunicationAction,
+    CommunicationDeliveryEvidence,
+    CommunicationDispatchClaim,
+    CommunicationEvent,
+    CommunicationRule,
+    Task,
+)
 from app.schemas.api import CommunicationIngestRequest
 from app.services.audit import write_audit
 from app.services.communication_ownership import register_device_communication
@@ -359,6 +367,66 @@ def _action_payload(action: CommunicationAction) -> dict[str, Any]:
     }
 
 
+async def claim_communication_action(
+    db: AsyncSession,
+    action_id: int,
+    *,
+    device_id: int,
+) -> tuple[CommunicationAction, bool]:
+    """Durably reserve one device action; repeated claims by the same device are idempotent."""
+    action = await db.get(CommunicationAction, action_id)
+    if action is None:
+        raise ValueError("Communication action does not exist")
+
+    existing = (
+        await db.execute(
+            select(CommunicationDispatchClaim)
+            .where(CommunicationDispatchClaim.communication_action_id == action_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return action, bool(existing.device_id == device_id and action.status == "dispatching")
+    if action.status != "pending":
+        return action, False
+
+    claim = CommunicationDispatchClaim(
+        communication_action_id=action.id,
+        device_id=device_id,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(claim)
+            await db.flush()
+    except IntegrityError:
+        existing = (
+            await db.execute(
+                select(CommunicationDispatchClaim)
+                .where(CommunicationDispatchClaim.communication_action_id == action_id)
+                .limit(1)
+            )
+        ).scalar_one()
+        await db.refresh(action)
+        return action, bool(existing.device_id == device_id and action.status == "dispatching")
+
+    action.status = "dispatching"
+    action.failure_reason = ""
+    await write_audit(
+        db,
+        "communication_action_dispatch_claimed",
+        entity_type="communication_action",
+        entity_id=str(action.id),
+        result="deferred",
+        details={
+            "device_id": device_id,
+            "status": "dispatching",
+            "automatic_replay": False,
+        },
+    )
+    await db.commit()
+    return action, True
+
+
 async def complete_communication_action(
     db: AsyncSession,
     action_id: int,
@@ -372,7 +440,18 @@ async def complete_communication_action(
     if action is None:
         raise ValueError("Communication action does not exist")
 
-    accepted = {"pending", "dispatched", "sent", "delivered", "completed", "failed", "cancelled", "delivery_failed"}
+    accepted = {
+        "pending",
+        "dispatching",
+        "creation_uncertain",
+        "dispatched",
+        "sent",
+        "delivered",
+        "completed",
+        "failed",
+        "cancelled",
+        "delivery_failed",
+    }
     if status not in accepted:
         raise ValueError(f"Unsupported communication action status: {status}")
 
@@ -400,6 +479,14 @@ async def complete_communication_action(
 
     action.status = effective_status
     action.failure_reason = failure_reason[:2000]
+    if effective_status == "failed":
+        # A definitive device-side failure proves this attempt did not cross the
+        # provider boundary, so the claim may be released for the existing safe retry path.
+        await db.execute(
+            delete(CommunicationDispatchClaim).where(
+                CommunicationDispatchClaim.communication_action_id == action.id
+            )
+        )
     if evidence_type:
         existing_evidence = (
             await db.execute(
@@ -454,18 +541,17 @@ async def complete_communication_action(
 
 
 async def pending_communication_actions(db: AsyncSession, *, limit: int = 50) -> list[dict[str, Any]]:
-    """Return real persisted device work that still needs dispatch/reconciliation.
+    """Return dispatchable work plus reconciliation-only claimed actions.
 
-    SMS actions may be initiated by the paired device worker. Notification-app rows
-    are also returned so locally persisted RemoteInput handoff evidence can be re-posted
-    after a network outage, but they are explicitly marked non-dispatchable because a
-    stale RemoteInput action cannot be reconstructed safely.
+    A claimed action remains visible so the original device can re-post locally durable
+    evidence after a network outage. A ``dispatching`` SMS row may only resume after
+    the same backend device re-asserts its durable claim; other devices remain blocked.
     """
     rows = list(
         (
             await db.execute(
                 select(CommunicationAction)
-                .where(CommunicationAction.status == "pending")
+                .where(CommunicationAction.status.in_(["pending", "dispatching", "creation_uncertain"]))
                 .order_by(CommunicationAction.created_at.asc(), CommunicationAction.id.asc())
                 .limit(max(1, min(limit, 200)))
             )
@@ -475,13 +561,20 @@ async def pending_communication_actions(db: AsyncSession, *, limit: int = 50) ->
     for action in rows:
         payload = json.loads(action.payload_json or "{}")
         channel = str(payload.get("channel") or "").lower()
+        dispatchable = action.status == "pending" and channel == "sms"
+        resumable_claim = action.status == "dispatching" and channel == "sms"
         result.append({
             "id": action.id,
             "type": action.action_type,
             "target": action.target,
             "text": str(payload.get("text") or ""),
             "channel": channel,
-            "can_background_dispatch": channel == "sms",
+            "status": action.status,
+            "can_background_dispatch": dispatchable,
+            "can_resume_claimed_dispatch": resumable_claim,
+            "reconciliation_only": action.status == "creation_uncertain" or (
+                action.status == "dispatching" and channel != "sms"
+            ),
             "created_at": action.created_at,
         })
     return result

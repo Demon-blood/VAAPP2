@@ -1,4 +1,4 @@
-# VAAPP v1.0.15 — Generic Browser Late-Evidence Recovery & Objective Continuity
+# VAAPP v1.0.16 — Device Communication Dispatch Claim & Late-Evidence Continuity
 
 Updated: 2026-09-05
 
@@ -6,36 +6,35 @@ Updated: 2026-09-05
 
 - Repository: `Demon-blood/VAAPP2`
 - Branch: `main`
-- Verified v1.0.14 source baseline: `8557dd449db554528ab7e111d0029faf784c996f`
-- Verified v1.0.14 GitHub Actions run: `33961135886` — success
-- Verified v1.0.14 prerelease tag: `va-android-114-3-1`
-- v1.0.14 release identity: backend `1.0.14`, Android `1.0.14+57`
-- v1.0.14 APK SHA-256: `1fae494cb449c48a65997f80709b9404a533b76297144a713f0b574f05d2d4c2`
+- Verified v1.0.15 source baseline: `2b48b72e720a2e515e346fed253e24c131ae078a`
+- Verified v1.0.15 GitHub Actions run: `33967944880` — success
+- Verified v1.0.15 prerelease tag: `va-android-115-3-1`
+- v1.0.15 release identity: backend `1.0.15`, Android `1.0.15+58`
+- v1.0.15 APK SHA-256: `19165c0c6a531a9bf8545ea9ccf6672f35e269d32b1f896a4d5dcb7f5856360d`
+- Historical v1.0.14 evidence: source `8557dd449db554528ab7e111d0029faf784c996f`, GitHub Actions run `33961135886`, tag `va-android-114-3-1`.
 - Historical v1.0.13 evidence: source `ecaa113d4461a550cb49c6046a42ecf880729346`, GitHub Actions run `33434347111`, tag `va-android-113-4-1`.
 - Historical v1.0.12 evidence: source `22a392f1341ef19caf8a761cd7bfa44000fdc08c`, GitHub Actions run `33333446575`, tag `va-android-112-2-1`.
 - Historical v1.0.11 evidence: source `221205e82444f9c0bff2589cf3ffc015408e664a`, GitHub Actions run `33331650005`, tag `va-android-111-2-1`.
 
-The operator subsequently reported production deployment and phone smoke testing complete for v1.0.14.
+The operator subsequently reported production deployment and phone smoke testing complete for v1.0.15.
 
-## v1.0.15 maintenance scope
+## v1.0.16 maintenance scope
 
-v1.0.15 keeps generic secure-browser side-effect uncertainty under active VA-owned provider reconciliation instead of terminalizing the objective step.
-
-- `creation_uncertain` is resumed only when the durable v1.0.11 side-effect marker proves postcondition-only reconciliation is safe.
-- The same BrowserOperation is reused; no second operation or provider mutation is created.
-- Provider postconditions are checked before any original business recipe step can execute again.
-- Safe uncertainty keeps the objective step `verifying` and clears its historical `finished_at` marker.
-- Historical failed generic browser steps are reopened automatically when their linked operation is still safely reconcilable.
-- Markerless uncertainty remains `blocked_system`; replay safety is never guessed.
-- Genuine portal authentication remains a real Needs You boundary.
-- Definitive browser failure remains system-owned.
-- Document/form obligations show active uncertainty as `in_progress` and complete only from verified browser evidence.
-- No database schema migration is required.
+- Background device communication is atomically claimed on the backend before carrier dispatch, with durable claim ownership bound to the paired device in an additive claim table.
+- The first `pending -> dispatching` claim creates ownership; the same device can idempotently re-assert it after a lost response, while another device is denied.
+- Claimed SMS actions remain visible for evidence reconciliation and same-device claim recovery; the synchronously durable local marker prevents a prior send from being replayed.
+- Existing Android stored-evidence reconciliation remains before any new provider send.
+- Local `action_done_<id>` protection is made synchronously durable before `SmsManager` is called.
+- Missing evidence no longer becomes terminal solely because 30 minutes elapsed.
+- Verification cadence backs off while the same action remains VA-owned.
+- Historical steps failed by the old elapsed-time cutoff reopen without creating a replacement action.
+- Late device evidence completes the original objective.
+- Definitive replay-safe device failure can release the claim for safe retry; multipart partial-send ambiguity remains reconciliation-only. Provider/system uncertainty never becomes fake Needs You work.
 
 ## Release identity
 
-- Backend: `1.0.15`
-- Required Android: `1.0.15`
-- Android: `1.0.15+58`
+- Backend: `1.0.16`
+- Required Android: `1.0.16`
+- Android: `1.0.16+59`
 
-This status file is committed only by the guarded v1.0.15 installer after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and the signed release APK build have passed. GitHub prerelease publication remains a separate final workflow step and must be independently verified after the run.
+Source publication remains gated by backend tests, Ruff, Flutter analysis/tests, Android signing, and the signed APK build.

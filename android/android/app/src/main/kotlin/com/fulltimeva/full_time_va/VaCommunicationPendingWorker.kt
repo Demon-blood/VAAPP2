@@ -47,23 +47,46 @@ class VaCommunicationPendingWorker(
         val actions = VaBackendClient.fetchPendingCommunicationActions(applicationContext)
         for (index in 0 until actions.length()) {
             val action = actions.optJSONObject(index) ?: continue
-            if (action.optString("channel") != "sms" || action.optString("type") != "reply") continue
+            if (action.optString("type") != "reply") continue
             val actionId = action.optLong("id", -1L)
+            if (actionId <= 0L) continue
+            val channel = action.optString("channel")
+            if (channel != "sms") {
+                // RemoteInput/failure evidence is reconciliation-only. Notification-app
+                // actions can never be reconstructed from this background feed.
+                VaBackendClient.repostStoredActionEvidence(applicationContext, actionId)
+                continue
+            }
             val target = action.optString("target")
             val text = action.optString("text")
-            if (actionId <= 0L) continue
+            // Reconcile carrier evidence before generic stored failures. If carrier
+            // handoff succeeded but a later delivery callback failed while offline,
+            // post the stronger sent evidence first so backend monotonicity is preserved.
+            if (VaSms.repostEvidenceIfAvailable(applicationContext, actionId)) {
+                VaBackendClient.repostStoredActionEvidence(applicationContext, actionId)
+                continue
+            }
             if (VaBackendClient.repostStoredActionEvidence(applicationContext, actionId)) continue
-            // Reconcile locally persisted carrier evidence before any resend. This is
-            // the device-side equivalent of Gmail's postcondition-first retry rule.
-            if (VaSms.repostEvidenceIfAvailable(applicationContext, actionId)) continue
-            if (action.optString("channel") != "sms" || !action.optBoolean("can_background_dispatch", false)) continue
+            val mayDispatch = action.optBoolean("can_background_dispatch", false) ||
+                action.optBoolean("can_resume_claimed_dispatch", false)
+            if (!mayDispatch) continue
             if (target.isBlank() || text.isBlank()) continue
+            // The backend claim is the durable cross-device at-most-once boundary.
+            // If the claim response is lost, fail closed and do not touch the carrier.
+            if (!VaBackendClient.claimCommunicationAction(applicationContext, actionId)) continue
+            // The local marker protects the narrower crash/callback-loss window on this install.
             if (!VaBackendClient.markActionExecuted(applicationContext, actionId)) continue
             try {
                 VaSms.send(applicationContext, target, text, actionId)
             } catch (exc: Exception) {
                 VaBackendClient.clearActionExecuted(applicationContext, actionId)
-                VaBackendClient.postActionResult(applicationContext, actionId, "failed", exc.toString())
+                VaBackendClient.postOrStoreActionResult(
+                    applicationContext,
+                    actionId,
+                    "failed",
+                    exc.toString(),
+                    "android-sms:$actionId",
+                )
             }
         }
         return Result.success()

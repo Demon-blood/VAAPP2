@@ -2,17 +2,17 @@
   "updated": "2026-09-05",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "8557dd449db554528ab7e111d0029faf784c996f",
-  "verified_baseline_version": "1.0.14",
-  "verified_baseline_android_version": "1.0.14+57",
+  "verified_baseline_commit": "2b48b72e720a2e515e346fed253e24c131ae078a",
+  "verified_baseline_version": "1.0.15",
+  "verified_baseline_android_version": "1.0.15+58",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33961135886,
-  "verified_baseline_release_tag": "va-android-114-3-1",
+  "verified_maintenance_actions_run_id": 33967944880,
+  "verified_baseline_release_tag": "va-android-115-3-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.15 Generic Browser Late-Evidence Recovery & Objective Continuity",
-  "current_version": "1.0.15",
-  "current_android_version": "1.0.15+58",
+  "current_phase_name": "v1.0.16 Device Communication Dispatch Claim & Late-Evidence Continuity",
+  "current_version": "1.0.16",
+  "current_android_version": "1.0.16+59",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -33,7 +33,8 @@
     "an outbound call with unknown provider creation outcome is never redialed before provider identity is resolved",
     "ambiguous Gmail delivery remains provider-reconciliation-only and never authorizes a duplicate send",
     "uncertain own-account transfers remain VA-owned and are recovered only from unique booked-bank evidence",
-    "ambiguous generic browser side effects remain provider-reconciliation-owned and never authorize replay"
+    "ambiguous generic browser side effects remain provider-reconciliation-owned and never authorize replay",
+    "missing device dispatch evidence never authorizes cross-device replay; same-device claim recovery still requires the durable local no-send marker"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -79,5 +80,16 @@
     "markerless ambiguity remains blocked_system and never authorizes replay",
     "document form obligations remain in_progress while duplicate-safe browser reconciliation runs",
     "genuine portal authentication and definitive system failure remain distinct boundaries"
+  ],
+  "v116_features": [
+    "device communication actions are atomically claimed before provider dispatch with durable paired-device ownership",
+    "multipart SMS partial failure remains creation_uncertain and never authorizes whole-message replay",
+    "same-device claim retries recover lost claim responses while cross-device claims remain denied",
+    "Android stored evidence and a synchronously durable local action marker remain first-class safeguards",
+    "elapsed time alone no longer terminalizes unresolved device delivery evidence",
+    "device verification cadence backs off while the same action remains VA-owned",
+    "historical elapsed-time failures reopen against the original communication action",
+    "late sent delivered or RemoteInput evidence completes the original objective",
+    "only definitive replay-safe device failure releases a dispatch claim for retry"
   ]
 }

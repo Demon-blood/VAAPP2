@@ -1,30 +1,30 @@
 # VAAPP project handoff
 
 Updated: 2026-09-05
-Repository: `Demon-blood/VAAPP2`  
+Repository: `Demon-blood/VAAPP2`
 Branch: `main`
 
 ## Verified source of truth
 
-Phases 1–10 and production v1.0 are complete. The verified maintenance baseline for this release is commit `8557dd449db554528ab7e111d0029faf784c996f` (`v1.0.14 — Own-Account Transfer Recovery & Human Boundary Integrity`). GitHub Actions run `33961135886` completed successfully end-to-end, including 380 backend tests, Ruff gates, Flutter analysis/tests, persistent signing, signed Android APK build, source verification, and prerelease publication under tag `va-android-114-3-1`.
+The verified maintenance baseline for this release is commit `2b48b72e720a2e515e346fed253e24c131ae078a` (`v1.0.15 — Generic Browser Late-Evidence Recovery & Objective Continuity`). GitHub Actions run `33967944880` completed successfully end-to-end with 392 backend tests, Ruff gates, Flutter analysis/tests, Android signing, signed APK build, source verification, and prerelease publication under tag `va-android-115-3-1`.
 
-Verified v1.0.14 release identity: backend `1.0.14` / Android `1.0.14+57`. APK SHA-256: `1fae494cb449c48a65997f80709b9404a533b76297144a713f0b574f05d2d4c2`. The operator subsequently reported production deployment and phone smoke testing complete.
+Verified v1.0.15 release identity: backend `1.0.15` / Android `1.0.15+58`. APK SHA-256: `19165c0c6a531a9bf8545ea9ccf6672f35e269d32b1f896a4d5dcb7f5856360d`. The operator subsequently reported production deployment and phone smoke testing complete.
 
-Historical v1.0.13 source remains `ecaa113d4461a550cb49c6046a42ecf880729346` with successful Actions run `33434347111` and tag `va-android-113-4-1`. Historical v1.0.12 source remains `22a392f1341ef19caf8a761cd7bfa44000fdc08c` with successful Actions run `33333446575` and tag `va-android-112-2-1`. Historical v1.0.11 source remains `221205e82444f9c0bff2589cf3ffc015408e664a` with successful Actions run `33331650005` and tag `va-android-111-2-1`.
+Historical v1.0.14 source remains `8557dd449db554528ab7e111d0029faf784c996f` with successful Actions run `33961135886` and tag `va-android-114-3-1`. Historical v1.0.13 source remains `ecaa113d4461a550cb49c6046a42ecf880729346` with successful Actions run `33434347111` and tag `va-android-113-4-1`. Historical v1.0.12 source remains `22a392f1341ef19caf8a761cd7bfa44000fdc08c` with successful Actions run `33333446575` and tag `va-android-112-2-1`. Historical v1.0.11 source remains `221205e82444f9c0bff2589cf3ffc015408e664a` with successful Actions run `33331650005` and tag `va-android-111-2-1`.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
 ## Current maintenance candidate
 
-Backend `1.0.15` / Android `1.0.15+58`.
+Backend `1.0.16` / Android `1.0.16+59`.
 
-Current candidate: **v1.0.15 — Generic Browser Late-Evidence Recovery & Objective Continuity**.
+Current candidate: **v1.0.16 — Device Communication Dispatch Claim & Late-Evidence Continuity**.
 
-v1.0.15 closes a continuity gap above the v1.0.11 browser side-effect guard. A generic browser objective whose provider mutation may already have happened no longer terminalizes merely because the immediate postcondition is missing. When the durable side-effect marker proves reconciliation-only resume is safe, VAAPP reuses the same BrowserOperation, verifies the provider postcondition before any original business step, keeps the objective in `verifying`, and reopens historical failed verification steps. Markerless uncertainty still fails closed, genuine portal authentication still remains a user boundary, and definitive provider failure remains system-owned. Document/form obligations project active uncertainty as `in_progress` until the linked browser operation is independently verified.
+v1.0.16 makes a durable paired-device dispatch claim the cross-device at-most-once boundary for device communication actions. Android must claim the original action before SMS carrier dispatch; the same device may idempotently re-assert a lost claim response, another device is denied, local evidence reconciliation still runs before any send, and the local execution marker is synchronously persisted before the provider boundary. Missing callbacks remain VA-owned with backoff instead of terminalizing after 30 minutes, and historical elapsed-time failures can reopen against the same action when late device evidence arrives. Definitive replay-safe device failures may release the claim for safe retry, while multipart partial-send ambiguity stays VA-owned and non-replayable.
 
-The guarded installer commits this candidate only after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and a signed release APK build pass. Prerelease publication remains separately verifiable after the source commit.
+The guarded installer commits this candidate only after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and a signed release APK build pass.
 
-Next work after the v1.0.15 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.16 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 

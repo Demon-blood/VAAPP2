@@ -59,7 +59,9 @@ class VaNotificationListenerService : NotificationListenerService() {
             if (deviceAction.optString("type") != "reply" || replyAction == null) return@thread
             val actionId = deviceAction.optLong("id", -1L)
             val replyText = deviceAction.optString("text")
-            if (actionId <= 0 || replyText.isBlank() || !VaBackendClient.markActionExecuted(this, actionId)) return@thread
+            if (actionId <= 0 || replyText.isBlank()) return@thread
+            if (!VaBackendClient.claimCommunicationAction(this, actionId)) return@thread
+            if (!VaBackendClient.markActionExecuted(this, actionId)) return@thread
             try {
                 val remoteInputs = replyAction.remoteInputs ?: return@thread
                 val fillInIntent = Intent()
@@ -75,7 +77,14 @@ class VaNotificationListenerService : NotificationListenerService() {
                 VaBackendClient.repostStoredActionEvidence(this, actionId)
             } catch (exc: Exception) {
                 VaBackendClient.clearActionExecuted(this, actionId)
-                VaBackendClient.postActionResult(this, actionId, "failed", exc.toString())
+                VaBackendClient.postOrStoreActionResult(
+                    this,
+                    actionId,
+                    "failed",
+                    exc.toString(),
+                    "remote-input:${sbn.key}",
+                    JSONObject().put("package_name", sbn.packageName).put("notification_key", sbn.key),
+                )
             }
         }
     }

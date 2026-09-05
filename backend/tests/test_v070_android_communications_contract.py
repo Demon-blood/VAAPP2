@@ -23,7 +23,8 @@ def test_native_bridge_has_direct_reply_call_screening_and_durable_backend_resul
     sms_sender = (native / "VaSms.kt").read_text()
     main = (native / "MainActivity.kt").read_text()
     assert "RemoteInput.addResultsToIntent" in notification
-    assert "postActionResult" in notification
+    assert "storeActionEvidence" in notification
+    assert "postOrStoreActionResult" in notification
     assert "respondToCall" in calls
     # Phase 2 requires every automatic SMS to stay correlated to its durable
     # CommunicationAction so carrier SENT/DELIVERED callbacks can be reconciled

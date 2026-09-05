@@ -802,6 +802,19 @@ class CommunicationAction(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class CommunicationDispatchClaim(Base):
+    __tablename__ = "communication_dispatch_claims"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    communication_action_id: Mapped[int] = mapped_column(
+        ForeignKey("communication_actions.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
 class CommunicationRule(Base):
     __tablename__ = "communication_rules"
 

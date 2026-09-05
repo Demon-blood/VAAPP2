@@ -1504,6 +1504,78 @@ async def _finish_if_all_steps_complete(db: AsyncSession, objective: VAObjective
         await _transition_objective(db, objective, "completed", reason="All persisted steps have verified outcomes")
 
 
+LEGACY_DEVICE_UNCERTAINTY_ERROR = (
+    "Android device did not report a definitive dispatch outcome; automatic resend is unsafe"
+)
+
+
+def _device_action_verify_delay(step: VAObjectiveStep, now: datetime) -> timedelta:
+    age = max(timedelta(0), now - (step.created_at or now))
+    if age < timedelta(minutes=30):
+        return timedelta(seconds=15)
+    if age < timedelta(hours=24):
+        return timedelta(minutes=2)
+    if age < timedelta(days=7):
+        return timedelta(minutes=15)
+    return timedelta(hours=1)
+
+
+async def _recover_legacy_device_communication_uncertainty(db: AsyncSession, now: datetime) -> int:
+    """Reopen only steps terminalized by the historical elapsed-time cutoff."""
+    rows = list(
+        (
+            await db.execute(
+                select(VAObjectiveStep)
+                .where(
+                    VAObjectiveStep.status == "failed",
+                    VAObjectiveStep.verification_type == "device_action_verified",
+                    VAObjectiveStep.last_error == LEGACY_DEVICE_UNCERTAINTY_ERROR,
+                )
+                .order_by(VAObjectiveStep.id.asc())
+                .limit(100)
+            )
+        ).scalars()
+    )
+    recovered = 0
+    for step in rows:
+        params = _loads(step.parameters_json, {})
+        params = params if isinstance(params, dict) else {}
+        action_id = int(params.get("communication_action_id") or 0)
+        action = await db.get(CommunicationAction, action_id) if action_id > 0 else None
+        if action is None or action.status in {"failed", "cancelled", "delivery_failed"}:
+            continue
+        objective = await db.get(VAObjective, step.objective_id)
+        if (
+            objective is None
+            or objective.status in TERMINAL_OBJECTIVE_STATES
+            or objective.status == "needs_user"
+        ):
+            continue
+        step.status = "verifying"
+        step.finished_at = None
+        step.last_error = ""
+        step.run_after = now
+        objective.last_error = ""
+        await _transition_objective(db, objective, "verifying")
+        await write_audit(
+            db,
+            "device_communication_legacy_uncertainty_reopened",
+            entity_type="communication_action",
+            entity_id=str(action.id),
+            result="deferred",
+            details={
+                "objective_id": objective.id,
+                "step_id": step.id,
+                "action_status": action.status,
+                "automatic_replay": False,
+            },
+        )
+        recovered += 1
+    if recovered:
+        await db.commit()
+    return recovered
+
+
 async def _resume_browser_reconciliation(
     db: AsyncSession,
     *,
@@ -1649,6 +1721,7 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
     now = utcnow()
     await _recover_legacy_browser_uncertainty(db, now)
     await _recover_legacy_gmail_uncertainty(db, now)
+    await _recover_legacy_device_communication_uncertainty(db, now)
     steps = list(
         (
             await db.execute(
@@ -2062,19 +2135,27 @@ async def verify_ready_steps(db: AsyncSession, *, limit: int = 50) -> int:
                     step.last_error = action.failure_reason or "Device communication failed"
                     await _transition_objective(db, objective, "blocked_system", reason=step.last_error)
                 continue
+            if action.status == "delivery_failed":
+                step.status = "failed"
+                step.finished_at = now
+                step.last_error = action.failure_reason or "Device reported definitive delivery failure"
+                await _transition_objective(db, objective, "blocked_system", reason=step.last_error)
+                continue
             if not verified_type:
-                if action.status == "pending" and step.created_at <= now - timedelta(minutes=30):
-                    step.status = "failed"
-                    step.finished_at = now
-                    step.last_error = "Android device did not report a definitive dispatch outcome; automatic resend is unsafe"
-                    await _transition_objective(
-                        db,
-                        objective,
-                        "blocked_system",
-                        reason="Device dispatch outcome is unknown; VAAPP will not risk sending a duplicate message",
+                step.status = "verifying"
+                step.finished_at = None
+                if action.status == "pending":
+                    step.last_error = "Waiting for the paired Android device to claim and report this action"
+                elif action.status == "creation_uncertain":
+                    step.last_error = (
+                        "Android reported an ambiguous multipart SMS send outcome; "
+                        "automatic resend remains disabled while evidence is reconciled"
                     )
-                    continue
-                step.run_after = now + timedelta(seconds=15)
+                else:
+                    step.last_error = (
+                        "Device dispatch was claimed; waiting for durable carrier or RemoteInput evidence"
+                    )
+                step.run_after = now + _device_action_verify_delay(step, now)
                 await _transition_objective(db, objective, "verifying")
                 continue
 

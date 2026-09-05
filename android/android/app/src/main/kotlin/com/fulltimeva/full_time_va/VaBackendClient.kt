@@ -212,17 +212,48 @@ object VaBackendClient {
         status: String,
         externalRef: String,
         details: JSONObject = JSONObject(),
+        failureReason: String = "",
     ) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(
                 "action_evidence_$actionId",
                 JSONObject()
                     .put("status", status)
+                    .put("failure_reason", failureReason.take(1900))
                     .put("external_ref", externalRef)
                     .put("details", details)
                     .toString(),
             )
             .apply()
+    }
+
+    fun postOrStoreActionResult(
+        context: Context,
+        actionId: Long,
+        status: String,
+        failureReason: String = "",
+        externalRef: String = "",
+        details: JSONObject = JSONObject(),
+    ): Boolean {
+        val posted = postActionResult(
+            context,
+            actionId,
+            status,
+            failureReason,
+            externalRef,
+            details,
+        )
+        if (!posted) {
+            storeActionEvidence(
+                context,
+                actionId,
+                status,
+                externalRef,
+                details,
+                failureReason,
+            )
+        }
+        return posted
     }
 
     fun repostStoredActionEvidence(context: Context, actionId: Long): Boolean {
@@ -233,11 +264,27 @@ object VaBackendClient {
             context,
             actionId,
             evidence.optString("status"),
+            failureReason = evidence.optString("failure_reason"),
             externalRef = evidence.optString("external_ref"),
             details = evidence.optJSONObject("details") ?: JSONObject(),
         )
         if (posted) prefs.edit().remove("action_evidence_$actionId").apply()
         return true
+    }
+
+    fun claimCommunicationAction(context: Context, actionId: Long): Boolean {
+        repeat(3) {
+            val response = request(
+                context,
+                "POST",
+                "/api/communications/actions/$actionId/claim",
+                null,
+            )
+            if (response != null) {
+                return response.optBoolean("claimed", false) && response.optString("status") == "dispatching"
+            }
+        }
+        return false
     }
 
     fun fetchPendingCommunicationActions(context: Context): JSONArray {
@@ -278,8 +325,7 @@ object VaBackendClient {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val key = "action_done_$actionId"
         if (prefs.getBoolean(key, false)) return false
-        prefs.edit().putBoolean(key, true).apply()
-        return true
+        return prefs.edit().putBoolean(key, true).commit()
     }
 
     fun clearActionExecuted(context: Context, actionId: Long) {
