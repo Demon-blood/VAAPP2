@@ -674,7 +674,29 @@ async def _sync_obligation_statuses(db: AsyncSession) -> dict[str, int]:
                         submission.last_error = row.last_error
                     result["needs_user"] += 1
                     continue
-                if operation.status in {"creation_uncertain", "failed"}:
+                if operation.status == "creation_uncertain":
+                    from app.services.browser_operator import operation_requires_postcondition_reconciliation
+
+                    row.last_error = operation.last_error
+                    if operation_requires_postcondition_reconciliation(operation):
+                        # The same BrowserOperation is still owned by the Autonomous Core and
+                        # may only perform provider-postcondition reconciliation. Do not project
+                        # active duplicate-safe recovery as a terminal document failure.
+                        row.status = "in_progress"
+                        if submission is not None:
+                            submission.status = "in_progress"
+                            submission.last_error = row.last_error
+                        result["in_progress"] += 1
+                    else:
+                        # Without the durable marker, the browser runtime cannot prove that
+                        # reconciliation-only resume is safe. Keep the obligation system-blocked.
+                        row.status = "blocked_system"
+                        if submission is not None:
+                            submission.status = row.status
+                            submission.last_error = row.last_error
+                        result["blocked"] += 1
+                    continue
+                if operation.status == "failed":
                     row.status = "blocked_system"
                     row.last_error = operation.last_error
                     if submission is not None:

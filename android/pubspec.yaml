@@ -1,7 +1,7 @@
 name: full_time_va
 description: Android control centre for the Full-Time VA automation service.
 publish_to: none
-version: 1.0.14+57
+version: 1.0.15+58
 environment:
   sdk: '>=3.10.0 <4.0.0'
 

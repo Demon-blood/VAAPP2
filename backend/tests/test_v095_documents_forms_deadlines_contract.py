@@ -7,9 +7,9 @@ def _root() -> Path:
 
 def test_v095_release_identity() -> None:
     root = _root()
-    assert 'APP_VERSION = "1.0.14"' in (root / "backend/app/core/version.py").read_text()
-    assert 'version = "1.0.14"' in (root / "backend/pyproject.toml").read_text()
-    assert 'version: 1.0.14+57' in (root / "android/pubspec.yaml").read_text()
+    assert 'APP_VERSION = "1.0.15"' in (root / "backend/app/core/version.py").read_text()
+    assert 'version = "1.0.15"' in (root / "backend/pyproject.toml").read_text()
+    assert 'version: 1.0.15+58' in (root / "android/pubspec.yaml").read_text()
     assert "Full-Time-VA-Android-v1.0.5.apk" in (root / ".github/workflows/android-release.yml").read_text()
 
 
@@ -64,7 +64,10 @@ def test_form_completion_requires_verified_browser_operation() -> None:
     assert 'row.status = "completed"' in source
     assert 'submission.status = "verified"' in source
     assert 'row.completed_at = operation.verified_at or now' in source
-    assert 'if operation.status in {"creation_uncertain", "failed"}:' in source
+    assert 'if operation.status == "creation_uncertain":' in source
+    assert 'operation_requires_postcondition_reconciliation(operation)' in source
+    assert 'row.status = "in_progress"' in source
+    assert 'if operation.status == "failed":' in source
     assert 'row.status = "blocked_system"' in source
     assert 'operation.status == "needs_user_auth"' in source
     assert 'operation.challenge_type == "form_input"' in source
