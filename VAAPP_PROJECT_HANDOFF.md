@@ -6,25 +6,25 @@ Branch: `main`
 
 ## Verified source of truth
 
-The verified maintenance baseline for this release is commit `2b48b72e720a2e515e346fed253e24c131ae078a` (`v1.0.15 — Generic Browser Late-Evidence Recovery & Objective Continuity`). GitHub Actions run `33967944880` completed successfully end-to-end with 392 backend tests, Ruff gates, Flutter analysis/tests, Android signing, signed APK build, source verification, and prerelease publication under tag `va-android-115-3-1`.
+The verified maintenance baseline for this release is commit `830c2c87b89972bc0735028584285f2827ac4bf9` (`v1.0.16 — Device Communication Dispatch Claim & Late-Evidence Continuity`). GitHub Actions run `33975481668` completed successfully end-to-end with 407 backend tests, Ruff gates, Flutter analysis/tests, Android signing, signed APK build, source verification, and prerelease publication under tag `va-android-116-3-1`.
 
-Verified v1.0.15 release identity: backend `1.0.15` / Android `1.0.15+58`. APK SHA-256: `19165c0c6a531a9bf8545ea9ccf6672f35e269d32b1f896a4d5dcb7f5856360d`. The operator subsequently reported production deployment and phone smoke testing complete.
+Verified v1.0.16 release identity: backend `1.0.16` / Android `1.0.16+59`. APK SHA-256: `caf9810e4ae1c8bd9db2d9e91222ace01265bd67b7dfdfaa0b472f24787ad622`. The operator subsequently reported production deployment and phone smoke testing complete.
 
-Historical v1.0.14 source remains `8557dd449db554528ab7e111d0029faf784c996f` with successful Actions run `33961135886` and tag `va-android-114-3-1`. Historical v1.0.13 source remains `ecaa113d4461a550cb49c6046a42ecf880729346` with successful Actions run `33434347111` and tag `va-android-113-4-1`. Historical v1.0.12 source remains `22a392f1341ef19caf8a761cd7bfa44000fdc08c` with successful Actions run `33333446575` and tag `va-android-112-2-1`. Historical v1.0.11 source remains `221205e82444f9c0bff2589cf3ffc015408e664a` with successful Actions run `33331650005` and tag `va-android-111-2-1`.
+Historical v1.0.15 source remains `2b48b72e720a2e515e346fed253e24c131ae078a` with successful Actions run `33967944880` and tag `va-android-115-3-1`. Historical v1.0.14 source remains `8557dd449db554528ab7e111d0029faf784c996f` with successful Actions run `33961135886` and tag `va-android-114-3-1`. Historical v1.0.13 source remains `ecaa113d4461a550cb49c6046a42ecf880729346` with successful Actions run `33434347111` and tag `va-android-113-4-1`. Historical v1.0.12 source remains `22a392f1341ef19caf8a761cd7bfa44000fdc08c` with successful Actions run `33333446575` and tag `va-android-112-2-1`. Historical v1.0.11 source remains `221205e82444f9c0bff2589cf3ffc015408e664a` with successful Actions run `33331650005` and tag `va-android-111-2-1`.
 
 Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
 
 ## Current maintenance candidate
 
-Backend `1.0.16` / Android `1.0.16+59`.
+Backend `1.0.17` / Android `1.0.17+60`.
 
-Current candidate: **v1.0.16 — Device Communication Dispatch Claim & Late-Evidence Continuity**.
+Current candidate: **v1.0.17 — Investment Side-Effect Recovery & Human Boundary Integrity**.
 
-v1.0.16 makes a durable paired-device dispatch claim the cross-device at-most-once boundary for device communication actions. Android must claim the original action before SMS carrier dispatch; the same device may idempotently re-assert a lost claim response, another device is denied, local evidence reconciliation still runs before any send, and the local execution marker is synchronously persisted before the provider boundary. Missing callbacks remain VA-owned with backoff instead of terminalizing after 30 minutes, and historical elapsed-time failures can reopen against the same action when late device evidence arrives. Definitive replay-safe device failures may release the claim for safe retry, while multipart partial-send ambiguity stays VA-owned and non-replayable.
+v1.0.17 keeps ambiguous Kraken funding payments and market orders under VA-owned reconciliation instead of creating fake user work or permitting blind replay. Funding ambiguity is recovered only from one uniquely matching booked debit on the exact source bank account. Automatic Kraken trading persists a durable client-order intent before AddOrder and reconciles OpenOrders/ClosedOrders by the same `cl_ord_id`; ambiguous or no-id outcomes never authorize a replacement order. Genuine bound bank SCA remains the human boundary.
 
 The guarded installer commits this candidate only after backend tests, Ruff gates, Flutter analysis/tests, Android signing checks, and a signed release APK build pass.
 
-Next work after the v1.0.16 gate is green: **v1.x maintenance and real-world hardening**.
+Next work after the v1.0.17 gate is green: **v1.x maintenance and real-world hardening**.
 
 ## Product objective
 

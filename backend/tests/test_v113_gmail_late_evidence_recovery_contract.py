@@ -9,13 +9,13 @@ def read(path: str) -> str:
 
 def test_v113_release_identity() -> None:
     version = read("backend/app/core/version.py")
-    assert 'APP_VERSION = "1.0.16"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.16"' in version
-    assert 'version = "1.0.16"' in read("backend/pyproject.toml")
-    assert "version: 1.0.16+59" in read("android/pubspec.yaml")
+    assert 'APP_VERSION = "1.0.17"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.17"' in version
+    assert 'version = "1.0.17"' in read("backend/pyproject.toml")
+    assert "version: 1.0.17+60" in read("android/pubspec.yaml")
     release = read("android/lib/release_contract.dart")
-    assert "appRelease = '1.0.16'" in release
-    assert "minimumBackendVersion = '1.0.16'" in release
+    assert "appRelease = '1.0.17'" in release
+    assert "minimumBackendVersion = '1.0.17'" in release
 
 
 def test_gmail_ambiguity_never_expires_into_terminal_failure() -> None:
