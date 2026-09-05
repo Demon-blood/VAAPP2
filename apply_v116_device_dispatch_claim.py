@@ -13,7 +13,7 @@ EXPECTED_PREVIEW_SHA256: dict[str, str] = {
     "preview/backend/tests/test_v116_device_dispatch_claim.py":
         "dd0e35e2ece35faf6d0037a55a68fa25e2450da5d823cd97178657668198ca79",
     "preview/backend/tests/test_v116_device_dispatch_claim_contract.py":
-        "0c065b501d6808d39f80e1a0fd3d235b4601c2fe3e1aea9177e23e41460c5e59",
+        "40c10f1b018ca63015f4d1af6cc134333bf8f5893838d91abb61b8965fad4516",
     "preview/docs/V1.0.16_DEVICE_DISPATCH_CLAIM.md":
         "a2b639e50d100b9481da1a6152b8d42d142933bd490d6a63097af7b1094aeb94",
 }
@@ -952,6 +952,19 @@ Next work after the v1.0.16 gate is green: **v1.x maintenance and real-world har
     handoff_path.write_text(prefix + suffix, encoding="utf-8")
 
 
+def patch_legacy_v070_android_contract(root: Path) -> None:
+    """Advance the historical Android bridge contract to durable v1.0.16 result reporting."""
+    path = root / "backend/tests/test_v070_android_communications_contract.py"
+    replace_once(
+        path,
+        '    assert "postActionResult" in notification\n',
+        (
+            '    assert "storeActionEvidence" in notification\n'
+            '    assert "postOrStoreActionResult" in notification\n'
+        ),
+    )
+
+
 def bump_versions(root: Path) -> None:
     replace_once(
         root / "backend/app/core/version.py",
@@ -1013,6 +1026,7 @@ def verify_diff(root: Path) -> None:
         "android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/VaCommunicationPendingWorker.kt",
         "android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/VaNotificationListenerService.kt",
         "android/android/app/src/main/kotlin/com/fulltimeva/full_time_va/SmsStatusReceiver.kt",
+        "backend/tests/test_v070_android_communications_contract.py",
         "backend/tests/test_v116_device_dispatch_claim.py",
         "backend/tests/test_v116_device_dispatch_claim_contract.py",
         "docs/V1.0.16_DEVICE_DISPATCH_CLAIM.md",
@@ -1027,6 +1041,13 @@ def verify_diff(root: Path) -> None:
     missing = sorted(required.difference(changed))
     if missing:
         raise RuntimeError(f"required v1.0.16 changes missing from diff: {missing}")
+
+    legacy_android_contract = read_text(
+        root / "backend/tests/test_v070_android_communications_contract.py"
+    )
+    for marker in ("storeActionEvidence", "postOrStoreActionResult"):
+        if marker not in legacy_android_contract:
+            raise RuntimeError(f"v0.7 Android communications compatibility marker missing: {marker}")
 
     models = read_text(root / "backend/app/models/entities.py")
     service = read_text(root / "backend/app/services/communications_service.py")
@@ -1159,6 +1180,7 @@ def main() -> None:
     patch_sms_status_receiver(root)
     patch_autonomous_core(root)
     write_new_files(root)
+    patch_legacy_v070_android_contract(root)
     patch_project_metadata(root)
     bump_versions(root)
     verify_diff(root)

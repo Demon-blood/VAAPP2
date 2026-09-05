@@ -35,7 +35,7 @@ def test_backend_claim_is_durable_idempotent_and_cross_device_exclusive() -> Non
     assert '"creation_uncertain"' in service
     assert "delete(CommunicationDispatchClaim)" in service
     assert "communication_action_dispatch_claimed" in service
-    assert 'CommunicationAction.status.in_(["pending", "dispatching"])' in service
+    assert 'CommunicationAction.status.in_(["pending", "dispatching", "creation_uncertain"])' in service
     assert 'resumable_claim = action.status == "dispatching" and channel == "sms"' in service
     assert '"can_resume_claimed_dispatch": resumable_claim' in service
     assert '@router.post("/api/communications/actions/{action_id}/claim")' in routes

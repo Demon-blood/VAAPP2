@@ -1,6 +1,6 @@
 name: Apply v1.0.16 Device Communication Dispatch Claim & Late-Evidence Continuity
 
-# Patch bundle revision: r1-device-dispatch-claim
+# Patch bundle revision: r2-contract-compatibility-fix
 
 on:
   workflow_dispatch:
