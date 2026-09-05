@@ -615,6 +615,56 @@ class InvestmentFundingTransfer(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class InvestmentFundingRecoveryEvidence(Base):
+    __tablename__ = "investment_funding_recovery_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(
+        ForeignKey("investment_funding_transfers.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    bank_account_id: Mapped[int] = mapped_column(
+        ForeignKey("bank_accounts.id", ondelete="CASCADE"),
+        index=True,
+    )
+    transaction_id: Mapped[str] = mapped_column(String(255))
+    match_basis: Mapped[str] = mapped_column(String(120))
+    observed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "bank_account_id",
+            "transaction_id",
+            name="uq_investment_funding_recovery_account_transaction",
+        ),
+    )
+
+
+class InvestmentTradeIntent(Base):
+    __tablename__ = "investment_trade_intents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(
+        ForeignKey("investment_funding_transfers.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    client_order_id: Mapped[str] = mapped_column(String(18), unique=True, index=True)
+    pair: Mapped[str] = mapped_column(String(40), default="")
+    eur_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0.00"))
+    status: Mapped[str] = mapped_column(String(40), default="prepared", index=True)
+    provider_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
+    provider_status: Mapped[str] = mapped_column(String(40), default="")
+    observed_order_json: Mapped[str] = mapped_column(Text, default="{}")
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class BudgetEnvelope(Base):
     __tablename__ = "budget_envelopes"
 

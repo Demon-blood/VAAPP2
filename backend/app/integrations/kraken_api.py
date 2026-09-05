@@ -18,6 +18,16 @@ class KrakenConfigurationError(RuntimeError):
     pass
 
 
+class KrakenProviderHTTPError(KrakenConfigurationError):
+    def __init__(self, message: str, *, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class KrakenOrderCreationUncertainError(RuntimeError):
+    pass
+
+
 async def _credentials(db: AsyncSession) -> tuple[str, str, str]:
     base_url = await get_runtime_value(db, "kraken_api_base_url", "https://api.kraken.com")
     api_key = await get_runtime_value(db, "kraken_api_key")
@@ -52,7 +62,10 @@ async def _private(db: AsyncSession, path: str, payload: dict[str, Any] | None =
     async with httpx.AsyncClient(timeout=45) as client:
         response = await client.post(base_url + path, data=params, headers=headers)
     if response.status_code >= 400:
-        raise KrakenConfigurationError(f"Kraken HTTP {response.status_code}: {response.text[:1000]}")
+        message = f"Kraken HTTP {response.status_code}: {response.text[:1000]}"
+        if response.status_code == 429 or response.status_code >= 500:
+            raise KrakenProviderHTTPError(message, status_code=response.status_code)
+        raise KrakenConfigurationError(message)
     body = response.json()
     errors = body.get("error") if isinstance(body, dict) else None
     if errors:
@@ -200,6 +213,42 @@ async def get_deposit_status(db: AsyncSession, *, asset: str = "EUR") -> list[di
     return []
 
 
+async def get_orders_by_client_order_id(
+    db: AsyncSession,
+    client_order_id: str,
+) -> list[dict[str, Any]]:
+    """Read open and closed Spot orders for one durable Kraken client order id."""
+    client_order_id = str(client_order_id or "").strip()[:18]
+    if not client_order_id:
+        raise KrakenConfigurationError("Kraken client order id is required for reconciliation")
+    open_result = await _private(
+        db,
+        "/0/private/OpenOrders",
+        {"trades": False, "cl_ord_id": client_order_id},
+    )
+    closed_result = await _private(
+        db,
+        "/0/private/ClosedOrders",
+        {"trades": False, "cl_ord_id": client_order_id, "without_count": "true"},
+    )
+    rows: list[dict[str, Any]] = []
+    for source, result, key in (
+        ("open", open_result, "open"),
+        ("closed", closed_result, "closed"),
+    ):
+        values = result.get(key) if isinstance(result, dict) else None
+        if not isinstance(values, dict):
+            continue
+        for order_id, payload in values.items():
+            if not isinstance(payload, dict):
+                continue
+            row = dict(payload)
+            row["order_id"] = str(order_id)
+            row["source"] = source
+            rows.append(row)
+    return rows
+
+
 async def market_buy_eur(db: AsyncSession, *, pair: str, eur_amount: Decimal, client_order_id: str) -> dict[str, Any]:
     if eur_amount <= 0:
         raise KrakenConfigurationError("Kraken investment amount must be positive")
@@ -218,14 +267,19 @@ async def market_buy_eur(db: AsyncSession, *, pair: str, eur_amount: Decimal, cl
     volume = (eur_amount * Decimal("0.99") / ask).quantize(Decimal("0.00000001"))
     if volume <= 0:
         raise KrakenConfigurationError("Calculated Kraken order size is below the supported precision")
-    return await _private(
-        db,
-        "/0/private/AddOrder",
-        {
-            "pair": pair,
-            "type": "buy",
-            "ordertype": "market",
-            "volume": format(volume, "f"),
-            "cl_ord_id": client_order_id[:18],
-        },
-    )
+    try:
+        return await _private(
+            db,
+            "/0/private/AddOrder",
+            {
+                "pair": pair,
+                "type": "buy",
+                "ordertype": "market",
+                "volume": format(volume, "f"),
+                "cl_ord_id": client_order_id[:18],
+            },
+        )
+    except (httpx.RequestError, TimeoutError, KrakenProviderHTTPError) as exc:
+        raise KrakenOrderCreationUncertainError(
+            f"Kraken AddOrder outcome is uncertain: {exc}"
+        ) from exc

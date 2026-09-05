@@ -13,6 +13,7 @@ from app.core.crypto import new_token
 from app.integrations import enable_banking
 from app.integrations.kraken_api import (
     KrakenConfigurationError,
+    KrakenOrderCreationUncertainError,
     get_api_key_permissions,
     get_deposit_status,
     get_eur_balance,
@@ -37,6 +38,11 @@ from app.services.financial_autopilot import (
     upcoming_bill_totals,
 )
 from app.services.financial_learning import learn_recurring_cashflows
+from app.services.investment_recovery import (
+    prepare_kraken_trade_intent,
+    reconcile_kraken_trade_intent,
+    reconcile_uncertain_kraken_funding,
+)
 from app.services.runtime_config import get_runtime_value
 
 SUCCESS_STATUSES = {"ACSC", "ACCC", "BOOK"}
@@ -308,29 +314,37 @@ async def run_kraken_funding_autopilot(db: AsyncSession, *, redirect_url: str) -
         return {"enabled": True, "state": "failed", "transfer_id": transfer.id, "error": str(exc)}
     except (httpx.RequestError, TimeoutError) as exc:
         transfer.status = "creation_uncertain"
-        transfer.requires_user_action = True
-        transfer.failure_reason = f"Kraken funding payment outcome is uncertain; automatic retry is blocked: {exc}"[:2000]
-        db.add(Task(
-            title="Check bank before retrying Kraken funding",
-            description=transfer.failure_reason,
-            source_type="kraken_funding_uncertain",
-            source_id=str(transfer.id),
-            priority="urgent",
-            requires_approval=True,
-        ))
+        transfer.requires_user_action = False
+        transfer.authorization_url = None
+        transfer.failure_reason = (
+            "Kraken funding payment outcome is uncertain; VA-owned bank reconciliation is active "
+            f"and automatic payment replay is disabled: {exc}"
+        )[:2000]
+        await db.delete(state_row)
         await db.commit()
         return {"enabled": True, "state": "creation_uncertain", "transfer_id": transfer.id}
 
     transfer.external_payment_id = str(response.get("payment_id") or response.get("id") or "").strip() or None
     transfer.authorization_url = str(response.get("url") or "").strip() or None
-    transfer.requires_user_action = bool(transfer.authorization_url)
+    transfer.requires_user_action = bool(transfer.authorization_url and transfer.external_payment_id)
     if transfer.external_payment_id is None:
         transfer.status = "creation_uncertain"
-        transfer.requires_user_action = True
-        transfer.failure_reason = "Payment provider returned no payment identifier; automatic retry is blocked."
+        transfer.requires_user_action = False
+        transfer.authorization_url = None
+        transfer.failure_reason = (
+            "Payment provider returned no payment identifier; VA-owned bank reconciliation is active "
+            "and automatic payment replay is disabled."
+        )
+        await db.delete(state_row)
     else:
-        transfer.status = "authorization_required" if transfer.requires_user_action else str(response.get("status") or "received").lower()
-    state_row.payload_json = json.dumps({"transfer_id": transfer.id, "external_payment_id": transfer.external_payment_id})
+        transfer.status = (
+            "authorization_required"
+            if transfer.requires_user_action
+            else str(response.get("status") or "received").lower()
+        )
+        state_row.payload_json = json.dumps(
+            {"transfer_id": transfer.id, "external_payment_id": transfer.external_payment_id}
+        )
     if transfer.authorization_url:
         db.add(Task(
             title="Authorize Kraken investment funding",
@@ -359,7 +373,11 @@ async def run_kraken_funding_autopilot(db: AsyncSession, *, redirect_url: str) -
 
 
 async def refresh_kraken_funding_transfer(db: AsyncSession, transfer: InvestmentFundingTransfer) -> InvestmentFundingTransfer:
-    if not transfer.external_payment_id or transfer.status in {"creation_uncertain", "failed", "cancelled", "rejected", "funded", "invested"}:
+    if transfer.status in {"failed", "cancelled", "rejected", "funded", "invested"}:
+        return transfer
+    if not transfer.external_payment_id:
+        if transfer.status == "creation_uncertain":
+            await reconcile_uncertain_kraken_funding(db, transfer)
         return transfer
     if transfer.status not in {"awaiting_deposit", "deposit_observed", "trade_pending"}:
         response = await enable_banking.get_payment(db, transfer.external_payment_id)
@@ -379,43 +397,52 @@ async def refresh_kraken_funding_transfer(db: AsyncSession, transfer: Investment
 
 
 async def reconcile_kraken_funding_and_trade(db: AsyncSession, transfer: InvestmentFundingTransfer) -> InvestmentFundingTransfer:
-    if transfer.status != "awaiting_deposit":
+    pair = transfer.trade_pair or "XBTEUR"
+    if transfer.status == "trade_pending":
+        intent = await prepare_kraken_trade_intent(
+            db,
+            transfer,
+            pair=pair,
+            eur_amount=Decimal("0.00"),
+            legacy_recovery=True,
+        )
+        await reconcile_kraken_trade_intent(db, transfer, intent)
         return transfer
+    if transfer.status not in {"awaiting_deposit", "deposit_observed"}:
+        return transfer
+
     current = await get_eur_balance(db)
     transfer.observed_provider_cash = current
-    baseline = transfer.pre_provider_cash or Decimal("0")
-    required_delta = (transfer.amount * Decimal("0.98")).quantize(Decimal("0.01"))
-
-    # Prefer Kraken's own deposit ledger over a balance delta. The balance fallback
-    # remains useful when an account/API combination does not expose fiat deposit
-    # status, but it is deliberately conservative and only one funding transfer can
-    # be active at a time.
-    deposit_observed = False
-    try:
-        deposits = await get_deposit_status(db, asset="EUR")
-        earliest = transfer.created_at - timedelta(days=1)
-        for item in deposits:
-            status = str(item.get("status") or "").casefold()
-            if status not in {"success", "settled", "completed"}:
-                continue
-            try:
-                amount = _money(item.get("amount"))
-                booked = datetime.utcfromtimestamp(float(item.get("time") or 0))
-            except (TypeError, ValueError, OSError):
-                continue
-            if booked < earliest or amount < required_delta:
-                continue
-            transfer.provider_deposit_ref = str(item.get("refid") or item.get("txid") or "")[:255] or None
-            deposit_observed = True
-            break
-    except (KrakenConfigurationError, httpx.RequestError):
+    if transfer.status == "awaiting_deposit":
+        baseline = transfer.pre_provider_cash or Decimal("0")
+        required_delta = (transfer.amount * Decimal("0.98")).quantize(Decimal("0.01"))
         deposit_observed = False
-
-    if not deposit_observed and current - baseline < required_delta:
+        try:
+            deposits = await get_deposit_status(db, asset="EUR")
+            earliest = transfer.created_at - timedelta(days=1)
+            for item in deposits:
+                status = str(item.get("status") or "").casefold()
+                if status not in {"success", "settled", "completed"}:
+                    continue
+                try:
+                    amount = _money(item.get("amount"))
+                    booked = datetime.utcfromtimestamp(float(item.get("time") or 0))
+                except (TypeError, ValueError, OSError):
+                    continue
+                if booked < earliest or amount < required_delta:
+                    continue
+                transfer.provider_deposit_ref = (
+                    str(item.get("refid") or item.get("txid") or "")[:255] or None
+                )
+                deposit_observed = True
+                break
+        except (KrakenConfigurationError, httpx.RequestError):
+            deposit_observed = False
+        if not deposit_observed and current - baseline < required_delta:
+            await db.commit()
+            return transfer
+        transfer.status = "deposit_observed"
         await db.commit()
-        return transfer
-    transfer.status = "deposit_observed"
-    await db.commit()
 
     auto_trade = (await get_runtime_value(db, "kraken_auto_trade_enabled", "false")).casefold() == "true"
     if not auto_trade:
@@ -423,47 +450,105 @@ async def reconcile_kraken_funding_and_trade(db: AsyncSession, transfer: Investm
         await db.commit()
         return transfer
     permissions = await get_api_key_permissions(db)
-    if "modify-trades" not in permissions:
+    required_trade_permissions = {"modify-trades", "query-open-trades", "query-closed-trades"}
+    missing_permissions = sorted(required_trade_permissions.difference(permissions))
+    if missing_permissions:
         transfer.status = "funded"
-        transfer.failure_reason = "Kraken deposit arrived, but the API key lacks modify-trades permission; cash was left uninvested."
+        transfer.failure_reason = (
+            "Kraken deposit arrived, but safe automatic trading requires API permissions: "
+            + ", ".join(missing_permissions)
+        )[:2000]
         await db.commit()
         return transfer
-    max_trade = _money(await get_runtime_value(db, "kraken_max_auto_trade_eur", "250"), Decimal("250"))
+    max_trade = _money(
+        await get_runtime_value(db, "kraken_max_auto_trade_eur", "250"),
+        Decimal("250"),
+    )
     trade_amount = min(transfer.amount, max_trade, _money(current))
     if trade_amount <= 0:
         transfer.status = "funded"
         await db.commit()
         return transfer
+
+    intent = await prepare_kraken_trade_intent(
+        db,
+        transfer,
+        pair=pair,
+        eur_amount=trade_amount,
+    )
+    if intent.status in {"submitting", "creation_uncertain"}:
+        transfer.status = "trade_pending"
+        await reconcile_kraken_trade_intent(db, transfer, intent)
+        return transfer
+
+    intent.status = "submitting"
+    intent.submitted_at = datetime.utcnow()
     transfer.status = "trade_pending"
+    transfer.failure_reason = ""
     await db.commit()
     try:
         result = await market_buy_eur(
             db,
-            pair=transfer.trade_pair or "XBTEUR",
+            pair=pair,
             eur_amount=trade_amount,
-            client_order_id=f"va{transfer.id}{int(transfer.created_at.timestamp())}",
+            client_order_id=intent.client_order_id,
         )
+    except KrakenOrderCreationUncertainError as exc:
+        intent.status = "creation_uncertain"
+        transfer.status = "trade_pending"
+        transfer.failure_reason = (
+            f"Kraken market-order outcome is uncertain; read-only cl_ord_id reconciliation is active: {exc}"
+        )[:2000]
+        await db.commit()
+        return transfer
+    except httpx.RequestError as exc:
+        # market_buy_eur only exposes plain RequestError before AddOrder; retrying
+        # that read-only price preflight is safe because no provider side effect ran.
+        intent.status = "prepared"
+        intent.submitted_at = None
+        transfer.status = "deposit_observed"
+        transfer.failure_reason = f"Kraken trade price preflight deferred: {exc}"[:2000]
+        await db.commit()
+        return transfer
     except KrakenConfigurationError as exc:
+        intent.status = "failed"
         transfer.status = "funded"
         transfer.failure_reason = f"Kraken funding succeeded but automatic trade was not placed: {exc}"[:2000]
         await db.commit()
         return transfer
+
     order_ids = result.get("txid") if isinstance(result, dict) else None
     if isinstance(order_ids, list):
         order_id = str(order_ids[0]) if order_ids else ""
     else:
         order_id = str(order_ids or result.get("order_id") or "") if isinstance(result, dict) else ""
-    transfer.trade_order_id = order_id[:255] or None
-    transfer.status = "invested" if transfer.trade_order_id else "funded"
-    if not transfer.trade_order_id:
-        transfer.failure_reason = "Kraken accepted the trade call but did not return an order identifier; no automatic retry was attempted."
+    if order_id:
+        intent.provider_order_id = order_id[:255]
+        intent.status = "verified"
+        intent.verified_at = datetime.utcnow()
+        transfer.trade_order_id = order_id[:255]
+        transfer.status = "invested"
+        transfer.failure_reason = ""
+    else:
+        intent.status = "creation_uncertain"
+        transfer.trade_order_id = None
+        transfer.status = "trade_pending"
+        transfer.failure_reason = (
+            "Kraken accepted the trade call without a transaction id; read-only cl_ord_id reconciliation is active."
+        )
     await write_audit(
         db,
         "kraken_investment_executed" if transfer.trade_order_id else "kraken_investment_trade_uncertain",
         entity_type="investment_funding_transfer",
         entity_id=str(transfer.id),
         result="success" if transfer.trade_order_id else "blocked",
-        details={"amount": str(trade_amount), "pair": transfer.trade_pair, "order_id": transfer.trade_order_id},
+        details={
+            "amount": str(trade_amount),
+            "pair": pair,
+            "order_id": transfer.trade_order_id,
+            "client_order_id": intent.client_order_id,
+            "automatic_retry": False,
+        },
     )
     await db.commit()
     return transfer
@@ -488,7 +573,7 @@ async def refresh_all_kraken_funding(db: AsyncSession) -> dict[str, int]:
         before = row.status
         try:
             await refresh_kraken_funding_transfer(db, row)
-            if row.status == "awaiting_deposit":
+            if row.status in {"awaiting_deposit", "deposit_observed", "trade_pending"}:
                 await reconcile_kraken_funding_and_trade(db, row)
                 reconciled += 1
             if row.status != before:

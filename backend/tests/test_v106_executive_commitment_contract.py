@@ -42,7 +42,7 @@ def test_v106_release_contract_and_routes():
     assert '"commitment_graph"' in routes
     assert '"/api/va/commitments"' in routes
     assert '"/api/va/commitments/{objective_id}"' in routes
-    assert 'APP_VERSION = "1.0.16"' in read("backend/app/core/version.py")
-    assert 'version = "1.0.16"' in read("backend/pyproject.toml")
-    assert "version: 1.0.16+59" in read("android/pubspec.yaml")
-    assert "appRelease = '1.0.16'" in read("android/lib/release_contract.dart")
+    assert 'APP_VERSION = "1.0.17"' in read("backend/app/core/version.py")
+    assert 'version = "1.0.17"' in read("backend/pyproject.toml")
+    assert "version: 1.0.17+60" in read("android/pubspec.yaml")
+    assert "appRelease = '1.0.17'" in read("android/lib/release_contract.dart")
