@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from googleapiclient.errors import HttpError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -303,7 +304,13 @@ async def ensure_document_archive_upload(
                 intent,
                 find_files=find_files,
             )
-        except Exception:
+        except (
+            HttpError,
+            httpx.HTTPError,
+            GoogleConfigurationError,
+            TimeoutError,
+            OSError,
+        ):
             recovered = None
         if recovered is not None:
             return recovered
@@ -322,7 +329,13 @@ async def ensure_document_archive_upload(
                 intent,
                 find_files=find_files,
             )
-        except Exception:
+        except (
+            HttpError,
+            httpx.HTTPError,
+            GoogleConfigurationError,
+            TimeoutError,
+            OSError,
+        ):
             recovered = None
         if recovered is not None:
             return recovered

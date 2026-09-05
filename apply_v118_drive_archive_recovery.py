@@ -9,12 +9,10 @@ from pathlib import Path
 
 EXPECTED_BASELINE = "251e2e5a67ba137d2ac7b445a719d4be487df9fc"
 BUNDLE_ROOT = Path(__file__).resolve().parent
-EXPECTED_PREVIEW_SHA256: dict[str, str] = {
-    "preview/backend/app/services/document_archive_recovery.py": "540afc62938bf390cbad704e31350e33f120a8d0037a8538dc0b29e8fb939c74",
-    "preview/backend/tests/test_v118_drive_archive_recovery.py": "c66e8bdffcacb1d2a8b1bfef4952d1d1daa810834ca5dfa2c249899da806f141",
-    "preview/backend/tests/test_v118_drive_archive_recovery_contract.py": "6c5b97b9e347f7dee9f3a54b2fb0ddc17ecad99fab8992e027b261428ffd26ae",
-    "preview/docs/V1.0.18_DRIVE_ARCHIVE_RECOVERY.md": "cac90ca8f740492456f0c4170502ea6f9819b6b4f5e2670141b9da3f957a5a91",
-}
+EXPECTED_PREVIEW_SHA256: dict[str, str] = {'preview/backend/app/services/document_archive_recovery.py': '41df085b3f2524605e9d49098ebcc1ec251af8eb546fd4640f0fa04f64dc4e6c',
+ 'preview/backend/tests/test_v118_drive_archive_recovery.py': 'c66e8bdffcacb1d2a8b1bfef4952d1d1daa810834ca5dfa2c249899da806f141',
+ 'preview/backend/tests/test_v118_drive_archive_recovery_contract.py': '7471f3621617981514a241d703ea346a26a160c2230eee09a283dcf4510d0cec',
+ 'preview/docs/V1.0.18_DRIVE_ARCHIVE_RECOVERY.md': 'cac90ca8f740492456f0c4170502ea6f9819b6b4f5e2670141b9da3f957a5a91'}
 
 
 def read_text(path: Path) -> str:

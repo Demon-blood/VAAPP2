@@ -1,6 +1,6 @@
 name: Apply v1.0.18 Drive Archive Upload Recovery & Exact-Byte Duplicate Suppression
 
-# Patch bundle revision: r1
+# Patch bundle revision: r2-lint-fix
 
 on:
   workflow_dispatch:
