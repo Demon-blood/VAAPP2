@@ -966,22 +966,108 @@ async def find_drive_files_by_app_properties(
     return rows
 
 
+async def find_drive_folder_candidates(
+    db: AsyncSession,
+    *,
+    folder_name: str,
+    parent_id: str | None,
+    path_key: str,
+) -> list[dict[str, Any]]:
+    service = await drive_service(db)
+    parent_ref = _drive_query_literal(parent_id or "root")
+    escaped_name = _drive_query_literal(folder_name)
+    escaped_key = _drive_query_literal(path_key)
+    base = [
+        "mimeType='application/vnd.google-apps.folder'",
+        "trashed=false",
+        f"'{parent_ref}' in parents",
+    ]
+    queries = [
+        " and ".join(
+            base
+            + [
+                "appProperties has { "
+                f"key='va_folder_path_key' and value='{escaped_key}'"
+                " }"
+            ]
+        ),
+        " and ".join(base + [f"name='{escaped_name}'"]),
+    ]
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for query in queries:
+        response = await _execute_google_request(
+            lambda query=query: service.files().list(
+                q=query,
+                spaces="drive",
+                fields="files(id,name,mimeType,createdTime,appProperties,parents)",
+                orderBy="createdTime asc",
+                pageSize=100,
+            ),
+            attempts=4,
+        )
+        for item in response.get("files", []) or []:
+            if not isinstance(item, dict):
+                continue
+            file_id = str(item.get("id") or "")
+            if not file_id or file_id in seen:
+                continue
+            seen.add(file_id)
+            rows.append(dict(item))
+    return rows
+
+
+async def create_drive_folder_once(
+    db: AsyncSession,
+    *,
+    folder_name: str,
+    parent_id: str | None,
+    path_key: str,
+    parent_path_key: str,
+) -> dict[str, Any]:
+    service = await drive_service(db)
+    metadata: dict[str, Any] = {
+        "name": folder_name,
+        "mimeType": "application/vnd.google-apps.folder",
+        "appProperties": {
+            "va_managed_folder": "true",
+            "va_folder_path_key": path_key,
+            "va_folder_parent_path_key": parent_path_key,
+        },
+    }
+    if parent_id:
+        metadata["parents"] = [parent_id]
+    result = await asyncio.to_thread(
+        lambda: service.files().create(
+            body=metadata,
+            fields="id,name,mimeType,createdTime,appProperties,parents",
+        ).execute()
+    )
+    return dict(result or {})
+
+
 async def upload_drive_file(
     db: AsyncSession,
     *,
     name: str,
     mime_type: str,
     content: bytes,
-    folder_path: list[str],
+    folder_path: list[str] | None = None,
     app_properties: dict[str, str] | None = None,
+    parent_id: str | None = None,
 ) -> dict[str, Any]:
     service = await drive_service(db)
-    parent_id: str | None = None
-    for folder in folder_path:
-        parent_id = await ensure_drive_folder(db, folder, parent_id)
+    resolved_parent_id = parent_id
+    if resolved_parent_id is None:
+        for folder in folder_path or []:
+            resolved_parent_id = await ensure_drive_folder(
+                db,
+                folder,
+                resolved_parent_id,
+            )
     metadata: dict[str, Any] = {
         "name": name,
-        "parents": [parent_id] if parent_id else [],
+        "parents": [resolved_parent_id] if resolved_parent_id else [],
         "appProperties": app_properties or {},
     }
     media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=True)

@@ -1,4 +1,4 @@
-# VAAPP v1.0.19 — Scheduled Connector Mutation Claim & Retry Integrity
+# VAAPP v1.0.20 — Drive Archive Folder Creation Recovery & Staged Upload Continuity
 
 Updated: 2026-09-05
 
@@ -6,11 +6,12 @@ Updated: 2026-09-05
 
 - Repository: `Demon-blood/VAAPP2`
 - Branch: `main`
-- Verified v1.0.18 source baseline: `b0005392a799bc5466a5e77febfd34035fb26ce3`
-- Verified v1.0.18 GitHub Actions run: `33986405236` — success
-- Verified v1.0.18 prerelease tag: `va-android-118-3-1`
-- v1.0.18 release identity: backend `1.0.18`, Android `1.0.18+61`
-- v1.0.18 APK SHA-256: `93aeddafa680ed4cf4b729fadd6401cad6af2f5240ec4cddaa8a355d3e862558`
+- Verified v1.0.19 source baseline: `41ecf4ae69f9750cac821688df9fb9b9ee1213c6`
+- Verified v1.0.19 GitHub Actions run: `33989785817` — success
+- Verified v1.0.19 prerelease tag: `va-android-119-1-1`
+- v1.0.19 release identity: backend `1.0.19`, Android `1.0.19+62`
+- v1.0.19 APK SHA-256: `dec470cc1deacdb17cd1758191b984f1e17f194c5098a929d229efaee4d7a9d8`
+- Historical v1.0.18 evidence: source `b0005392a799bc5466a5e77febfd34035fb26ce3`, GitHub Actions run `33986405236`, tag `va-android-118-3-1`.
 - Historical v1.0.17 evidence: source `251e2e5a67ba137d2ac7b445a719d4be487df9fc`, GitHub Actions run `33981261146`, tag `va-android-117-2-1`.
 - Historical v1.0.16 evidence: source `830c2c87b89972bc0735028584285f2827ac4bf9`, GitHub Actions run `33975481668`, tag `va-android-116-3-1`.
 - Historical v1.0.15 evidence: source `2b48b72e720a2e515e346fed253e24c131ae078a`, GitHub Actions run `33967944880`, tag `va-android-115-3-1`.
@@ -19,25 +20,25 @@ Updated: 2026-09-05
 - Historical v1.0.12 evidence: source `22a392f1341ef19caf8a761cd7bfa44000fdc08c`, GitHub Actions run `33333446575`, tag `va-android-112-2-1`.
 - Historical v1.0.11 evidence: source `221205e82444f9c0bff2589cf3ffc015408e664a`, GitHub Actions run `33331650005`, tag `va-android-111-2-1`.
 
-The operator subsequently reported production deployment and phone smoke testing complete for v1.0.18.
+The operator subsequently reported production deployment and phone smoke testing complete for v1.0.19.
 
-## v1.0.19 maintenance scope
+## v1.0.20 maintenance scope
 
-- Scheduled connector writes have a durable per-occurrence mutation ledger.
-- REST/OAuth writes, webhooks, Telegram sends, SMTP sends, uploads, and arbitrary Browserless work are non-replay-safe.
-- One worker must win an atomic `prepared -> submitting` claim before provider dispatch.
-- The claim and scheduled timestamp are committed before the external mutation.
-- Any post-claim provider exception becomes `execution_uncertain`.
-- `execution_uncertain` occurrences never enter ordinary transient workflow replay.
-- Ambiguous connector writes remain VA-owned and create no fake Needs You work.
-- Read-only connector rules retain normal bounded transient retry behavior.
-- Pre-v1.0.19 connector-rule retry/dead-letter/running jobs are quarantined once at startup.
-- Later scheduled interval buckets remain independent occurrences and continue normally.
+- Drive archive folder creation has a durable path-keyed intent ledger.
+- Each cumulative archive folder path is reconciled before a new folder create is claimed.
+- Folder creates carry stable VA path properties for read-only provider recovery.
+- Legacy same-name folders under the exact parent can be adopted without another provider mutation.
+- A folder create is one-shot after an atomic `prepared -> submitting` claim.
+- `submitting` and `creation_uncertain` folder intents are reconciliation-only and never replay automatically.
+- The full folder path resolves before the exact-byte file intent can enter `submitting`.
+- Folder ambiguity leaves the file intent `prepared` with zero file-dispatch attempts.
+- Existing v1.0.18 file ambiguity remains fail-closed and is never blindly reopened.
+- Drive provider ambiguity remains VA-owned and creates no fake Needs You work.
 
 ## Release identity
 
-- Backend: `1.0.19`
-- Required Android: `1.0.19`
-- Android: `1.0.19+62`
+- Backend: `1.0.20`
+- Required Android: `1.0.20`
+- Android: `1.0.20+63`
 
 Source publication remains gated by backend tests, Ruff, Flutter analysis/tests, Android signing, and the signed APK build.
