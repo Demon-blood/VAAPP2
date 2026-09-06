@@ -33,6 +33,10 @@ async def _fake_analyze(db, record):
     return {"document_id": record.id, "status": "analyzed"}
 
 
+async def _fake_folder_path(*args, **kwargs):
+    return "folder-v118-test"
+
+
 def _content() -> bytes:
     return ("Durable provider-backed archive record. " * 50).encode()
 
@@ -71,6 +75,10 @@ async def test_lost_drive_response_recovers_same_file_without_second_upload(
     monkeypatch.setattr("app.services.document_ingestion.find_drive_files_by_app_properties", fake_find)
     monkeypatch.setattr("app.services.document_ingestion.upload_drive_file", fake_upload)
     monkeypatch.setattr("app.services.document_ingestion.analyze_document_record", _fake_analyze)
+    monkeypatch.setattr(
+        "app.services.document_archive_recovery.ensure_drive_archive_folder_path",
+        _fake_folder_path,
+    )
 
     async with sessions() as db:
         result = await ingest_document_bytes(
@@ -115,6 +123,10 @@ async def test_unresolved_drive_ambiguity_never_replays_provider_create(
     monkeypatch.setattr("app.services.document_ingestion.find_drive_files_by_app_properties", fake_find)
     monkeypatch.setattr("app.services.document_ingestion.upload_drive_file", fake_upload)
     monkeypatch.setattr("app.services.document_ingestion.analyze_document_record", _fake_analyze)
+    monkeypatch.setattr(
+        "app.services.document_archive_recovery.ensure_drive_archive_folder_path",
+        _fake_folder_path,
+    )
 
     async with sessions() as db:
         for _ in range(2):
@@ -165,6 +177,10 @@ async def test_historical_orphan_drive_file_is_bound_without_upload(
     monkeypatch.setattr("app.services.document_ingestion.find_drive_files_by_app_properties", fake_find)
     monkeypatch.setattr("app.services.document_ingestion.upload_drive_file", fake_upload)
     monkeypatch.setattr("app.services.document_ingestion.analyze_document_record", _fake_analyze)
+    monkeypatch.setattr(
+        "app.services.document_archive_recovery.ensure_drive_archive_folder_path",
+        _fake_folder_path,
+    )
 
     async with sessions() as db:
         result = await ingest_document_bytes(
@@ -219,6 +235,10 @@ async def test_historical_multiple_exact_files_bind_oldest_without_more_mutation
     monkeypatch.setattr("app.services.document_ingestion.find_drive_files_by_app_properties", fake_find)
     monkeypatch.setattr("app.services.document_ingestion.upload_drive_file", fake_upload)
     monkeypatch.setattr("app.services.document_ingestion.analyze_document_record", _fake_analyze)
+    monkeypatch.setattr(
+        "app.services.document_archive_recovery.ensure_drive_archive_folder_path",
+        _fake_folder_path,
+    )
 
     async with sessions() as db:
         result = await ingest_document_bytes(
@@ -259,6 +279,10 @@ async def test_exact_bytes_still_share_one_document_and_keep_both_provenance_lin
     monkeypatch.setattr("app.services.document_ingestion.find_drive_files_by_app_properties", fake_find)
     monkeypatch.setattr("app.services.document_ingestion.upload_drive_file", fake_upload)
     monkeypatch.setattr("app.services.document_ingestion.analyze_document_record", _fake_analyze)
+    monkeypatch.setattr(
+        "app.services.document_archive_recovery.ensure_drive_archive_folder_path",
+        _fake_folder_path,
+    )
 
     async with sessions() as db:
         first = await ingest_document_bytes(

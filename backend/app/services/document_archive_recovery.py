@@ -10,8 +10,16 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.integrations.google_api import GoogleConfigurationError
+from app.integrations.google_api import (
+    GoogleConfigurationError,
+    create_drive_folder_once,
+    find_drive_folder_candidates,
+)
 from app.models.entities import DocumentArchiveUploadIntent
+from app.services.drive_folder_recovery import (
+    DriveFolderCreationUncertainError,
+    ensure_drive_archive_folder_path,
+)
 
 
 class DriveArchiveCreationUncertainError(RuntimeError):
@@ -258,6 +266,22 @@ async def ensure_document_archive_upload(
     if intent.status != "prepared":
         raise RuntimeError(f"unsupported Drive archive intent state: {intent.status}")
 
+    folder_path_value = list(_loads(intent.folder_path_json, folder_path))
+    try:
+        resolved_parent_id = await ensure_drive_archive_folder_path(
+            db,
+            folder_path=folder_path_value,
+            find_folders=find_drive_folder_candidates,
+            create_folder=create_drive_folder_once,
+        )
+    except DriveFolderCreationUncertainError as exc:
+        intent.last_error = (
+            "Drive folder setup remains reconciliation-owned before file dispatch; "
+            f"the file intent is still prepared: {exc}"
+        )[:4000]
+        await db.commit()
+        raise DriveArchiveCreationUncertainError(intent.last_error) from exc
+
     claimed = await _claim_fresh_upload(db, intent)
     if not claimed:
         try:
@@ -282,8 +306,9 @@ async def ensure_document_archive_upload(
             name=intent.name,
             mime_type=intent.mime_type,
             content=content,
-            folder_path=list(_loads(intent.folder_path_json, folder_path)),
+            folder_path=[],
             app_properties=dict(_loads(intent.app_properties_json, app_properties)),
+            parent_id=resolved_parent_id,
         )
     except Exception as exc:
         if _definitive_no_create(exc):

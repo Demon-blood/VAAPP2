@@ -2,17 +2,17 @@
   "updated": "2026-09-05",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "b0005392a799bc5466a5e77febfd34035fb26ce3",
-  "verified_baseline_version": "1.0.18",
-  "verified_baseline_android_version": "1.0.18+61",
+  "verified_baseline_commit": "41ecf4ae69f9750cac821688df9fb9b9ee1213c6",
+  "verified_baseline_version": "1.0.19",
+  "verified_baseline_android_version": "1.0.19+62",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33986405236,
-  "verified_baseline_release_tag": "va-android-118-3-1",
+  "verified_maintenance_actions_run_id": 33989785817,
+  "verified_baseline_release_tag": "va-android-119-1-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.19 Scheduled Connector Mutation Claim & Retry Integrity",
-  "current_version": "1.0.19",
-  "current_android_version": "1.0.19+62",
+  "current_phase_name": "v1.0.20 Drive Archive Folder Creation Recovery & Staged Upload Continuity",
+  "current_version": "1.0.20",
+  "current_android_version": "1.0.20+63",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -37,7 +37,8 @@
     "missing device dispatch evidence never authorizes cross-device replay; same-device claim recovery still requires the durable local no-send marker",
     "investment funding or market-order uncertainty remains VA-owned and never authorizes a duplicate payment or trade",
     "ambiguous Drive archive creation remains reconciliation-only and never authorizes a duplicate exact-byte upload",
-    "an ambiguous scheduled connector mutation never enters generic transient workflow replay for the same occurrence"
+    "an ambiguous scheduled connector mutation never enters generic transient workflow replay for the same occurrence",
+    "Drive archive folder uncertainty is resolved before file dispatch and never authorizes a duplicate folder or file create"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -125,5 +126,16 @@
     "read-only connector rules retain ordinary bounded retry behavior",
     "pre-v1.0.19 connector-rule retries are quarantined once without provider replay",
     "later interval buckets remain independent scheduled occurrences"
+  ],
+  "v120_features": [
+    "Drive archive folder creation uses a durable path-keyed provider intent",
+    "each cumulative folder path is reconciled before provider create",
+    "folder creates carry stable provider app properties for recovery",
+    "legacy exact-parent same-name folders can be adopted without another create",
+    "ambiguous folder creates remain reconciliation-only and are never replayed",
+    "the complete folder path resolves before exact-byte file dispatch is claimed",
+    "folder uncertainty leaves the file intent prepared with zero file attempts",
+    "existing historical file uncertainty remains fail-closed without blind replay",
+    "Drive folder and file ambiguity remain VA-owned without fake Needs You work"
   ]
 }

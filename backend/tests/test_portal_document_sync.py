@@ -184,6 +184,9 @@ async def test_exact_bytes_upload_once_and_preserve_both_provenance_links(monkey
     async def fake_find(*args, **kwargs):
         return []
 
+    async def fake_folder_path(*args, **kwargs):
+        return "folder-portal-test"
+
     async def fake_analyze(db, record):
         return {"document_id": record.id, "status": "analyzed"}
 
@@ -192,6 +195,10 @@ async def test_exact_bytes_upload_once_and_preserve_both_provenance_links(monkey
         fake_find,
     )
     monkeypatch.setattr("app.services.document_ingestion.upload_drive_file", fake_upload)
+    monkeypatch.setattr(
+        "app.services.document_archive_recovery.ensure_drive_archive_folder_path",
+        fake_folder_path,
+    )
     monkeypatch.setattr("app.services.document_ingestion.analyze_document_record", fake_analyze)
     content = ("Durable signed contract record. " * 40).encode()
     async with sessions() as db:

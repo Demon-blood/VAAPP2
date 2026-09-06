@@ -248,6 +248,34 @@ class AuditLog(Base):
     details_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
+class DriveArchiveFolderIntent(Base):
+    __tablename__ = "drive_archive_folder_intents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    path_key: Mapped[str] = mapped_column(String(64), index=True)
+    parent_path_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    folder_name: Mapped[str] = mapped_column(Text)
+    logical_path_json: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(40), default="prepared", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    parent_drive_folder_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    drive_folder_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
+    observed_folder_json: Mapped[str] = mapped_column(Text, default="{}")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "path_key",
+            name="uq_drive_archive_folder_path_key",
+        ),
+    )
+
+
 class DocumentArchiveUploadIntent(Base):
     __tablename__ = "document_archive_upload_intents"
 
