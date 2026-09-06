@@ -7,11 +7,11 @@ def test_v118_release_identity_contract() -> None:
     version = (ROOT / "backend/app/core/version.py").read_text()
     pubspec = (ROOT / "android/pubspec.yaml").read_text()
     release = (ROOT / "android/lib/release_contract.dart").read_text()
-    assert 'APP_VERSION = "1.0.18"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.18"' in version
-    assert "version: 1.0.18+61" in pubspec
-    assert "appRelease = '1.0.18'" in release
-    assert "minimumBackendVersion = '1.0.18'" in release
+    assert 'APP_VERSION = "1.0.19"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.19"' in version
+    assert "version: 1.0.19+62" in pubspec
+    assert "appRelease = '1.0.19'" in release
+    assert "minimumBackendVersion = '1.0.19'" in release
 
 
 def test_archive_intent_is_unique_per_exact_bytes_and_scope() -> None:

@@ -29,6 +29,7 @@ from app.services.workflow_engine import (
     recover_expired_leases,
     repair_v052_gmail_conflict_backlog,
     repair_v062_gmail_label_conflict_backlog,
+    repair_v119_connector_rule_retry_backlog,
 )
 
 settings = get_settings()
@@ -44,12 +45,20 @@ async def lifespan(_: FastAPI):
             await recover_expired_leases(db)
             legacy_backlog = await repair_v052_gmail_conflict_backlog(db)
             label_backlog = await repair_v062_gmail_label_conflict_backlog(db)
+            connector_backlog = await repair_v119_connector_rule_retry_backlog(db)
             compacted = await compact_duplicate_dead_letters(db)
-            if legacy_backlog["superseded"] or label_backlog["superseded"] or compacted["superseded"]:
+            if (
+                legacy_backlog["superseded"]
+                or label_backlog["superseded"]
+                or connector_backlog["superseded"]
+                or compacted["superseded"]
+            ):
                 logger.warning(
-                    "Initial Autopilot exception repair: legacy_gmail_409=%s label_conflicts=%s duplicates=%s",
+                    "Initial Autopilot exception repair: legacy_gmail_409=%s "
+                    "label_conflicts=%s connector_retries=%s duplicates=%s",
                     legacy_backlog,
                     label_backlog,
+                    connector_backlog,
                     compacted,
                 )
     except Exception:

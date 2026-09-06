@@ -2,17 +2,17 @@
   "updated": "2026-09-05",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
-  "verified_baseline_commit": "251e2e5a67ba137d2ac7b445a719d4be487df9fc",
-  "verified_baseline_version": "1.0.17",
-  "verified_baseline_android_version": "1.0.17+60",
+  "verified_baseline_commit": "b0005392a799bc5466a5e77febfd34035fb26ce3",
+  "verified_baseline_version": "1.0.18",
+  "verified_baseline_android_version": "1.0.18+61",
   "verified_baseline_actions_run": 41,
   "verified_baseline_actions_conclusion": "success",
-  "verified_maintenance_actions_run_id": 33981261146,
-  "verified_baseline_release_tag": "va-android-117-2-1",
+  "verified_maintenance_actions_run_id": 33986405236,
+  "verified_baseline_release_tag": "va-android-118-3-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.18 Drive Archive Upload Recovery & Exact-Byte Duplicate Suppression",
-  "current_version": "1.0.18",
-  "current_android_version": "1.0.18+61",
+  "current_phase_name": "v1.0.19 Scheduled Connector Mutation Claim & Retry Integrity",
+  "current_version": "1.0.19",
+  "current_android_version": "1.0.19+62",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -36,7 +36,8 @@
     "ambiguous generic browser side effects remain provider-reconciliation-owned and never authorize replay",
     "missing device dispatch evidence never authorizes cross-device replay; same-device claim recovery still requires the durable local no-send marker",
     "investment funding or market-order uncertainty remains VA-owned and never authorizes a duplicate payment or trade",
-    "ambiguous Drive archive creation remains reconciliation-only and never authorizes a duplicate exact-byte upload"
+    "ambiguous Drive archive creation remains reconciliation-only and never authorizes a duplicate exact-byte upload",
+    "an ambiguous scheduled connector mutation never enters generic transient workflow replay for the same occurrence"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -114,5 +115,15 @@
     "retries and restarts never authorize duplicate Drive create",
     "historical exact-byte duplicates bind without another provider mutation",
     "Drive archive ambiguity remains VA-owned without fake Needs You work"
+  ],
+  "v119_features": [
+    "scheduled connector writes persist a durable per-occurrence mutation intent",
+    "one worker atomically claims a scheduled connector mutation before provider dispatch",
+    "claim ownership and last_run_at are committed before any external mutation",
+    "post-claim connector exceptions become execution_uncertain instead of transient replay",
+    "ambiguous scheduled connector writes remain VA-owned without fake Needs You work",
+    "read-only connector rules retain ordinary bounded retry behavior",
+    "pre-v1.0.19 connector-rule retries are quarantined once without provider replay",
+    "later interval buckets remain independent scheduled occurrences"
   ]
 }

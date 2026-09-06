@@ -970,6 +970,39 @@ class RuntimeSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class ScheduledConnectorMutationIntent(Base):
+    __tablename__ = "scheduled_connector_mutation_intents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    automation_rule_id: Mapped[int] = mapped_column(
+        ForeignKey("automation_rules.id", ondelete="CASCADE"), index=True
+    )
+    service_connector_id: Mapped[int] = mapped_column(
+        ForeignKey("service_connectors.id", ondelete="CASCADE"), index=True
+    )
+    occurrence_key: Mapped[str] = mapped_column(String(255), index=True)
+    connector_slug: Mapped[str] = mapped_column(String(120), index=True)
+    connector_type: Mapped[str] = mapped_column(String(80), index=True)
+    operation: Mapped[str] = mapped_column(String(80), index=True)
+    request_fingerprint: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(40), default="prepared", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "automation_rule_id",
+            "occurrence_key",
+            name="uq_scheduled_connector_mutation_rule_occurrence",
+        ),
+    )
+
+
 class ServiceConnector(Base):
     __tablename__ = "service_connectors"
 
