@@ -33,6 +33,49 @@ String _prioritySignature(List<dynamic> items) {
   return normalized.join('||');
 }
 
+String _briefingCollapsedBody(String body) {
+  final normalized = body.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.isEmpty) return 'Your VA briefing is ready.';
+  const limit = 140;
+  if (normalized.length <= limit) return normalized;
+
+  var end = normalized.lastIndexOf('. ', limit);
+  if (end < 80) end = normalized.lastIndexOf('; ', limit);
+  if (end < 80) end = normalized.lastIndexOf(', ', limit);
+  if (end < 80) end = limit;
+
+  final includePeriod = end < normalized.length && normalized[end] == '.';
+  final clipped = normalized.substring(0, end + (includePeriod ? 1 : 0)).trim();
+  return '$clipped… Expand to read the full briefing.';
+}
+
+String _briefingExpandedBody(String body) {
+  final normalized = body.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.isEmpty) return 'Your VA briefing is ready.';
+  return normalized
+      .replaceAll('. ', '.\n\n')
+      .replaceAll('! ', '!\n\n')
+      .replaceAll('? ', '?\n\n');
+}
+
+NotificationDetails _briefingNotificationDetails(String title, String body) {
+  final expandedBody = _briefingExpandedBody(body);
+  return NotificationDetails(
+    android: AndroidNotificationDetails(
+      'va_daily_briefing',
+      'VA briefings',
+      channelDescription: 'Scheduled human-style VA briefings',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      styleInformation: BigTextStyleInformation(
+        expandedBody,
+        contentTitle: title,
+        summaryText: 'Full-Time VA',
+      ),
+    ),
+  );
+}
+
 Future<bool> _ackBriefingDelivery({
   required String base,
   required String token,
@@ -137,19 +180,14 @@ void callbackDispatcher() {
             final period = due.last;
             final name = '${period['name'] ?? 'daily'}';
             final key = '${period['delivery_key'] ?? '$briefingDate:$name'}';
+            final briefingTitle = '${name[0].toUpperCase()}${name.substring(1)} VA briefing';
+            final briefingBody =
+                '${notification['body'] ?? data['summary_text'] ?? 'Your VA briefing is ready.'}';
             await notifications.show(
               id: 1002,
-              title: '${name[0].toUpperCase()}${name.substring(1)} VA briefing',
-              body: '${notification['body'] ?? data['summary_text'] ?? 'Your VA briefing is ready.'}',
-              notificationDetails: const NotificationDetails(
-                android: AndroidNotificationDetails(
-                  'va_daily_briefing',
-                  'VA briefings',
-                  channelDescription: 'Scheduled human-style VA briefings',
-                  importance: Importance.defaultImportance,
-                  priority: Priority.defaultPriority,
-                ),
-              ),
+              title: briefingTitle,
+              body: _briefingCollapsedBody(briefingBody),
+              notificationDetails: _briefingNotificationDetails(briefingTitle, briefingBody),
             );
             await storage.write(key: _briefingPeriodKey, value: key);
             // Keep the legacy key updated so downgrades do not duplicate the evening briefing.
@@ -177,19 +215,14 @@ void callbackDispatcher() {
           final ready = notification['ready'] == true;
           final lastDay = await storage.read(key: _dailyBriefingDayKey) ?? '';
           if (enabled && ready && lastDay != briefingDate) {
+            final briefingTitle = '${notification['title'] ?? 'Your Full-Time VA daily briefing'}';
+            final briefingBody =
+                '${notification['body'] ?? data['summary_text'] ?? 'Your daily VA briefing is ready.'}';
             await notifications.show(
               id: 1002,
-              title: '${notification['title'] ?? 'Your Full-Time VA daily briefing'}',
-              body: '${notification['body'] ?? data['summary_text'] ?? 'Your daily VA briefing is ready.'}',
-              notificationDetails: const NotificationDetails(
-                android: AndroidNotificationDetails(
-                  'va_daily_briefing',
-                  'VA briefings',
-                  channelDescription: 'Scheduled human-style VA briefings',
-                  importance: Importance.defaultImportance,
-                  priority: Priority.defaultPriority,
-                ),
-              ),
+              title: briefingTitle,
+              body: _briefingCollapsedBody(briefingBody),
+              notificationDetails: _briefingNotificationDetails(briefingTitle, briefingBody),
             );
             await storage.write(key: _dailyBriefingDayKey, value: briefingDate);
           }
