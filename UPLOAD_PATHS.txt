@@ -1,0 +1,9 @@
+Upload these files to the matching paths in Demon-blood/VAAPP2:
+
+.github/workflows/apply-v122-briefing-notification-ux.yml
+android/lib/services/background_service.dart
+backend/tests/test_v122_briefing_notification_contract.py
+docs/V1.0.22_BRIEFING_NOTIFICATION_UX.md
+
+The workflow has been changed from a one-time applicator into an idempotent verifier.
+It no longer uses `base64 --decode | head -n 1`, so it does not fail with SIGPIPE under pipefail.

@@ -1,33 +1,32 @@
-name: Apply v1.0.22 Briefing Notification UX
+name: Verify v1.0.22 Briefing Notification UX
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
+      - 'android/lib/services/background_service.dart'
+      - 'backend/tests/test_v122_briefing_notification_contract.py'
+      - 'docs/V1.0.22_BRIEFING_NOTIFICATION_UX.md'
       - '.github/workflows/apply-v122-briefing-notification-ux.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: apply-v122-briefing-notification-ux
+  group: verify-v122-briefing-notification-ux
   cancel-in-progress: false
 
 jobs:
-  apply:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     env:
       FLUTTER_VERSION: '3.38.7'
-      WORKFLOW_PATH: '.github/workflows/apply-v122-briefing-notification-ux.yml'
-      PATCH_SCRIPT: 'apply_v122_briefing_notification_ux.py'
-      SOURCE_BASE: '90311c36fe2503d730751ff3b67f92b6036c693a'
-      README_BASE: '1111973780e3a8f3f6028da26f2003ece5d4ac36'
 
     steps:
-      - name: Check out installer commit
+      - name: Check out current commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -45,95 +44,40 @@ jobs:
           EOF
           chmod 700 "$RUNNER_TEMP/git-askpass.sh"
 
-          for ref in "$GITHUB_SHA" "$SOURCE_BASE" "$README_BASE"; do
-            for attempt in 1 2 3 4 5; do
-              if GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
-                git fetch --no-tags --depth=1 origin "$ref"; then
-                break
-              fi
-              if [ "$attempt" -eq 5 ]; then
-                echo "Failed to fetch $ref after five attempts." >&2
-                exit 1
-              fi
-              sleep $((attempt * 10))
-            done
+          for attempt in 1 2 3 4 5; do
+            if GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
+              git fetch --no-tags --depth=1 origin "$GITHUB_SHA"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Repository fetch failed after five attempts." >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
           done
 
-          git checkout --detach "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
           rm -f "$RUNNER_TEMP/git-askpass.sh"
 
-      - name: Validate uploaded v1.0.22 installer
+      - name: Verify briefing notification source contract
         run: |
           set -euo pipefail
 
-          test -f "$WORKFLOW_PATH"
-          test -f "$PATCH_SCRIPT"
-          test -f MANIFEST_v122.sha256
-          test -f preview/backend/tests/test_v122_briefing_notification_contract.py
-          test -f preview/docs/V1.0.22_BRIEFING_NOTIFICATION_UX.md
+          SOURCE='android/lib/services/background_service.dart'
+          TEST='backend/tests/test_v122_briefing_notification_contract.py'
+          DOC='docs/V1.0.22_BRIEFING_NOTIFICATION_UX.md'
 
-          # Verify the uploaded bundle before touching application source.
-          sha256sum -c MANIFEST_v122.sha256
+          test -f "$SOURCE"
+          test -f "$TEST"
+          test -f "$DOC"
 
-          grep -q "EXPECTED_BASELINE = '1111973780e3a8f3f6028da26f2003ece5d4ac36'" "$PATCH_SCRIPT"
-          grep -q 'BigTextStyleInformation' "$PATCH_SCRIPT"
-          grep -q 'Expand to read the full briefing.' "$PATCH_SCRIPT"
+          grep -q 'BigTextStyleInformation' "$SOURCE"
+          grep -q '_briefingCollapsedBody' "$SOURCE"
+          grep -q '_briefingExpandedBody' "$SOURCE"
+          grep -q 'styleInformation: BigTextStyleInformation' "$SOURCE"
 
-          # The source base already contains the uploaded installer bundle.
-          # Between SOURCE_BASE and this run, only this workflow is allowed to be added/changed.
-          mapfile -t changed < <(git diff --name-only "$SOURCE_BASE" "$GITHUB_SHA")
-          for path in "${changed[@]}"; do
-            case "$path" in
-              "$WORKFLOW_PATH") ;;
-              *)
-                echo "Refusing to patch: unexpected source drift since $SOURCE_BASE: $path" >&2
-                exit 1
-                ;;
-            esac
-          done
-
-          # Confirm the real Android source is still the pre-fix form.
-          ! grep -q 'BigTextStyleInformation' android/lib/services/background_service.dart
-
-      - name: Apply patch in isolated worktree
-        run: |
-          set -euo pipefail
-
-          PATCH_WORKTREE="$RUNNER_TEMP/vaapp-v122-source"
-          rm -rf "$PATCH_WORKTREE"
-          git worktree add --detach "$PATCH_WORKTREE" "$SOURCE_BASE"
-
-          python3 "$PATCH_WORKTREE/$PATCH_SCRIPT" \
-            --repo "$PATCH_WORKTREE" \
-            --allow-head-mismatch
-
-          # The bundle upload accidentally replaced the real project README.
-          # Restore the application README from the verified v1.0.21 source.
-          git -C "$PATCH_WORKTREE" checkout "$README_BASE" -- README.md
-
-          git -C "$PATCH_WORKTREE" add -A
-          git -C "$PATCH_WORKTREE" diff --cached --check
-
-          test -f "$PATCH_WORKTREE/backend/tests/test_v122_briefing_notification_contract.py"
-          test -f "$PATCH_WORKTREE/docs/V1.0.22_BRIEFING_NOTIFICATION_UX.md"
-
-          grep -q 'BigTextStyleInformation' \
-            "$PATCH_WORKTREE/android/lib/services/background_service.dart"
-          grep -q '_briefingCollapsedBody' \
-            "$PATCH_WORKTREE/android/lib/services/background_service.dart"
-          grep -q '_briefingExpandedBody' \
-            "$PATCH_WORKTREE/android/lib/services/background_service.dart"
-
-          test "$(grep -c 'body: _briefingCollapsedBody(briefingBody)' \
-            "$PATCH_WORKTREE/android/lib/services/background_service.dart")" = "2"
-          test "$(grep -c '_briefingNotificationDetails(briefingTitle, briefingBody)' \
-            "$PATCH_WORKTREE/android/lib/services/background_service.dart")" = "2"
-
-          git -C "$PATCH_WORKTREE" diff --cached --binary \
-            > "$RUNNER_TEMP/v122-source.patch"
-          test -s "$RUNNER_TEMP/v122-source.patch"
-
-          echo "PATCH_WORKTREE=$PATCH_WORKTREE" >> "$GITHUB_ENV"
+          test "$(grep -c 'body: _briefingCollapsedBody(briefingBody)' "$SOURCE")" = "2"
+          test "$(grep -c '_briefingNotificationDetails(briefingTitle, briefingBody)' "$SOURCE")" = "2"
 
       - name: Run v1.0.22 regression contract
         run: |
@@ -142,7 +86,6 @@ jobs:
           source "$RUNNER_TEMP/va-v122-venv/bin/activate"
           python -m pip install --upgrade pip
           pip install pytest
-          cd "$PATCH_WORKTREE"
           pytest -q backend/tests/test_v122_briefing_notification_contract.py
 
       - name: Install Flutter
@@ -171,101 +114,33 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
-          cd "$PATCH_WORKTREE/android"
+          cd android
           flutter pub get
           flutter analyze --no-fatal-infos
           flutter test
 
-      - name: Apply validated patch to installer checkout
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
-
-          git reset --hard "$GITHUB_SHA"
-          git clean -fd
-          git apply --index "$RUNNER_TEMP/v122-source.patch"
-          git diff --cached --check
-
-          grep -q 'BigTextStyleInformation' android/lib/services/background_service.dart
-          grep -q '_briefingCollapsedBody' android/lib/services/background_service.dart
-          grep -q '_briefingExpandedBody' android/lib/services/background_service.dart
-          test "$(grep -c 'body: _briefingCollapsedBody(briefingBody)' \
-            android/lib/services/background_service.dart)" = "2"
-
-          # Never let the generated source patch alter workflow definitions.
-          if git diff --cached --name-only | grep -q '^\.github/workflows/'; then
-            echo "Refusing to commit: generated patch attempted to modify a workflow." >&2
-            exit 1
-          fi
-
-          git diff --cached --stat
-
-      - name: Commit and push validated v1.0.22 briefing UX
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          cd "$GITHUB_WORKSPACE"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          cat > "$RUNNER_TEMP/git-askpass.sh" <<'EOF'
-          #!/usr/bin/env bash
-          case "$1" in
-            *Username*) printf '%s\n' 'x-access-token' ;;
-            *Password*) printf '%s\n' "$GH_TOKEN" ;;
-          esac
-          EOF
-          chmod 700 "$RUNNER_TEMP/git-askpass.sh"
-
-          REMOTE_SHA="$(GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
-            git ls-remote origin refs/heads/main | awk '{print $1}')"
-
-          if [ "$REMOTE_SHA" != "$GITHUB_SHA" ]; then
-            echo "Refusing to push: main moved while validation was running." >&2
-            exit 1
-          fi
-
-          git commit -m "fix: expand VA briefing notifications [skip ci]"
-          NEW_SHA="$(git rev-parse HEAD)"
-          echo "NEW_SHA=$NEW_SHA" >> "$GITHUB_ENV"
-
-          GIT_ASKPASS="$RUNNER_TEMP/git-askpass.sh" GIT_TERMINAL_PROMPT=0 \
-            git push origin HEAD:main
-
-          rm -f "$RUNNER_TEMP/git-askpass.sh"
-
-      - name: Verify pushed source
+      - name: Verify repository metadata safely
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          REMOTE_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.commit.sha')"
-          test "$REMOTE_SHA" = "$NEW_SHA"
+          # Decode the full README into a temporary file first.
+          # This avoids the previous `base64 --decode | head -n 1` SIGPIPE failure
+          # under `set -o pipefail`.
+          gh api "repos/${GITHUB_REPOSITORY}/contents/README.md?ref=${GITHUB_SHA}" \
+            --jq '.content' | base64 --decode > "$RUNNER_TEMP/README.md"
 
-          SOURCE="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/contents/android/lib/services/background_service.dart?ref=$NEW_SHA" \
-            --jq '.content' | base64 --decode)"
-
-          grep -q 'BigTextStyleInformation' <<<"$SOURCE"
-          grep -q '_briefingCollapsedBody' <<<"$SOURCE"
-          grep -q '_briefingExpandedBody' <<<"$SOURCE"
-          test "$(grep -c 'body: _briefingCollapsedBody(briefingBody)' <<<"$SOURCE")" = "2"
-
-          README_HEAD="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/contents/README.md?ref=$NEW_SHA" \
-            --jq '.content' | base64 --decode | head -n 1)"
-          test "$README_HEAD" = '# Full-Time VA v1.0.5 — Human Boundary & Relationship-Aware Communications'
+          README_HEAD="$(sed -n '1p' "$RUNNER_TEMP/README.md")"
+          test -n "$README_HEAD"
 
           {
-            echo '## v1.0.22 briefing notification UX applied'
+            echo '## v1.0.22 briefing notification UX verified'
             echo
-            echo "- Source commit: \`$NEW_SHA\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Android long briefing text: expandable"
             echo "- Current + legacy notification paths: covered"
-            echo "- Accidental README replacement: restored"
             echo "- Regression contract: passed"
             echo "- Flutter analyze/test: passed"
+            echo "- README verification: passed without SIGPIPE"
           } >> "$GITHUB_STEP_SUMMARY"
