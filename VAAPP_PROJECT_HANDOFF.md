@@ -1,3 +1,19 @@
+# VAAPP v1.0.21 handoff addendum
+
+Updated: 2026-09-06
+Repository: `Demon-blood/VAAPP2`
+Branch: `main`
+
+The verified maintenance source entering this candidate is v1.0.20 commit `53b3191c7e7e46af425ed7cefa51bcb6c971ab51`, published under prerelease tag `va-android-120-1-1`. Its signed APK digest is `0a4956bf11c6e72b27cacad3410a9c3601773e701f808005032097d125741cee`.
+
+Current candidate: **v1.0.21 — Gmail Cursor Continuity & Watch Renewal Integrity**.
+
+The safety invariant is that `GmailMailboxState.history_id` means **consumed mailbox history**, not merely a provider-reported current position. `users.watch` renewal metadata therefore cannot advance it. Scheduled polling consumes `history.list` from the durable cursor, full recovery brackets the scan with a pre-scan history checkpoint and a post-scan catch-up, and pagination truncation fails closed. Google OAuth/reauthorization remains the genuine human boundary; provider/network delay stays VA-owned.
+
+Original production v1.0 baseline remains commit `66c09040326ac553a1402cd06fa6771344195d45`; GitHub Actions run #41 completed successfully.
+
+---
+
 # VAAPP project handoff
 
 Updated: 2026-09-05

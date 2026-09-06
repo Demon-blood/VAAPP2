@@ -838,13 +838,13 @@ async def worker_tick(*, worker_id: str | None = None, limit: int = 4) -> dict[s
 
 @job_handler("gmail.sync")
 async def _gmail_sync(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
-    from app.services.email_processor import sync_gmail
-    from app.services.gmail_sync_service import refresh_mailbox_cursor_from_profile
+    from app.services.gmail_sync_service import full_recovery_sync, history_sync, mailbox_state
 
     max_messages = max(1, min(int(payload.get("max_messages") or 250), 1000))
-    result = await sync_gmail(db, max_messages=max_messages)
-    state = await refresh_mailbox_cursor_from_profile(db, mark_full_sync=True)
-    return {"result": result, "history_id": state.history_id}
+    state = await mailbox_state(db)
+    if state.history_id:
+        return await history_sync(db)
+    return await full_recovery_sync(db, max_messages=max_messages)
 
 
 @job_handler("gmail.history.sync")

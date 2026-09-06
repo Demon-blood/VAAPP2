@@ -53,6 +53,7 @@ async def refresh_mailbox_cursor_from_profile(
     db: AsyncSession,
     *,
     mark_full_sync: bool = False,
+    advance_processing_cursor: bool = False,
 ) -> GmailMailboxState:
     row = await mailbox_state(db)
     profile = await get_gmail_profile(db)
@@ -60,7 +61,9 @@ async def refresh_mailbox_cursor_from_profile(
     if profile_email and profile_email != row.account_key:
         raise RuntimeError("Gmail profile does not match the connected Google account")
     history_id = str(profile.get("historyId") or "")
-    if history_id:
+    # A profile historyId is Gmail's current mailbox position, not evidence that
+    # VAAPP consumed all changes up to that position. Cursor advancement is opt-in.
+    if history_id and advance_processing_cursor:
         row.history_id = history_id
     if mark_full_sync:
         row.last_full_sync_at = utcnow()
@@ -96,7 +99,8 @@ async def ensure_gmail_watch(db: AsyncSession, *, force: bool = False) -> dict[s
     expiration = _expiration_datetime(result.get("expiration"))
     if not history_id or expiration is None:
         raise RuntimeError("Gmail watch response did not include a valid history cursor and expiration")
-    row.history_id = history_id
+    # users.watch returns Gmail's current history record. It is watch metadata,
+    # not a consumed-processing checkpoint, so it must never advance row.history_id.
     row.watch_topic = topic
     row.watch_expiration_at = expiration
     row.last_watch_renewed_at = now
@@ -107,30 +111,81 @@ async def ensure_gmail_watch(db: AsyncSession, *, force: bool = False) -> dict[s
         "gmail_watch_renewed",
         entity_type="gmail_mailbox",
         entity_id=row.account_key,
-        details={"history_id": history_id, "expiration": expiration, "topic": topic},
+        details={
+            "watch_history_id": history_id,
+            "processing_history_id": row.history_id,
+            "expiration": expiration,
+            "topic": topic,
+        },
     )
     await db.commit()
     return {
         "renewed": True,
         "account_key": row.account_key,
         "history_id": row.history_id,
+        "watch_history_id": history_id,
         "expiration": int(expiration.timestamp() * 1000),
         "topic": topic,
     }
 
 
 async def full_recovery_sync(db: AsyncSession, *, max_messages: int = 500) -> dict[str, Any]:
-    processed = await sync_gmail(db, max_messages=max_messages)
-    row = await refresh_mailbox_cursor_from_profile(db, mark_full_sync=True)
+    row = await mailbox_state(db)
+    profile = await get_gmail_profile(db)
+    profile_email = str(profile.get("emailAddress") or row.account_key).lower()
+    if profile_email and profile_email != row.account_key:
+        raise RuntimeError("Gmail profile does not match the connected Google account")
+    bootstrap_history_id = str(profile.get("historyId") or "").strip()
+    if not bootstrap_history_id:
+        raise RuntimeError("Gmail profile did not provide a recovery history cursor")
+
+    # Capture the provider cursor before the bounded recovery scan. Only after the
+    # scan completes do we checkpoint that pre-scan boundary, then consume every
+    # change that happened while the scan was running. A crash before checkpointing
+    # leaves the old cursor untouched; a crash after checkpointing resumes from it.
+    bootstrap_processed = await sync_gmail(db, max_messages=max_messages)
+    now = utcnow()
+    row.history_id = bootstrap_history_id
+    row.last_full_sync_at = now
+    row.last_history_sync_at = now
+    row.last_error = ""
+    await write_audit(
+        db,
+        "gmail_recovery_scan_checkpointed",
+        entity_type="gmail_mailbox",
+        entity_id=row.account_key,
+        details={
+            "bootstrap_processed": bootstrap_processed,
+            "bootstrap_history_id": bootstrap_history_id,
+        },
+    )
+    await db.commit()
+
+    catchup = await history_sync(db)
+    catchup_processed = int(catchup.get("processed") or 0)
+    final_history_id = str(catchup.get("history_id") or row.history_id)
+    processed = bootstrap_processed + catchup_processed
     await write_audit(
         db,
         "gmail_recovery_sync_completed",
         entity_type="gmail_mailbox",
         entity_id=row.account_key,
-        details={"processed": processed, "history_id": row.history_id},
+        details={
+            "processed": processed,
+            "bootstrap_processed": bootstrap_processed,
+            "catchup_processed": catchup_processed,
+            "bootstrap_history_id": bootstrap_history_id,
+            "history_id": final_history_id,
+        },
     )
     await db.commit()
-    return {"mode": "full_recovery", "processed": processed, "history_id": row.history_id}
+    return {
+        "mode": "full_recovery",
+        "processed": processed,
+        "bootstrap_processed": bootstrap_processed,
+        "catchup_processed": catchup_processed,
+        "history_id": final_history_id,
+    }
 
 
 async def history_sync(

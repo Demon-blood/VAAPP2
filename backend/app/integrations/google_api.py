@@ -578,7 +578,7 @@ async def list_gmail_history_added_message_ids(
     *,
     start_history_id: str,
     label_id: str = "INBOX",
-    max_pages: int = 25,
+    max_pages: int = 1000,
 ) -> tuple[list[str], str]:
     """Return unique message IDs added since a persisted Gmail history cursor.
 
@@ -620,8 +620,12 @@ async def list_gmail_history_added_message_ids(
                     seen.add(message_id)
                     message_ids.append(message_id)
         page_token = response.get("nextPageToken")
-        if not page_token or pages >= max(1, max_pages):
+        if not page_token:
             break
+        if pages >= max(1, max_pages):
+            raise RuntimeError(
+                "Gmail history pagination limit reached before cursor exhaustion"
+            )
     return message_ids, newest_history_id
 
 
@@ -846,10 +850,18 @@ async def list_upcoming_calendar_events(db: AsyncSession, *, days: int = 7, max_
 
 async def start_gmail_watch(db: AsyncSession, topic_name: str) -> dict[str, Any]:
     service = await gmail_service(db)
-    return service.users().watch(
-        userId="me",
-        body={"topicName": topic_name, "labelFilterBehavior": "INCLUDE", "labelIds": ["INBOX"]},
-    ).execute()
+    return await _execute_google_request(
+        lambda: service.users().watch(
+            userId="me",
+            body={
+                "topicName": topic_name,
+                "labelFilterBehavior": "INCLUDE",
+                "labelIds": ["INBOX"],
+            },
+        ),
+        attempts=1,
+        retry_statuses=set(),
+    )
 
 
 async def drive_service(db: AsyncSession):
