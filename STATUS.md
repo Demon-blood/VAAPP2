@@ -1,3 +1,38 @@
+# VAAPP v1.0.21 — Gmail Cursor Continuity & Watch Renewal Integrity
+
+Updated: 2026-09-06
+
+## Source of truth
+
+- Repository: `Demon-blood/VAAPP2`
+- Branch: `main`
+- Verified v1.0.20 source baseline: `53b3191c7e7e46af425ed7cefa51bcb6c971ab51`
+- Verified v1.0.20 prerelease tag: `va-android-120-1-1`
+- Verified v1.0.20 release ID: `383522599`
+- v1.0.20 release identity: backend `1.0.20`, Android `1.0.20+63`
+- v1.0.20 APK SHA-256: `0a4956bf11c6e72b27cacad3410a9c3601773e701f808005032097d125741cee`
+
+## v1.0.21 maintenance scope
+
+- Gmail watch renewal no longer advances the durable processing history cursor.
+- Watch-response history is exposed separately from the consumed processing cursor.
+- Profile cursor refresh is observational unless a caller explicitly proves the scan is complete.
+- Full recovery captures a pre-scan history checkpoint and catches up from it after the scan.
+- Scheduled Gmail polling consumes durable history when a cursor exists instead of jumping to the profile head.
+- Incomplete Gmail history pagination fails closed without committing an advanced cursor.
+- Gmail watch transport runs off the event loop with no blind inner retry.
+- Provider delay and cursor recovery remain VA-owned; no fake Needs You work is created.
+
+## Release identity
+
+- Backend: `1.0.21`
+- Required Android: `1.0.21`
+- Android: `1.0.21+64`
+
+Source publication remains gated by backend tests, Ruff, Flutter analysis/tests, Android signing, and the signed APK build.
+
+---
+
 # VAAPP v1.0.20 — Drive Archive Folder Creation Recovery & Staged Upload Continuity
 
 Updated: 2026-09-05

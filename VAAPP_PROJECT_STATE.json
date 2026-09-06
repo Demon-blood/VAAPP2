@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-05",
+  "updated": "2026-09-06",
   "repository": "Demon-blood/VAAPP2",
   "branch": "main",
   "verified_baseline_commit": "41ecf4ae69f9750cac821688df9fb9b9ee1213c6",
@@ -10,9 +10,9 @@
   "verified_maintenance_actions_run_id": 33989785817,
   "verified_baseline_release_tag": "va-android-119-1-1",
   "current_phase": "maintenance",
-  "current_phase_name": "v1.0.20 Drive Archive Folder Creation Recovery & Staged Upload Continuity",
-  "current_version": "1.0.20",
-  "current_android_version": "1.0.20+63",
+  "current_phase_name": "v1.0.21 Gmail Cursor Continuity & Watch Renewal Integrity",
+  "current_version": "1.0.21",
+  "current_android_version": "1.0.21+64",
   "phase_status": "source commit is gated by full GitHub Actions validation before publication",
   "next_phase": "v1.x maintenance and real-world hardening",
   "v110_features": [
@@ -38,7 +38,8 @@
     "investment funding or market-order uncertainty remains VA-owned and never authorizes a duplicate payment or trade",
     "ambiguous Drive archive creation remains reconciliation-only and never authorizes a duplicate exact-byte upload",
     "an ambiguous scheduled connector mutation never enters generic transient workflow replay for the same occurrence",
-    "Drive archive folder uncertainty is resolved before file dispatch and never authorizes a duplicate folder or file create"
+    "Drive archive folder uncertainty is resolved before file dispatch and never authorizes a duplicate folder or file create",
+    "Gmail processing history advances only after the corresponding provider changes have been consumed"
   ],
   "v111_features": [
     "non-replay-safe browser side effects retain a durable ambiguity marker until provider verification",
@@ -137,5 +138,15 @@
     "folder uncertainty leaves the file intent prepared with zero file attempts",
     "existing historical file uncertainty remains fail-closed without blind replay",
     "Drive folder and file ambiguity remain VA-owned without fake Needs You work"
+  ],
+  "v121_features": [
+    "Gmail watch renewal never advances the durable consumed-processing history cursor",
+    "watch response history is reported separately from the processing cursor",
+    "profile history refresh is observational unless cursor advancement is explicitly authorized",
+    "full recovery captures a pre-scan history boundary and catches up after the scan",
+    "scheduled Gmail polling consumes history from the durable cursor when available",
+    "history pagination truncation fails closed instead of committing an advanced cursor",
+    "watch transport runs off the event loop without blind provider-operation retries",
+    "Gmail provider delay remains VA-owned and creates no fake Needs You work"
   ]
 }

@@ -7,11 +7,11 @@ def test_v120_release_identity_contract() -> None:
     version = (ROOT / "backend/app/core/version.py").read_text()
     pubspec = (ROOT / "android/pubspec.yaml").read_text()
     release = (ROOT / "android/lib/release_contract.dart").read_text()
-    assert 'APP_VERSION = "1.0.20"' in version
-    assert 'REQUIRED_ANDROID_VERSION = "1.0.20"' in version
-    assert "version: 1.0.20+63" in pubspec
-    assert "appRelease = '1.0.20'" in release
-    assert "minimumBackendVersion = '1.0.20'" in release
+    assert 'APP_VERSION = "1.0.21"' in version
+    assert 'REQUIRED_ANDROID_VERSION = "1.0.21"' in version
+    assert "version: 1.0.21+64" in pubspec
+    assert "appRelease = '1.0.21'" in release
+    assert "minimumBackendVersion = '1.0.21'" in release
 
 
 def test_drive_folder_intent_is_additive_and_path_keyed() -> None:
